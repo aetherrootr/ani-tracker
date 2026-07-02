@@ -1,0 +1,73 @@
+line-length = 100
+
+target-version = "py313"
+
+[lint]
+select = [
+    # Pyflakes
+    "F",
+    # pycodestyle
+    "E", "W",
+    # isort
+    "I",
+    # pyupgrade
+    "UP",
+    # flake8-bandit
+    "S",
+    # flake8-blind-except
+    "BLE",
+    # flake8-boolean-trap
+    "FBT",
+    # flake8-bugbear
+    "B",
+    # flake8-builtins
+    "A",
+    # flake8-commas
+    "COM",
+    # flake8-comprehensions
+    "C4",
+    # flake8-debugger
+    "T10",
+    # flake8-errmsg
+    "EM",
+    # flake8-future-annotations
+    "FA",
+    # flake8-implicit-str-concat
+    "ISC",
+    # flake8-logging-format
+    "G",
+    # flake8-self
+    "SLF",
+    # flake8-simplify
+    "SIM",
+    # relative-imports
+    "TID252",
+    # flake8-unused-arguments
+    "ARG",
+    # flake8-todos
+    "TD",
+    # refurb
+    "FURB",
+    # Ruff-specific rules
+    "RUF",
+]
+
+ignore = [
+    # Line length check may conflict with formatter.
+    "E501",
+    # logging-f-string
+    "G004",
+    # missing-todo-link
+    "TD003",
+]
+
+preview = true
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.isort]
+combine-as-imports = true
+
+[format]
+quote-style = "single"
