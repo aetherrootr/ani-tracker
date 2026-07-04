@@ -1,5 +1,11 @@
+from __future__ import annotations
+
+from app import create_app
+
+
 def main() -> None:
-    pass
+    app = create_app()
+    app.run(host="127.0.0.1", port=3001)
 
 
 if __name__ == "__main__":

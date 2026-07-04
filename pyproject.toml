@@ -5,11 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "flask>=3.1.2",
     "sqlalchemy>=2.0.51",
 ]
 
 [dependency-groups]
 dev = [
     "mypy>=1.14.0",
+    "pytest>=9.0.2",
     "ruff>=0.15.20",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
