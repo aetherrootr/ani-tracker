@@ -69,5 +69,8 @@ convention = "google"
 [lint.isort]
 combine-as-imports = true
 
+[lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+
 [format]
 quote-style = "single"

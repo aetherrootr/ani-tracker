@@ -13,15 +13,12 @@ if TYPE_CHECKING:
 
 class User(TimestampedBase):
     __tablename__ = "users"
-    __table_args__ = (
-        UniqueConstraint("username", name="uq_users_username"),
-        UniqueConstraint("email", name="uq_users_email"),
-    )
+    __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(64), nullable=False)
-    display_name: Mapped[str | None] = mapped_column(String(255))
-    email: Mapped[str | None] = mapped_column(String(255))
+    username: Mapped[str] = mapped_column(String(50), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(100))
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
     episode_progresses: Mapped[list[UserEpisodeProgress]] = relationship(
