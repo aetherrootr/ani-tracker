@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { useCurrentUser, useLogout } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
 
 import { navigationItems } from "./navigation";
@@ -10,6 +13,23 @@ import { ThemeToggle } from "./ThemeToggle";
 
 export function DesktopSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user } = useCurrentUser();
+  const logout = useLogout();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+
+    try {
+      await logout();
+      router.push("/login");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
+  const displayName = user?.displayName || user?.username || "当前用户";
 
   return (
     <aside className="hidden min-h-screen w-72 border-r bg-card/80 px-4 py-5 md:flex md:flex-col">
@@ -44,12 +64,13 @@ export function DesktopSidebar() {
       </nav>
 
       <div className="mt-auto rounded-2xl border bg-background p-4">
-        <p className="text-sm font-medium">桌面端</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          使用同一套路由、API 和类型定义，侧边栏仅负责桌面导航。
-        </p>
-        <div className="mt-3">
+        <p className="text-sm font-medium">{displayName}</p>
+        {user?.email ? <p className="mt-1 truncate text-xs text-muted-foreground">{user.email}</p> : null}
+        <div className="mt-4 flex items-center gap-2">
           <ThemeToggle />
+          <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
+            {isLoggingOut ? "注销中" : "注销"}
+          </Button>
         </div>
       </div>
     </aside>

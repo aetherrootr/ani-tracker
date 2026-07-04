@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { useLogout } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
 
 import { navigationItems } from "./navigation";
@@ -10,6 +13,20 @@ import { ThemeToggle } from "./ThemeToggle";
 
 export function MobileTopNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const logout = useLogout();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+
+    try {
+      await logout();
+      router.push("/login");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
 
   return (
     <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur md:hidden">
@@ -17,7 +34,12 @@ export function MobileTopNav() {
         <Link href="/tracking-list" className="font-semibold tracking-tight">
           Ani Tracker
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
+            {isLoggingOut ? "注销中" : "注销"}
+          </Button>
+        </div>
       </div>
       <nav className="flex gap-1 overflow-x-auto px-3 pb-3">
         {navigationItems.map((item) => {
