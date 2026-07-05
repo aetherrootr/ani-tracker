@@ -100,7 +100,7 @@ def get_user_watchlist(
     stmt = (
         select(
             AnimeMetaInfo.id.label("anime_id"),
-            AnimeMetaInfo.preferred_name,
+            AnimeMetaInfo.original_name,
             AnimeMetaInfo.total_episodes,
             UserAnimeProgress.status,
             aired_count.label("aired_episodes"),
@@ -118,11 +118,11 @@ def get_user_watchlist(
         .where(UserAnimeProgress.user_id == user_id)
         .group_by(
             AnimeMetaInfo.id,
-            AnimeMetaInfo.preferred_name,
+            AnimeMetaInfo.original_name,
             AnimeMetaInfo.total_episodes,
             UserAnimeProgress.status,
         )
-        .order_by(AnimeMetaInfo.preferred_name)
+        .order_by(AnimeMetaInfo.original_name)
         .limit(limit)
         .offset(offset)
     )
@@ -131,7 +131,7 @@ def get_user_watchlist(
     return [
         {
             "anime_id": row.anime_id,
-            "preferred_name": row.preferred_name,
+            "original_name": row.original_name,
             "total_episodes": row.total_episodes,
             "aired_episodes": row.aired_episodes,
             "watched_episodes": row.watched_episodes,
@@ -155,7 +155,7 @@ def get_anime_episodes_with_watch_state(
         select(
             Episode.id.label("episode_id"),
             Episode.episode_number,
-            Episode.preferred_title,
+            Episode.original_title,
             Episode.air_at,
             Episode.duration,
             Episode.status,

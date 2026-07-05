@@ -57,6 +57,8 @@ ignore = [
     "E501",
     # logging-f-string
     "G004",
+    # hardcoded-bind-all-interfaces
+    "S104",
     # missing-todo-link
     "TD003",
 ]
