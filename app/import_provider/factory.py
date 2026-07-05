@@ -16,6 +16,7 @@ class ImportProviderFactory:
     def from_config(cls, config: Mapping[str, Any]) -> ImportProviderFactory:
         provider = BangumiImportProvider(
             base_url=str(config['BANGUMI_API_BASE_URL']),
+            web_base_url=str(config['BANGUMI_WEB_BASE_URL']),
             user_agent=str(config['BANGUMI_USER_AGENT']),
             timeout=float(config['IMPORT_PROVIDER_TIMEOUT']),
         )

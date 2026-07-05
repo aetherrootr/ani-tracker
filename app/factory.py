@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from flask import Flask, Response, request
 
 from app.api import register_api
+from app.celery_app import configure_celery
 from app.db import default_database_url, init_db
 from app.import_provider import ImportProviderFactory
 
@@ -20,16 +22,27 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
         CREATE_TABLES=True,
         CORS_ORIGIN=os.environ.get("CORS_ORIGIN", "http://localhost:3000"),
         BANGUMI_API_BASE_URL=os.environ.get("BANGUMI_API_BASE_URL", "https://api.bgm.tv"),
+        BANGUMI_WEB_BASE_URL=os.environ.get("BANGUMI_WEB_BASE_URL", "https://bgm.tv"),
         BANGUMI_USER_AGENT=os.environ.get(
             "BANGUMI_USER_AGENT",
             "ani-tracker/0.0.1 (https://github.com/aetherrootr/ani-tracker)",
         ),
         IMPORT_PROVIDER_TIMEOUT=5.0,
+        ANIME_POSTER_STORAGE_DIR=os.environ.get(
+            "ANIME_POSTER_STORAGE_DIR",
+            str(Path(app.instance_path) / "anime_posters"),
+        ),
+        ANIME_POSTER_MAX_BYTES=int(os.environ.get("ANIME_POSTER_MAX_BYTES", str(5 * 1024 * 1024))),
+        ANIME_POSTER_REQUEST_TIMEOUT=float(os.environ.get("ANIME_POSTER_REQUEST_TIMEOUT", "5")),
+        CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "memory://"),
+        CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND"),
+        CELERY_TASK_ALWAYS_EAGER=False,
     )
     if config is not None:
         app.config.update(config)
 
     init_db(app)
+    configure_celery(app.config)
     app.extensions["import_provider_factory"] = ImportProviderFactory.from_config(app.config)
     register_api(app)
 
@@ -42,7 +55,7 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Vary"] = "Origin"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
         return response
 
     return app

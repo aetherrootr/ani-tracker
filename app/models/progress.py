@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -23,6 +23,9 @@ from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
 from app.models.base import TimestampedBase, enum_values
 from app.models.user import User
 from app.models.validater import validate_pagination
+
+if TYPE_CHECKING:
+    from app.models.anime import AnimePoster, AnimeSummary
 
 
 class UserAnimeStatus(enum.Enum):
@@ -81,9 +84,17 @@ class UserAnimeProgress(TimestampedBase):
         nullable=False,
     )
     last_watched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preferred_summary_id: Mapped[int | None] = mapped_column(
+        ForeignKey("anime_summary.id", ondelete="SET NULL"),
+    )
+    preferred_poster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("anime_poster.id", ondelete="SET NULL"),
+    )
 
     user: Mapped[User] = relationship(back_populates="anime_progresses")
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="user_progresses")
+    preferred_summary: Mapped[AnimeSummary | None] = relationship()
+    preferred_poster: Mapped[AnimePoster | None] = relationship()
 
 
 def get_user_watchlist(

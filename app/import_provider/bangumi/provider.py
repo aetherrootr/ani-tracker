@@ -1,15 +1,31 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import requests
 
-from app.import_provider.bangumi.utils import pick_episode_count, pick_image_url
+from app.import_provider.bangumi.utils import (
+    map_anime_type,
+    map_episode_status,
+    parse_air_at,
+    parse_duration,
+    pick_episode_count,
+    pick_image_url,
+)
 from app.import_provider.exceptions import (
     ImportProviderResponseError,
     ImportProviderTimeoutError,
 )
-from app.import_provider.types import ImportSearchPage, ImportSearchResult
+from app.import_provider.types import (
+    ImportAnimeDetail,
+    ImportAnimeName,
+    ImportAnimeSummary,
+    ImportEpisodeInfo,
+    ImportEpisodeName,
+    ImportSearchPage,
+    ImportSearchResult,
+)
 from app.import_provider.utils import coerce_int, non_empty_str
 
 logger = logging.getLogger(__name__)
@@ -22,49 +38,28 @@ class BangumiImportProvider:
         self,
         *,
         base_url: str,
+        web_base_url: str,
         user_agent: str,
         timeout: float,
         session: requests.Session | None = None,
     ) -> None:
         self._base_url = base_url.rstrip('/')
+        self._web_base_url = web_base_url.rstrip('/')
         self._user_agent = user_agent
         self._timeout = timeout
         self._session = session or requests.Session()
 
     def search_anime(self, keyword: str, *, limit: int, offset: int, nsfw: bool = False) -> ImportSearchPage:
-        try:
-            response = self._session.post(
-                f'{self._base_url}/v0/search/subjects',
-                params={'limit': limit, 'offset': offset},
-                json={
-                    'keyword': keyword,
-                    'sort': 'match',
-                    'filter': {'type': [2], 'nsfw': nsfw},
-                },
-                headers={'User-Agent': self._user_agent},
-                timeout=self._timeout,
-            )
-        except requests.Timeout as exc:
-            logger.warning('Bangumi request timed out', exc_info=exc)
-            message = 'Bangumi request timed out'
-            raise ImportProviderTimeoutError(message) from exc
-        except requests.RequestException as exc:
-            logger.warning('Bangumi request failed', exc_info=exc)
-            message = 'Bangumi request failed'
-            raise ImportProviderResponseError(message) from exc
-
-        if not 200 <= response.status_code < 300:
-            logger.warning('Bangumi returned status code %s', response.status_code)
-            message = 'Bangumi returned an error response'
-            raise ImportProviderResponseError(message)
-
-        try:
-            body = response.json()
-        except ValueError as exc:
-            logger.warning('Bangumi returned invalid JSON', exc_info=exc)
-            message = 'Bangumi returned invalid JSON'
-            raise ImportProviderResponseError(message) from exc
-
+        body = self._request_json(
+            'post',
+            '/v0/search/subjects',
+            params={'limit': limit, 'offset': offset},
+            json={
+                'keyword': keyword,
+                'sort': 'match',
+                'filter': {'type': [2], 'nsfw': nsfw},
+            },
+        )
         if not isinstance(body, dict):
             logger.warning('Bangumi returned non-object JSON: %s', type(body).__name__)
             message = 'Bangumi returned an invalid response'
@@ -87,6 +82,69 @@ class BangumiImportProvider:
             offset=response_offset if response_offset is not None else offset,
             results=results,
         )
+
+    def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+        subject = self._request_json('get', f'/v0/subjects/{external_id}')
+        if not isinstance(subject, dict):
+            message = 'Bangumi subject response is invalid'
+            raise ImportProviderResponseError(message)
+
+        episodes = self._fetch_episodes(external_id)
+        return self._map_detail(subject, episodes)
+
+    def _request_json(self, method: str, path: str, **kwargs: Any) -> object:
+        request = self._session.post if method == 'post' else self._session.get
+        try:
+            response = request(
+                f'{self._base_url}{path}',
+                headers={'User-Agent': self._user_agent},
+                timeout=self._timeout,
+                **kwargs,
+            )
+        except requests.Timeout as exc:
+            logger.warning('Bangumi request timed out', exc_info=exc)
+            message = 'Bangumi request timed out'
+            raise ImportProviderTimeoutError(message) from exc
+        except requests.RequestException as exc:
+            logger.warning('Bangumi request failed', exc_info=exc)
+            message = 'Bangumi request failed'
+            raise ImportProviderResponseError(message) from exc
+
+        if not 200 <= response.status_code < 300:
+            logger.warning('Bangumi returned status code %s', response.status_code)
+            message = 'Bangumi returned an error response'
+            raise ImportProviderResponseError(message)
+
+        try:
+            return response.json()
+        except ValueError as exc:
+            logger.warning('Bangumi returned invalid JSON', exc_info=exc)
+            message = 'Bangumi returned invalid JSON'
+            raise ImportProviderResponseError(message) from exc
+
+    def _fetch_episodes(self, subject_id: str) -> list[dict[str, Any]]:
+        limit = 100
+        offset = 0
+        episodes: list[dict[str, Any]] = []
+        total: int | None = None
+
+        while total is None or len(episodes) < total:
+            body = self._request_json(
+                'get',
+                '/v0/episodes',
+                params={'subject_id': subject_id, 'type': 0, 'limit': limit, 'offset': offset},
+            )
+            if not isinstance(body, dict) or not isinstance(body.get('data'), list):
+                message = 'Bangumi episodes response is invalid'
+                raise ImportProviderResponseError(message)
+            page_data = [item for item in body['data'] if isinstance(item, dict)]
+            if not page_data:
+                break
+            episodes.extend(page_data)
+            total = coerce_int(body.get('total'), len(episodes))
+            offset += limit
+
+        return episodes
 
     def _map_subject(self, subject: object) -> ImportSearchResult | None:
         if not isinstance(subject, dict):
@@ -111,6 +169,71 @@ class BangumiImportProvider:
             platform=non_empty_str(subject.get('platform')),
             episode_count=pick_episode_count(subject),
             image_url=pick_image_url(subject.get('images')),
-            url=f'https://bgm.tv/subject/{external_id}',
+            url=f'{self._web_base_url}/subject/{external_id}',
             raw_data=subject,
+        )
+
+    def _map_detail(self, subject: dict[str, Any], episodes: list[dict[str, Any]]) -> ImportAnimeDetail:
+        subject_id = subject.get('id')
+        if not isinstance(subject_id, int | str):
+            message = 'Bangumi subject id is missing'
+            raise ImportProviderResponseError(message)
+
+        external_id = str(subject_id)
+        name = non_empty_str(subject.get('name'))
+        name_cn = non_empty_str(subject.get('name_cn'))
+        title = name or name_cn or 'Untitled'
+        summary = non_empty_str(subject.get('summary'))
+        names: list[ImportAnimeName] = []
+        seen_names: set[str] = set()
+        for value, language in ((name_cn, 'zh'), (name, 'ja')):
+            if value is not None and value not in seen_names:
+                names.append(ImportAnimeName(name=value, language=language))
+                seen_names.add(value)
+
+        return ImportAnimeDetail(
+            provider=self.name,
+            external_id=external_id,
+            title=title,
+            original_title=name,
+            summaries=[ImportAnimeSummary(language='und', summary=summary)] if summary is not None else [],
+            poster_source_url=pick_image_url(subject.get('images')),
+            anime_type=map_anime_type(non_empty_str(subject.get('platform'))),
+            total_episodes=pick_episode_count(subject),
+            url=f'{self._web_base_url}/subject/{external_id}',
+            names=names,
+            episodes=[episode for item in episodes if (episode := self._map_episode(item)) is not None],
+            raw_data=subject,
+        )
+
+    def _map_episode(self, episode: dict[str, Any]) -> ImportEpisodeInfo | None:
+        episode_number = coerce_int(episode.get('sort'))
+        if episode_number is None:
+            episode_number = coerce_int(episode.get('ep'))
+        if episode_number is None:
+            return None
+
+        episode_id = episode.get('id')
+        external_id = str(episode_id) if isinstance(episode_id, int | str) else None
+        name_cn = non_empty_str(episode.get('name_cn'))
+        name = non_empty_str(episode.get('name'))
+        title = name_cn or name
+        names: list[ImportEpisodeName] = []
+        seen_names: set[str] = set()
+        for value, language in ((name_cn, 'zh'), (name, 'ja')):
+            if value is not None and value not in seen_names:
+                names.append(ImportEpisodeName(name=value, language=language))
+                seen_names.add(value)
+        air_at = parse_air_at(episode.get('airdate'))
+        return ImportEpisodeInfo(
+            provider=self.name,
+            external_id=external_id,
+            episode_number=episode_number,
+            title=title,
+            names=names,
+            air_at=air_at,
+            duration=parse_duration(episode.get('duration')),
+            status=map_episode_status(air_at),
+            url=f'{self._web_base_url}/ep/{external_id}' if external_id is not None else None,
+            raw_data=episode,
         )

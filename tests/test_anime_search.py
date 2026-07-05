@@ -16,6 +16,7 @@ from app.import_provider.exceptions import (
 )
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.types import ImportSearchPage, ImportSearchResult
+from tests.test_auth import register_user
 
 
 @pytest.fixture()
@@ -75,6 +76,7 @@ class FakeSession:
 
 
 def test_search_keyword_is_required(client: FlaskClient) -> None:
+    assert register_user(client).status_code == 201
     response = client.get('/api/anime/search?q=   ')
 
     assert response.status_code == 400
@@ -82,6 +84,7 @@ def test_search_keyword_is_required(client: FlaskClient) -> None:
 
 
 def test_search_limit_above_max_is_invalid(client: FlaskClient) -> None:
+    assert register_user(client).status_code == 201
     response = client.get('/api/anime/search?q=frieren&limit=51')
 
     assert response.status_code == 400
@@ -89,6 +92,7 @@ def test_search_limit_above_max_is_invalid(client: FlaskClient) -> None:
 
 
 def test_search_negative_offset_is_invalid(client: FlaskClient) -> None:
+    assert register_user(client).status_code == 201
     response = client.get('/api/anime/search?q=frieren&offset=-1')
 
     assert response.status_code == 400
@@ -112,6 +116,7 @@ def test_search_uses_provider_factory_and_serializes_results(app: Flask, client:
     )
     provider = FakeProvider(ImportSearchPage(total=1, limit=10, offset=2, results=[result]))
     app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert register_user(client).status_code == 201
 
     response = client.get('/api/anime/search?q=frieren&limit=10&offset=2')
 
@@ -134,9 +139,19 @@ def test_search_uses_provider_factory_and_serializes_results(app: Flask, client:
                 'imageUrl': 'https://example.test/cover.jpg',
                 'url': 'https://bgm.tv/subject/493042',
                 'rawData': raw_data,
+                'inLibrary': False,
+                'animeId': None,
+                'libraryStatus': None,
             },
         ],
     }
+
+
+def test_search_requires_login(client: FlaskClient) -> None:
+    response = client.get('/api/anime/search?q=frieren')
+
+    assert response.status_code == 401
+    assert response.get_json() == {'message': 'Authentication required'}
 
 
 def test_api_layer_does_not_import_bangumi_provider() -> None:
@@ -154,6 +169,7 @@ def test_provider_instance_is_initialized_once_and_reused(app: Flask) -> None:
 
 
 def test_api_maps_provider_errors(client: FlaskClient, app: Flask) -> None:
+    assert register_user(client).status_code == 201
     app.extensions['import_provider_factory'] = ImportProviderFactory(
         {'bangumi': FakeProvider(error=ImportProviderResponseError('bad response'))},
     )
@@ -192,6 +208,7 @@ def test_bangumi_provider_maps_response_to_import_search_results() -> None:
     )
     provider = BangumiImportProvider(
         base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
         user_agent='ani-tracker/0.1.0 (test)',
         timeout=5,
         session=session,  # type: ignore[arg-type]
@@ -235,6 +252,7 @@ def test_bangumi_provider_tolerates_missing_optional_fields() -> None:
     session = FakeSession(FakeResponse(200, {'data': [{'id': 1, 'name': ''}]}))
     provider = BangumiImportProvider(
         base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
         user_agent='ani-tracker/0.1.0 (test)',
         timeout=5,
         session=session,  # type: ignore[arg-type]
@@ -260,6 +278,7 @@ def test_bangumi_provider_tolerates_missing_optional_fields() -> None:
 def test_bangumi_provider_maps_non_2xx_to_response_error() -> None:
     provider = BangumiImportProvider(
         base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
         user_agent='ani-tracker/0.1.0 (test)',
         timeout=5,
         session=FakeSession(FakeResponse(500, {})),  # type: ignore[arg-type]
@@ -272,6 +291,7 @@ def test_bangumi_provider_maps_non_2xx_to_response_error() -> None:
 def test_bangumi_provider_maps_timeout_to_unified_error() -> None:
     provider = BangumiImportProvider(
         base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
         user_agent='ani-tracker/0.1.0 (test)',
         timeout=5,
         session=FakeSession(error=requests.Timeout()),  # type: ignore[arg-type]
@@ -284,6 +304,7 @@ def test_bangumi_provider_maps_timeout_to_unified_error() -> None:
 def test_bangumi_provider_maps_http_client_error_to_unified_error() -> None:
     provider = BangumiImportProvider(
         base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
         user_agent='ani-tracker/0.1.0 (test)',
         timeout=5,
         session=FakeSession(error=requests.RequestException()),  # type: ignore[arg-type]

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import enum
 import re
 
+from app.import_provider.types import ProviderType
+
 _DURATION_PATTERN = re.compile(r"^\d{2}:\d{2}:\d{2}$")
-
-
-class ProviderType(enum.StrEnum):
-    BANGUMI = "bangumi"
 
 
 def validate_duration(duration: str | None) -> str | None:

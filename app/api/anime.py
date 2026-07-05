@@ -1,24 +1,57 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+from pathlib import Path
+
+from flask import Blueprint, current_app, jsonify, request, send_file
 from flask.typing import ResponseReturnValue
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.anime import (
     get_import_provider_factory,
+    get_search_library_markers,
+    parse_library_limit,
+    parse_library_offset,
     parse_search_limit,
     parse_search_offset,
+    select_episode_name_for_user,
+    serialize_anime,
+    serialize_episode_with_watch_state,
     serialize_import_search_result,
+    serialize_library_progress,
+    serialize_progress,
+    serialize_summary,
 )
+from app.api.utils.auth import require_auth_user
 from app.import_provider.exceptions import (
     ImportProviderResponseError,
     ImportProviderTimeoutError,
 )
+from app.import_provider.types import ProviderType
+from app.models.anime import AnimeMetaInfo, AnimePoster, AnimeSummary, Episode, EpisodeName
+from app.models.progress import (
+    UserAnimeProgress,
+    UserAnimeStatus,
+    UserEpisodeProgress,
+    get_anime_episodes_with_watch_state,
+)
+from app.models.user import User
+from app.services.anime_library import (
+    add_anime_to_user_library,
+    get_user_progress,
+    set_episode_watch_state,
+    set_poster_preference,
+    set_summary_preference,
+    update_user_anime_status,
+)
+from app.services.anime_poster import resolve_poster_path
 
 anime_bp = Blueprint('anime', __name__)
 
 
 @anime_bp.get('/search')
-def search_anime() -> ResponseReturnValue:
+@require_auth_user
+def search_anime(db: Session, user: User) -> ResponseReturnValue:
     keyword = request.args.get('q', '').strip()
     if not keyword:
         return jsonify({'message': 'Search keyword is required'}), 400
@@ -42,11 +75,296 @@ def search_anime() -> ResponseReturnValue:
     except ImportProviderResponseError:
         return jsonify({'message': 'Import provider response error'}), 502
 
+    markers = get_search_library_markers(db, user_id=user.id, results=page.results)
     return jsonify(
         {
             'total': page.total,
             'limit': page.limit,
             'offset': page.offset,
-            'results': [serialize_import_search_result(result) for result in page.results],
+            'results': [
+                serialize_import_search_result(
+                    result,
+                    anime_id=markers[result.provider, result.external_id][0],
+                    library_status=markers[result.provider, result.external_id][1],
+                )
+                for result in page.results
+            ],
         },
     )
+
+
+@anime_bp.post('/library')
+@require_auth_user
+def add_to_library(db: Session, user: User) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'message': 'Request body must be a JSON object'}), 400
+    provider_name = payload.get('provider')
+    external_id = payload.get('externalId')
+    if not isinstance(provider_name, str) or not provider_name.strip():
+        return jsonify({'message': 'Anime provider is required'}), 400
+    if not isinstance(external_id, str) or not external_id.strip():
+        return jsonify({'message': 'Anime externalId is required'}), 400
+    provider_name = provider_name.strip()
+    external_id = external_id.strip()
+    try:
+        provider_type = ProviderType(provider_name)
+    except ValueError:
+        return jsonify({'message': 'Unknown import provider'}), 400
+    provider_name = provider_type.value
+
+    try:
+        provider = get_import_provider_factory().get_provider(provider_name)
+        anime, progress, anime_created, library_changed, progress_created = add_anime_to_user_library(
+            db,
+            provider,
+            user_id=user.id,
+            external_id=external_id,
+        )
+    except ImportProviderTimeoutError:
+        db.rollback()
+        return jsonify({'message': 'Import provider request timed out'}), 504
+    except ImportProviderResponseError:
+        db.rollback()
+        return jsonify({'message': 'Import provider response error'}), 502
+
+    status_code = 201 if progress_created else 200
+    return jsonify(
+        {
+            'anime': serialize_anime(anime, progress, user),
+            'progress': serialize_progress(progress),
+            'animeCreated': anime_created,
+            'libraryEntryCreatedOrRestored': library_changed,
+        },
+    ), status_code
+
+
+@anime_bp.get('/library')
+@require_auth_user
+def list_library(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+
+    progresses = db.scalars(
+        select(UserAnimeProgress)
+        .options(
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.summaries),
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names),
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.episodes),
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.poster),
+        )
+        .where(
+            UserAnimeProgress.user_id == user.id,
+            UserAnimeProgress.status != UserAnimeStatus.DROPPED,
+        )
+        .order_by(UserAnimeProgress.updated_at.desc())
+        .limit(limit)
+        .offset(offset),
+    ).all()
+    anime_ids = [progress.anime_id for progress in progresses]
+    watched_counts = dict.fromkeys(anime_ids, 0)
+    if anime_ids:
+        watched_count_rows = db.execute(
+            select(Episode.anime_id, func.count(UserEpisodeProgress.id))
+            .join(UserEpisodeProgress, UserEpisodeProgress.episode_id == Episode.id)
+            .where(
+                Episode.anime_id.in_(anime_ids),
+                UserEpisodeProgress.user_id == user.id,
+                UserEpisodeProgress.watched.is_(True),
+            )
+            .group_by(Episode.anime_id),
+        ).all()
+        for anime_id, count in watched_count_rows:
+            watched_counts[anime_id] = count
+    return jsonify(
+        {
+            'limit': limit,
+            'offset': offset,
+            'items': [
+                {
+                    'anime': serialize_anime(progress.anime, progress, user),
+                    'progress': serialize_library_progress(
+                        progress,
+                        watched_episode_count=watched_counts[progress.anime_id],
+                        total_episode_count=progress.anime.total_episodes or len(progress.anime.episodes) or None,
+                    ),
+                }
+                for progress in progresses
+            ],
+        },
+    )
+
+
+@anime_bp.get('/<int:anime_id>')
+@require_auth_user
+def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    anime = db.scalar(
+        select(AnimeMetaInfo)
+        .options(
+            selectinload(AnimeMetaInfo.summaries),
+            selectinload(AnimeMetaInfo.episodes),
+            selectinload(AnimeMetaInfo.poster),
+        )
+        .where(AnimeMetaInfo.id == anime_id),
+    )
+    if anime is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    return jsonify({'anime': serialize_anime(anime, progress, user, include_available_summaries=True), 'progress': serialize_progress(progress)})
+
+
+@anime_bp.get('/library/<int:anime_id>/episodes')
+@require_auth_user
+def list_episodes(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    limit, error = parse_library_limit(request.args.get('limit'), default=200, maximum=500)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    rows = get_anime_episodes_with_watch_state(db, anime_id=anime_id, user_id=user.id, limit=limit, offset=offset)
+    episode_ids = [row['episode_id'] for row in rows]
+    names_by_episode: dict[int, list[EpisodeName]] = {episode_id: [] for episode_id in episode_ids}
+    if episode_ids:
+        episode_names = db.scalars(
+            select(EpisodeName)
+            .where(EpisodeName.episode_id.in_(episode_ids))
+            .order_by(EpisodeName.id),
+        ).all()
+        for name in episode_names:
+            names_by_episode.setdefault(name.episode_id, []).append(name)
+    return jsonify(
+        {
+            'animeId': anime_id,
+            'limit': limit,
+            'offset': offset,
+            'episodes': [
+                serialize_episode_with_watch_state(
+                    row,
+                    selected_name=select_episode_name_for_user(names_by_episode.get(row['episode_id'], []), user),
+                )
+                for row in rows
+            ],
+        },
+    )
+
+
+@anime_bp.patch('/library/<int:anime_id>/episodes/<int:episode_id>/watch-state')
+@require_auth_user
+def update_episode_watch_state(db: Session, user: User, anime_id: int, episode_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get('watched'), bool):
+        return jsonify({'message': 'Episode watched state is required'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    episode = db.get(Episode, episode_id)
+    if progress is None or episode is None or episode.anime_id != anime_id:
+        return jsonify({'message': 'Episode not found'}), 404
+    watch_progress = set_episode_watch_state(db, progress=progress, episode=episode, watched=payload['watched'])
+    return jsonify(
+        {
+            'episode': {
+                'id': episode.id,
+                'episodeNumber': episode.episode_number,
+                'watched': bool(watch_progress.watched) if watch_progress is not None else False,
+                'watchedAt': watch_progress.watched_at.isoformat() if watch_progress is not None and watch_progress.watched_at else None,
+            },
+            'progress': serialize_progress(progress),
+        },
+    )
+
+
+@anime_bp.patch('/library/<int:anime_id>/status')
+@require_auth_user
+def update_library_status(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get('status'), str):
+        return jsonify({'message': 'Anime status is required'}), 400
+    try:
+        status = UserAnimeStatus(payload['status'])
+    except ValueError:
+        return jsonify({'message': 'Anime status is invalid'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    update_user_anime_status(db, progress=progress, status=status)
+    return jsonify({'progress': serialize_progress(progress, include_anime_id=True)})
+
+
+@anime_bp.patch('/library/<int:anime_id>/summary-preference')
+@require_auth_user
+def update_summary_preference(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or ('summaryId' not in payload):
+        return jsonify({'message': 'summaryId is required'}), 400
+    summary_id = payload['summaryId']
+    if summary_id is not None and not isinstance(summary_id, int):
+        return jsonify({'message': 'summaryId is invalid'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    if set_summary_preference(db, progress=progress, summary_id=summary_id) is None:
+        return jsonify({'message': 'summaryId is invalid'}), 400
+    summaries = db.scalars(select(AnimeSummary).where(AnimeSummary.anime_id == anime_id).order_by(AnimeSummary.id)).all()
+    selected = next((summary for summary in summaries if summary.id == summary_id), None) if summary_id is not None else None
+    if selected is None and summaries:
+        selected = summaries[0]
+    return jsonify(
+        {
+            'summary': serialize_summary(selected, progress),
+            'progress': {'id': progress.id, 'animeId': anime_id, 'preferredSummaryId': progress.preferred_summary_id},
+        },
+    )
+
+
+@anime_bp.patch('/library/<int:anime_id>/poster-preference')
+@require_auth_user
+def update_poster_preference(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or ('posterId' not in payload):
+        return jsonify({'message': 'posterId is required'}), 400
+    poster_id = payload['posterId']
+    if poster_id is not None and not isinstance(poster_id, int):
+        return jsonify({'message': 'posterId is invalid'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    if set_poster_preference(db, progress=progress, poster_id=poster_id) is None:
+        return jsonify({'message': 'posterId is invalid'}), 400
+    poster = db.scalar(select(AnimePoster).where(AnimePoster.id == poster_id)) if poster_id is not None else None
+    return jsonify(
+        {
+            'poster': {
+                'id': poster.id,
+                'status': poster.status,
+                'url': f'/api/anime/library/{anime_id}/poster',
+                'isPreferred': progress.preferred_poster_id == poster.id,
+            }
+            if poster is not None
+            else None,
+            'progress': {'id': progress.id, 'animeId': anime_id, 'preferredPosterId': progress.preferred_poster_id},
+        },
+    )
+
+
+@anime_bp.get('/library/<int:anime_id>/poster')
+@require_auth_user
+def get_poster(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None:
+        return jsonify({'message': 'Poster not found'}), 404
+    poster = db.scalar(select(AnimePoster).where(AnimePoster.anime_id == anime_id))
+    if poster is None or poster.status != 'ready':
+        return jsonify({'message': 'Poster not found'}), 404
+    path = resolve_poster_path(str(current_app.config['ANIME_POSTER_STORAGE_DIR']), poster.storage_path)
+    if path is None or not Path(path).is_file():
+        return jsonify({'message': 'Poster not found'}), 404
+    response = send_file(path, mimetype=poster.mime_type)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
