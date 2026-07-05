@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 type SearchStateProps = {
   hasKeyword: boolean;
@@ -9,10 +10,12 @@ type SearchStateProps = {
 };
 
 export function SearchState({ hasKeyword, error, isLoading, total, resultCount }: SearchStateProps) {
+  const t = useTranslations();
+
   if (!hasKeyword) {
     return (
       <div className="rounded-2xl border border-dashed bg-card/50 p-8 text-center text-muted-foreground">
-        输入动画名称开始搜索
+        {t("search.emptyPrompt")}
       </div>
     );
   }
@@ -21,7 +24,7 @@ export function SearchState({ hasKeyword, error, isLoading, total, resultCount }
     return (
       <div className="flex items-center gap-2 rounded-2xl border bg-card p-4 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        搜索中...
+        {t("search.loading")}
       </div>
     );
   }
@@ -33,14 +36,14 @@ export function SearchState({ hasKeyword, error, isLoading, total, resultCount }
   if (resultCount === 0) {
     return (
       <div className="rounded-2xl border border-dashed bg-card/50 p-8 text-center text-muted-foreground">
-        没有找到相关动画
+        {t("search.noResults")}
       </div>
     );
   }
 
   return (
     <div className="text-sm text-muted-foreground">
-      共找到 {total} 个结果，当前显示 {resultCount} 个
+      {t("search.resultSummary", { total, resultCount })}
     </div>
   );
 }

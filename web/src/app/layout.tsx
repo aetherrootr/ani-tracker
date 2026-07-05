@@ -1,11 +1,14 @@
 import type { Metadata, Viewport } from "next";
+import { NextIntlClientProvider } from "next-intl";
 import "./globals.css";
+
+import { translations } from "@/i18n";
 
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Ani Tracker",
-  description: "动画追番进度管理 Web App",
+  description: "Anime tracking progress management Web App",
 };
 
 export const viewport: Viewport = {
@@ -27,7 +30,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full bg-background text-foreground">
-        <Providers>{children}</Providers>
+        <NextIntlClientProvider locale="zh-CN" messages={translations["zh-CN"]}>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

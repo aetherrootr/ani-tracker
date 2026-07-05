@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { searchAnime } from "./api";
 import type { AnimeSearchResult } from "./types";
@@ -8,6 +9,7 @@ import type { AnimeSearchResult } from "./types";
 const SEARCH_PAGE_SIZE = 10;
 
 export function useAnimeSearch() {
+  const t = useTranslations();
   const [keyword, setKeyword] = useState("");
   const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [retryKey, setRetryKey] = useState(0);
@@ -61,7 +63,7 @@ export function useAnimeSearch() {
           return;
         }
 
-        setError("搜索失败，请稍后重试");
+        setError(t("search.failed"));
         setPaginationError(null);
         setResults([]);
         setTotal(0);
@@ -80,7 +82,7 @@ export function useAnimeSearch() {
         activeControllerRef.current = null;
       }
     };
-  }, [debouncedKeyword, retryKey]);
+  }, [debouncedKeyword, retryKey, t]);
 
   function updateKeyword(value: string) {
     setKeyword(value);
@@ -125,7 +127,7 @@ export function useAnimeSearch() {
         return;
       }
 
-      setPaginationError("加载更多失败，请稍后重试");
+      setPaginationError(t("search.loadMoreFailed"));
     } finally {
       if (!controller.signal.aborted) {
         setIsLoadingMore(false);

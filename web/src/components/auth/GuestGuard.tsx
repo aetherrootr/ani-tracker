@@ -1,14 +1,17 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
 import { useCurrentUser } from "@/features/auth/hooks";
 
 function GuardLoading() {
+  const t = useTranslations();
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-sm text-muted-foreground">
-      正在加载账号状态...
+      {t("app.loadingAccount")}
     </div>
   );
 }

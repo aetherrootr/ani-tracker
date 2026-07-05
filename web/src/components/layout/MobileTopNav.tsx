@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -8,12 +9,14 @@ import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
 
+import { LanguageToggle } from "./LanguageToggle";
 import { navigationItems } from "./navigation";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function MobileTopNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useTranslations();
   const logout = useLogout();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -36,8 +39,9 @@ export function MobileTopNav() {
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />
+          <LanguageToggle />
           <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
-            {isLoggingOut ? "注销中" : "注销"}
+            {isLoggingOut ? t("app.loggingOut") : t("app.logout")}
           </Button>
         </div>
       </div>
@@ -56,7 +60,7 @@ export function MobileTopNav() {
               )}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}
