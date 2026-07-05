@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, ExternalLink, ImageOff } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ type SearchResultCardProps = {
 };
 
 export function SearchResultCard({ result, imageFailed, onImageError }: SearchResultCardProps) {
+  const t = useTranslations();
   const hasImage = result.imageUrl && !imageFailed;
   const [showDetails, setShowDetails] = useState(false);
 
@@ -23,14 +25,14 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={result.imageUrl ?? undefined}
-              alt={`${result.title} 封面`}
+              alt={t("anime.coverAlt", { title: result.title })}
               className="h-full w-full object-cover"
               onError={() => result.imageUrl && onImageError(result.imageUrl)}
             />
           ) : (
             <div className="flex flex-col items-center gap-1 text-[10px] sm:gap-2 sm:text-xs">
               <ImageOff className="h-5 w-5 sm:h-6 sm:w-6" />
-              无封面
+              {t("anime.noCover")}
             </div>
           )}
         </div>
@@ -42,7 +44,7 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
             </h2>
             {result.originalTitle ? (
               <p className="line-clamp-1 text-xs text-muted-foreground sm:text-sm">
-                原名：{result.originalTitle}
+                {t("anime.originalTitle", { title: result.originalTitle })}
               </p>
             ) : null}
           </div>
@@ -52,7 +54,7 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
               <button
                 type="button"
                 className="group relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                aria-label={showDetails ? "收起详情" : "展开详情"}
+                aria-label={showDetails ? t("anime.collapseDetails") : t("anime.expandDetails")}
                 onClick={() => setShowDetails((current) => !current)}
               >
                 {showDetails ? (
@@ -61,7 +63,7 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
                   <ChevronRight className="h-3.5 w-3.5" />
                 )}
                 <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md group-hover:block">
-                  {showDetails ? "收起详情" : "展开详情"}
+                  {showDetails ? t("anime.collapseDetails") : t("anime.expandDetails")}
                 </span>
               </button>
               {!showDetails ? (
@@ -69,7 +71,7 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
                   <Badge variant="outline">{result.provider}</Badge>
                   {result.platform ? <Badge variant="secondary">{result.platform}</Badge> : null}
                   {result.episodeCount !== null ? (
-                    <Badge variant="secondary">{result.episodeCount} 集</Badge>
+                    <Badge variant="secondary">{t("anime.episodeCount", { count: result.episodeCount })}</Badge>
                   ) : null}
                   {result.airDate ? <Badge variant="secondary">{result.airDate}</Badge> : null}
                 </div>
@@ -79,13 +81,13 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
             {showDetails ? (
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border bg-muted/30 p-2 text-xs sm:gap-2 sm:rounded-xl sm:p-3 sm:text-sm lg:grid-cols-3">
                 <SearchResultDetail label="Provider" value={result.provider} />
-                <SearchResultDetail label="外部 ID" value={result.externalId} />
-                <SearchResultDetail label="剧集类型" value={result.platform} />
+                <SearchResultDetail label={t("anime.externalId")} value={result.externalId} />
+                <SearchResultDetail label={t("anime.platform")} value={result.platform} />
                 <SearchResultDetail
-                  label="集数"
-                  value={result.episodeCount !== null ? `${result.episodeCount} 集` : null}
+                  label={t("anime.episodes")}
+                  value={result.episodeCount !== null ? t("anime.episodeCount", { count: result.episodeCount }) : null}
                 />
-                <SearchResultDetail label="开播时间" value={result.airDate} />
+                <SearchResultDetail label={t("anime.airDate")} value={result.airDate} />
               </div>
             ) : null}
           </div>
@@ -95,7 +97,7 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
               {result.summary}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground sm:text-sm">暂无简介</p>
+            <p className="text-xs text-muted-foreground sm:text-sm">{t("anime.noSummary")}</p>
           )}
 
           <a
@@ -104,7 +106,7 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline sm:text-sm"
           >
-            在 {result.provider} 查看
+            {t("anime.viewOnProvider", { provider: result.provider })}
             <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           </a>
         </div>
@@ -114,10 +116,12 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
 }
 
 function SearchResultDetail({ label, value }: { label: string; value: string | null }) {
+  const t = useTranslations();
+
   return (
     <div className="min-w-0 space-y-0.5 sm:space-y-1">
       <div className="text-[10px] text-muted-foreground sm:text-xs">{label}</div>
-      <div className="truncate font-medium">{value ?? "未知"}</div>
+      <div className="truncate font-medium">{value ?? t("anime.unknown")}</div>
     </div>
   );
 }

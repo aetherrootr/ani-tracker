@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -13,6 +14,7 @@ import { AuthErrorMessage } from "./AuthErrorMessage";
 
 export function LoginForm() {
   const router = useRouter();
+  const t = useTranslations();
   const login = useLogin();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +25,7 @@ export function LoginForm() {
     event.preventDefault();
 
     if (!username.trim() || !password) {
-      setErrorMessage("请输入用户名和密码。");
+      setErrorMessage(t("auth.login.missingCredentials"));
       return;
     }
 
@@ -34,7 +36,7 @@ export function LoginForm() {
       await login({ username: username.trim(), password });
       router.push("/tracking-list");
     } catch (caughtError) {
-      setErrorMessage(caughtError instanceof Error ? caughtError.message : "登录失败，请稍后重试。");
+      setErrorMessage(caughtError instanceof Error ? caughtError.message : t("auth.login.fallbackError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -44,7 +46,7 @@ export function LoginForm() {
     <form className="space-y-5" onSubmit={handleSubmit}>
       <AuthErrorMessage message={errorMessage} />
       <div className="space-y-2">
-        <Label htmlFor="username">用户名</Label>
+        <Label htmlFor="username">{t("form.username")}</Label>
         <Input
           id="username"
           name="username"
@@ -56,7 +58,7 @@ export function LoginForm() {
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="password">密码</Label>
+        <Label htmlFor="password">{t("form.password")}</Label>
         <Input
           id="password"
           name="password"
@@ -69,12 +71,12 @@ export function LoginForm() {
         />
       </div>
       <Button className="h-11 w-full" type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "登录中..." : "登录"}
+        {isSubmitting ? t("auth.login.submitting") : t("auth.login.submit")}
       </Button>
       <p className="text-center text-sm text-muted-foreground">
-        还没有账号？{" "}
+        {t("auth.login.noAccount")}{" "}
         <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/register">
-          创建账号
+          {t("auth.register.submit")}
         </Link>
       </p>
     </form>

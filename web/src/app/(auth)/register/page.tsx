@@ -5,7 +5,7 @@ import { RegisterForm } from "@/features/auth/components/RegisterForm";
 export default function RegisterPage() {
   return (
     <GuestGuard>
-      <AuthPageLayout title="创建账号" description="注册后即可进入追番列表，后续功能会继续接入。">
+      <AuthPageLayout titleKey="auth.register.title" descriptionKey="auth.register.description">
         <RegisterForm />
       </AuthPageLayout>
     </GuestGuard>

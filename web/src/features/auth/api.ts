@@ -1,6 +1,13 @@
 import { apiFetch } from "@/lib/api-client";
 
-import type { AuthResponse, CurrentUserResponse, LoginInput, LogoutResponse, RegisterInput } from "./types";
+import type {
+  AuthResponse,
+  CurrentUserResponse,
+  LoginInput,
+  LogoutResponse,
+  RegisterInput,
+  UpdateLanguagePreferenceInput,
+} from "./types";
 
 export function login(input: LoginInput): Promise<AuthResponse> {
   return apiFetch<AuthResponse>("/api/auth/login", {
@@ -24,4 +31,13 @@ export function logout(): Promise<LogoutResponse> {
 
 export function getCurrentUser(): Promise<CurrentUserResponse> {
   return apiFetch<CurrentUserResponse>("/api/auth/me");
+}
+
+export function updateLanguagePreference(
+  input: UpdateLanguagePreferenceInput,
+): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>("/api/auth/me/language-preference", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }

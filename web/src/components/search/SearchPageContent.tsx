@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUp, Search, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,7 @@ import { SearchResultCard } from "./SearchResultCard";
 import { SearchState } from "./SearchState";
 
 export function SearchPageContent() {
+  const t = useTranslations();
   const {
     keyword,
     hasKeyword,
@@ -136,14 +138,14 @@ export function SearchPageContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">搜索动画</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">{t("search.title")}</h1>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Search className="h-5 w-5" />
-            搜索
+            {t("search.cardTitle")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -155,14 +157,14 @@ export function SearchPageContent() {
               className="h-8 gap-2 rounded-full px-3"
               onClick={() => setIsProviderDialogOpen(true)}
             >
-              Provider
+              {t("search.provider")}
               <Badge variant="secondary">bangumi</Badge>
             </Button>
           </div>
 
           <div className="flex items-end gap-2 md:gap-4">
             <div className="hidden space-y-2 md:block md:w-48">
-              <Label>Provider</Label>
+              <Label>{t("search.provider")}</Label>
               <div className="flex h-12 items-center rounded-md border bg-muted/40 px-2 md:px-3">
                 <Badge variant="secondary">bangumi</Badge>
               </div>
@@ -180,7 +182,7 @@ export function SearchPageContent() {
                       handleSearchAction();
                     }
                   }}
-                  placeholder="搜索动画，例如 孤独摇滚"
+                  placeholder={t("search.placeholder")}
                   className="h-12 pl-9 text-base"
                   autoComplete="off"
                 />
@@ -191,7 +193,7 @@ export function SearchPageContent() {
                 disabled={!hasKeyword || isLoading || isLoadingMore}
                 onClick={handleSearchAction}
               >
-                {error || paginationError ? "重试" : "搜索"}
+                {error || paginationError ? t("search.retry") : t("search.cardTitle")}
               </Button>
             </div>
           </div>
@@ -213,14 +215,14 @@ export function SearchPageContent() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 id="provider-dialog-title" className="font-semibold tracking-tight">
-                  选择 Provider
+                  {t("search.chooseProvider")}
                 </h2>
               </div>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label="关闭 provider 设置"
+                aria-label={t("search.closeProviderSettings")}
                 onClick={() => setIsProviderDialogOpen(false)}
               >
                 <X className="h-4 w-4" />
@@ -233,7 +235,7 @@ export function SearchPageContent() {
               onClick={() => setIsProviderDialogOpen(false)}
             >
               <span className="font-medium">bangumi</span>
-              <Badge variant="secondary">当前使用</Badge>
+              <Badge variant="secondary">{t("search.currentProvider")}</Badge>
             </button>
           </div>
         </div>
@@ -266,7 +268,7 @@ export function SearchPageContent() {
 
           {isLoadingMore ? (
             <div className="rounded-2xl border bg-card p-4 text-center text-sm text-muted-foreground">
-              加载更多中...
+              {t("search.loadingMore")}
             </div>
           ) : null}
 
@@ -274,13 +276,13 @@ export function SearchPageContent() {
             <div className="flex flex-col gap-3 rounded-2xl border bg-card p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
               <span>{paginationError}</span>
               <Button type="button" variant="outline" size="sm" onClick={handleLoadMore}>
-                重试加载
+                {t("search.retryLoad")}
               </Button>
             </div>
           ) : null}
 
           {!hasMore && !isLoadingMore ? (
-            <div className="text-center text-sm text-muted-foreground">已加载全部结果</div>
+            <div className="text-center text-sm text-muted-foreground">{t("search.allLoaded")}</div>
           ) : null}
         </div>
       ) : null}
@@ -290,7 +292,7 @@ export function SearchPageContent() {
           type="button"
           size="icon"
           className="fixed bottom-6 right-6 z-50 rounded-full shadow-lg"
-          aria-label="回到页面开头"
+          aria-label={t("search.backToTop")}
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         >
           <ArrowUp className="h-4 w-4" />

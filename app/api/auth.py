@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.utils.auth import (
     hash_password,
     user_to_auth_dict,
+    validate_language_preference_payload,
     validate_login_payload,
     validate_register_payload,
     verify_password,
@@ -33,6 +34,7 @@ def register() -> ResponseReturnValue:
         username=payload["username"],
         email=payload["email"],
         display_name=payload["display_name"],
+        language_preference=payload["language_preference"],
         password_hash=hash_password(payload["password"] or ""),
     )
     db.add(user)
@@ -80,5 +82,27 @@ def me() -> ResponseReturnValue:
     if user is None:
         session.clear()
         return jsonify({"user": None}), 200
+
+    return jsonify({"user": user_to_auth_dict(user)}), 200
+
+
+@auth_bp.patch("/me/language-preference")
+def update_language_preference() -> ResponseReturnValue:
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int):
+        return jsonify({"message": "Authentication required"}), 401
+
+    language_preference, error = validate_language_preference_payload(request.get_json(silent=True))
+    if error is not None or language_preference is None:
+        return jsonify({"message": error}), 400
+
+    db = get_db()
+    user = db.get(User, user_id)
+    if user is None:
+        session.clear()
+        return jsonify({"message": "Authentication required"}), 401
+
+    user.language_preference = language_preference
+    db.commit()
 
     return jsonify({"user": user_to_auth_dict(user)}), 200

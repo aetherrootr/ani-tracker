@@ -1,32 +1,21 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
-import { useLogout } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
 
-import { navigationItems } from "./navigation";
+import { navigationItems, settingsNavigationItem } from "./navigation";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function MobileTopNav() {
   const pathname = usePathname();
-  const router = useRouter();
-  const logout = useLogout();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  async function handleLogout() {
-    setIsLoggingOut(true);
-
-    try {
-      await logout();
-      router.push("/login");
-    } finally {
-      setIsLoggingOut(false);
-    }
-  }
+  const t = useTranslations();
+  const SettingsIcon = settingsNavigationItem.icon;
+  const settingsActive =
+    pathname === settingsNavigationItem.href ||
+    pathname.startsWith(`${settingsNavigationItem.href}/`);
 
   return (
     <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur md:hidden">
@@ -36,9 +25,16 @@ export function MobileTopNav() {
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
-            {isLoggingOut ? "注销中" : "注销"}
-          </Button>
+          <Link
+            href={settingsNavigationItem.href}
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              settingsActive && "bg-accent text-accent-foreground",
+            )}
+            aria-label={t(settingsNavigationItem.labelKey)}
+          >
+            <SettingsIcon className="h-5 w-5" />
+          </Link>
         </div>
       </div>
       <nav className="flex gap-1 overflow-x-auto px-3 pb-3">
@@ -56,7 +52,7 @@ export function MobileTopNav() {
               )}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}

@@ -5,7 +5,7 @@ import { LoginForm } from "@/features/auth/components/LoginForm";
 export default function LoginPage() {
   return (
     <GuestGuard>
-      <AuthPageLayout title="登录" description="使用用户名和密码进入你的 Ani Tracker。">
+      <AuthPageLayout titleKey="auth.login.title" descriptionKey="auth.login.description">
         <LoginForm />
       </AuthPageLayout>
     </GuestGuard>
