@@ -32,7 +32,7 @@ export function DesktopSidebar() {
   const displayName = user?.displayName || user?.username || "当前用户";
 
   return (
-    <aside className="hidden min-h-screen w-72 border-r bg-card/80 px-4 py-5 md:flex md:flex-col">
+    <aside className="hidden w-72 shrink-0 border-r bg-card/80 px-4 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto">
       <Link href="/tracking-list" className="mb-8 flex items-center gap-3 px-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
           A

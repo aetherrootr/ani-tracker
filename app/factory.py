@@ -6,6 +6,7 @@ from flask import Flask, Response, request
 
 from app.api import register_api
 from app.db import default_database_url, init_db
+from app.import_provider import ImportProviderFactory
 
 
 def create_app(config: dict[str, object] | None = None) -> Flask:
@@ -18,11 +19,18 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
         SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production",
         CREATE_TABLES=True,
         CORS_ORIGIN=os.environ.get("CORS_ORIGIN", "http://localhost:3000"),
+        BANGUMI_API_BASE_URL=os.environ.get("BANGUMI_API_BASE_URL", "https://api.bgm.tv"),
+        BANGUMI_USER_AGENT=os.environ.get(
+            "BANGUMI_USER_AGENT",
+            "ani-tracker/0.0.1 (https://github.com/aetherrootr/ani-tracker)",
+        ),
+        IMPORT_PROVIDER_TIMEOUT=5.0,
     )
     if config is not None:
         app.config.update(config)
 
     init_db(app)
+    app.extensions["import_provider_factory"] = ImportProviderFactory.from_config(app.config)
     register_api(app)
 
     @app.after_request

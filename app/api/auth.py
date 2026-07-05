@@ -5,15 +5,15 @@ from flask.typing import ResponseReturnValue
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.db import get_db
-from app.models.user import User
-from app.utils.auth import (
+from app.api.utils.auth import (
     hash_password,
     user_to_auth_dict,
     validate_login_payload,
     validate_register_payload,
     verify_password,
 )
+from app.db import get_db
+from app.models.user import User
 
 auth_bp = Blueprint("auth", __name__)
 
