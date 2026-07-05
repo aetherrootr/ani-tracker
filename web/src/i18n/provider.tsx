@@ -46,6 +46,10 @@ function emitLocaleChange() {
 }
 
 function applyLocale(locale: Locale) {
+  if (locale === currentLocale) {
+    return;
+  }
+
   currentLocale = locale;
 
   if (typeof window !== "undefined") {

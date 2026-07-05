@@ -54,14 +54,13 @@ export const en = {
   },
   settings: {
     title: "Settings",
-    description: "Reserved page for future sync sources, theme, and account settings.",
     language: {
       title: "Language",
       description: "Choose the frontend interface language.",
     },
-    backend: {
-      title: "Backend Integration",
-      description: "The frontend is not connected to a real service yet. The integration approach will be designed after related pages and data structures are finalized.",
+    account: {
+      title: "Account",
+      description: "Sign out of the current account and return to the login page.",
     },
   },
   search: {

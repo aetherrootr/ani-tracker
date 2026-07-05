@@ -2,37 +2,24 @@
 
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
-import { useCurrentUser, useLogout } from "@/features/auth/hooks";
+import { useCurrentUser } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
 
-import { LanguageToggle } from "./LanguageToggle";
-import { navigationItems } from "./navigation";
+import { navigationItems, settingsNavigationItem } from "./navigation";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function DesktopSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const t = useTranslations();
   const { user } = useCurrentUser();
-  const logout = useLogout();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  async function handleLogout() {
-    setIsLoggingOut(true);
-
-    try {
-      await logout();
-      router.push("/login");
-    } finally {
-      setIsLoggingOut(false);
-    }
-  }
 
   const displayName = user?.displayName || user?.username || t("app.currentUser");
+  const SettingsIcon = settingsNavigationItem.icon;
+  const settingsActive =
+    pathname === settingsNavigationItem.href ||
+    pathname.startsWith(`${settingsNavigationItem.href}/`);
 
   return (
     <aside className="hidden w-72 shrink-0 border-r bg-card/80 px-4 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto">
@@ -71,10 +58,16 @@ export function DesktopSidebar() {
         {user?.email ? <p className="mt-1 truncate text-xs text-muted-foreground">{user.email}</p> : null}
         <div className="mt-4 flex items-center gap-2">
           <ThemeToggle />
-          <LanguageToggle />
-          <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
-            {isLoggingOut ? t("app.loggingOut") : t("app.logout")}
-          </Button>
+          <Link
+            href={settingsNavigationItem.href}
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              settingsActive && "bg-accent text-accent-foreground",
+            )}
+            aria-label={t(settingsNavigationItem.labelKey)}
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </Link>
         </div>
       </div>
     </aside>

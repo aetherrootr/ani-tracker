@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRegister } from "@/features/auth/hooks";
+import { useLocaleControls } from "@/i18n/provider";
 
 import { AuthErrorMessage } from "./AuthErrorMessage";
 
@@ -19,6 +20,7 @@ function validateEmail(email: string) {
 export function RegisterForm() {
   const router = useRouter();
   const t = useTranslations();
+  const { locale } = useLocaleControls();
   const register = useRegister();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -62,6 +64,7 @@ export function RegisterForm() {
         username: trimmedUsername,
         email: trimmedEmail,
         password,
+        languagePreference: locale,
         ...(trimmedDisplayName ? { displayName: trimmedDisplayName } : {}),
       });
       router.push("/tracking-list");

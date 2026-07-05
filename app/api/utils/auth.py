@@ -4,10 +4,11 @@ import re
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.models.user import User
+from app.models.user import DEFAULT_LANGUAGE_PREFERENCE, User
 
 USERNAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+SUPPORTED_LANGUAGE_PREFERENCES = {'zh-CN', 'en'}
 
 
 def hash_password(password: str) -> str:
@@ -24,6 +25,7 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'username': user.username,
         'displayName': user.display_name,
         'email': user.email,
+        'languagePreference': user.language_preference,
     }
 
 
@@ -35,6 +37,7 @@ def validate_register_payload(data: object) -> tuple[dict[str, str | None] | Non
     email = data.get('email')
     password = data.get('password')
     display_name = data.get('displayName')
+    language_preference = data.get('languagePreference')
 
     if not isinstance(username, str) or not username.strip():
         return None, 'Username is required'
@@ -62,11 +65,17 @@ def validate_register_payload(data: object) -> tuple[dict[str, str | None] | Non
         if display_name is not None and len(display_name) > 100:
             return None, 'Display name must be at most 100 characters'
 
+    if language_preference is None:
+        language_preference = DEFAULT_LANGUAGE_PREFERENCE
+    elif not isinstance(language_preference, str) or language_preference not in SUPPORTED_LANGUAGE_PREFERENCES:
+        return None, 'Language preference is invalid'
+
     return {
         'username': username,
         'email': email,
         'password': password,
         'display_name': display_name,
+        'language_preference': language_preference,
     }, None
 
 
@@ -83,3 +92,14 @@ def validate_login_payload(data: object) -> tuple[dict[str, str] | None, str | N
         return None, 'Password is required'
 
     return {'username': username.strip(), 'password': password}, None
+
+
+def validate_language_preference_payload(data: object) -> tuple[str | None, str | None]:
+    if not isinstance(data, dict):
+        return None, 'Request body must be a JSON object'
+
+    language_preference = data.get('languagePreference')
+    if not isinstance(language_preference, str) or language_preference not in SUPPORTED_LANGUAGE_PREFERENCES:
+        return None, 'Language preference is invalid'
+
+    return language_preference, None

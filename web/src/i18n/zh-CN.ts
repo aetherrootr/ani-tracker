@@ -51,14 +51,13 @@ export const zhCN = {
   },
   settings: {
     title: "设置",
-    description: "预留页面，后续可加入同步源、主题和账号设置。",
     language: {
       title: "语言",
       description: "选择前端界面语言。",
     },
-    backend: {
-      title: "后端接入",
-      description: "当前前端不接真实服务。后续接入方式会在相关页面和数据结构确定后再设计。",
+    account: {
+      title: "账号",
+      description: "退出当前账号并返回登录页。",
     },
   },
   search: {

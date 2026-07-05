@@ -35,15 +35,24 @@ def db_session(app: Flask) -> Iterator[Session]:
         yield session
 
 
-def register_user(client: FlaskClient, username: str = "link", email: str = "link@link.com"):
+def register_user(
+    client: FlaskClient,
+    username: str = "link",
+    email: str = "link@link.com",
+    language_preference: str | None = None,
+):
+    payload = {
+        "username": username,
+        "email": email,
+        "password": "password123",
+        "displayName": "Link",
+    }
+    if language_preference is not None:
+        payload["languagePreference"] = language_preference
+
     return client.post(
         "/api/auth/register",
-        json={
-            "username": username,
-            "email": email,
-            "password": "password123",
-            "displayName": "Link",
-        },
+        json=payload,
     )
 
 
@@ -61,6 +70,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "username": "link",
             "displayName": "Link",
             "email": "link@link.com",
+            "languagePreference": "zh-CN",
         },
     }
     assert "password_hash" not in str(body)
@@ -70,6 +80,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
     user = db_session.scalar(select(User).where(User.username == "link"))
     assert user is not None
     assert user.password_hash != "password123"
+    assert user.language_preference == "zh-CN"
 
     me_response = client.get("/api/auth/me")
     assert me_response.status_code == 200
@@ -94,6 +105,17 @@ def test_duplicate_email_registration_is_allowed(client: FlaskClient) -> None:
     assert response.get_json()["user"]["email"] == "link@link.com"
 
 
+def test_register_accepts_language_preference(client: FlaskClient, db_session: Session) -> None:
+    response = register_user(client, language_preference="en")
+
+    assert response.status_code == 201
+    assert response.get_json()["user"]["languagePreference"] == "en"
+
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.language_preference == "en"
+
+
 def test_login_success_and_wrong_password_failure(client: FlaskClient) -> None:
     assert register_user(client).status_code == 201
     client.post("/api/auth/logout")
@@ -114,6 +136,28 @@ def test_login_success_and_wrong_password_failure(client: FlaskClient) -> None:
     )
     assert bad_response.status_code == 401
     assert bad_response.get_json() == {"message": "Invalid username or password"}
+
+
+def test_update_language_preference_requires_login_and_valid_language(client: FlaskClient) -> None:
+    response = client.patch("/api/auth/me/language-preference", json={"languagePreference": "en"})
+    assert response.status_code == 401
+
+    assert register_user(client).status_code == 201
+
+    invalid_response = client.patch(
+        "/api/auth/me/language-preference",
+        json={"languagePreference": "ja"},
+    )
+    assert invalid_response.status_code == 400
+    assert invalid_response.get_json() == {"message": "Language preference is invalid"}
+
+    update_response = client.patch(
+        "/api/auth/me/language-preference",
+        json={"languagePreference": "en"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.get_json()["user"]["languagePreference"] == "en"
+    assert client.get("/api/auth/me").get_json()["user"]["languagePreference"] == "en"
 
 
 def test_logout_clears_current_user(client: FlaskClient) -> None:

@@ -25,3 +25,9 @@ export function useLogout() {
 
   return logout;
 }
+
+export function useUpdateLanguagePreference() {
+  const { updateLanguagePreference } = useAuth();
+
+  return updateLanguagePreference;
+}
