@@ -16,8 +16,9 @@ Run a local frontend/backend integration environment:
 
 The script starts the backend at `http://localhost:3001` and the frontend at
 `http://localhost:3000`, configures credentialed CORS for the frontend origin,
-and uses a temporary SQLite database under `/tmp/ani-tracker`. Press `Ctrl+C` to
-stop both servers.
+and starts a Docker Postgres database with its data mounted under
+`/tmp/ani-tracker/postgres`. Press `Ctrl+C` to stop both app servers. Docker or a
+Docker-compatible container manager must be installed and running.
 
 Run lint checks:
 
