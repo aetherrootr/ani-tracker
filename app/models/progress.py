@@ -25,7 +25,7 @@ from app.models.user import User
 from app.models.validater import validate_pagination
 
 if TYPE_CHECKING:
-    from app.models.anime import AnimePoster, AnimeSummary
+    from app.models.anime import AnimeName, AnimePoster, AnimeSummary, EpisodeName
 
 
 class UserAnimeStatus(enum.Enum):
@@ -49,9 +49,13 @@ class UserEpisodeProgress(TimestampedBase):
     episode_id: Mapped[int] = mapped_column(ForeignKey("episode.id", ondelete="CASCADE"), nullable=False)
     watched: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     watched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preferred_name_id: Mapped[int | None] = mapped_column(
+        ForeignKey("episode_name.id", ondelete="SET NULL"),
+    )
 
     user: Mapped[User] = relationship(back_populates="episode_progresses")
     episode: Mapped[Episode] = relationship(back_populates="user_progresses")
+    preferred_name: Mapped[EpisodeName | None] = relationship()
 
 
 class UserAnimeProgress(TimestampedBase):
@@ -90,11 +94,15 @@ class UserAnimeProgress(TimestampedBase):
     preferred_poster_id: Mapped[int | None] = mapped_column(
         ForeignKey("anime_poster.id", ondelete="SET NULL"),
     )
+    preferred_name_id: Mapped[int | None] = mapped_column(
+        ForeignKey("anime_name.id", ondelete="SET NULL"),
+    )
 
     user: Mapped[User] = relationship(back_populates="anime_progresses")
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="user_progresses")
     preferred_summary: Mapped[AnimeSummary | None] = relationship()
     preferred_poster: Mapped[AnimePoster | None] = relationship()
+    preferred_name: Mapped[AnimeName | None] = relationship()
 
 
 def get_user_watchlist(
@@ -172,6 +180,7 @@ def get_anime_episodes_with_watch_state(
             Episode.status,
             func.coalesce(UserEpisodeProgress.watched, False).label("watched"),
             UserEpisodeProgress.watched_at,
+            UserEpisodeProgress.preferred_name_id,
         )
         .outerjoin(
             UserEpisodeProgress,

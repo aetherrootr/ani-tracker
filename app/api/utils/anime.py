@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any
 
@@ -12,6 +13,7 @@ from app.import_provider.types import ImportSearchResult
 from app.models.anime import AnimeMetaInfo, AnimeName, AnimePoster, AnimeSummary, EpisodeName
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
+from app.services.name_keys import build_name_keys
 
 
 def parse_search_limit(value: str | None) -> tuple[int, str | None]:
@@ -133,7 +135,7 @@ def parse_library_offset(value: str | None) -> tuple[int, str | None]:
 
 
 def select_summary_for_user(
-    summaries: list[AnimeSummary],
+    summaries: Sequence[AnimeSummary],
     progress: UserAnimeProgress,
     user: User,
 ) -> AnimeSummary | None:
@@ -152,33 +154,45 @@ def select_summary_for_user(
 
 
 def select_poster_for_user(
-    poster: AnimePoster | None,
+    posters: Sequence[AnimePoster],
     progress: UserAnimeProgress,
 ) -> AnimePoster | None:
-    if poster is None:
+    if not posters:
         return None
-    if progress.preferred_poster_id is None:
-        return poster
-    if progress.preferred_poster_id == poster.id:
-        return poster
-    return None
+    if progress.preferred_poster_id is not None:
+        for poster in posters:
+            if progress.preferred_poster_id == poster.id:
+                return poster
+    return min(posters, key=lambda item: (item.status != 'ready', item.id))
 
 
-def serialize_poster(poster: AnimePoster | None, progress: UserAnimeProgress) -> dict[str, Any] | None:
+def serialize_poster(
+    poster: AnimePoster | None,
+    progress: UserAnimeProgress,
+    *,
+    current_url: bool = True,
+) -> dict[str, Any] | None:
     if poster is None:
         return None
     return {
         'id': poster.id,
         'status': poster.status,
-        'url': f'/api/anime/library/{poster.anime_id}/poster',
+        'url': f'/api/anime/library/{poster.anime_id}/poster'
+        if current_url
+        else f'/api/anime/library/{poster.anime_id}/posters/{poster.id}',
         'isPreferred': progress.preferred_poster_id == poster.id,
     }
 
 
 def select_anime_name_for_user(
-    names: list[AnimeName],
+    names: Sequence[AnimeName],
+    progress: UserAnimeProgress,
     user: User,
 ) -> AnimeName | None:
+    if progress.preferred_name_id is not None:
+        for name in names:
+            if name.id == progress.preferred_name_id:
+                return name
     preferred_languages = [user.language_preference]
     if '-' in user.language_preference:
         preferred_languages.append(user.language_preference.split('-', 1)[0])
@@ -190,9 +204,15 @@ def select_anime_name_for_user(
 
 
 def select_episode_name_for_user(
-    names: list[EpisodeName],
+    names: Sequence[EpisodeName],
     user: User,
+    *,
+    preferred_name_id: int | None = None,
 ) -> EpisodeName | None:
+    if preferred_name_id is not None:
+        for name in names:
+            if name.id == preferred_name_id:
+                return name
     preferred_languages = [user.language_preference]
     if '-' in user.language_preference:
         preferred_languages.append(user.language_preference.split('-', 1)[0])
@@ -226,6 +246,9 @@ def serialize_progress(progress: UserAnimeProgress, *, include_anime_id: bool = 
         'status': progress.status.value,
         'lastWatchedEpisodeNumber': progress.last_watched_episode_number,
         'lastWatchedAt': progress.last_watched_at.isoformat() if progress.last_watched_at is not None else None,
+        'preferredNameId': progress.preferred_name_id,
+        'preferredSummaryId': progress.preferred_summary_id,
+        'preferredPosterId': progress.preferred_poster_id,
     }
     if include_anime_id:
         data['animeId'] = progress.anime_id
@@ -254,11 +277,15 @@ def serialize_anime(
     user: User,
     *,
     include_available_summaries: bool = False,
+    include_available_names: bool = False,
+    include_available_posters: bool = False,
 ) -> dict[str, Any]:
     summaries = sorted(anime.summaries, key=lambda item: item.id)
-    selected_name = select_anime_name_for_user(sorted(anime.names, key=lambda item: item.id), user)
+    names = sorted(anime.names, key=lambda item: item.id)
+    posters = sorted(anime.posters, key=lambda item: item.id)
+    selected_name = select_anime_name_for_user(names, progress, user)
     selected_summary = select_summary_for_user(summaries, progress, user)
-    selected_poster = select_poster_for_user(anime.poster, progress)
+    selected_poster = select_poster_for_user(posters, progress)
     poster_status = selected_poster.status if selected_poster is not None else None
     data: dict[str, Any] = {
         'id': anime.id,
@@ -268,10 +295,12 @@ def serialize_anime(
         'summary': serialize_summary(selected_summary, progress),
         'posterUrl': f'/api/anime/library/{anime.id}/poster' if selected_poster is not None else None,
         'poster': serialize_poster(selected_poster, progress),
+        'preferredNameId': progress.preferred_name_id,
         'preferredPosterId': progress.preferred_poster_id,
         'posterStatus': poster_status,
         'type': anime.type.value,
         'totalEpisodes': anime.total_episodes,
+        'airDate': anime.air_date.isoformat() if anime.air_date is not None else None,
         'lastSyncedAt': anime.last_synced_at.isoformat() if anime.last_synced_at is not None else None,
         'provider': anime.provider_type,
         'externalId': anime.external_id,
@@ -283,7 +312,22 @@ def serialize_anime(
             {'id': summary.id, 'language': summary.language, 'summary': summary.summary}
             for summary in summaries
         ]
+    if include_available_names:
+        data['availableNames'] = [serialize_anime_name(name) for name in names]
+    if include_available_posters:
+        data['availablePosters'] = [
+            serialize_poster(poster, progress, current_url=False)
+            for poster in posters
+        ]
     return data
+
+
+def anime_display_sort_key(anime: AnimeMetaInfo, progress: UserAnimeProgress, user: User) -> tuple[str, str]:
+    selected_name = select_anime_name_for_user(sorted(anime.names, key=lambda item: item.id), progress, user)
+    if selected_name is not None:
+        return selected_name.sort_key, selected_name.initial_key
+    sort_key, initial_key, _search_key = build_name_keys(anime.original_name)
+    return sort_key, initial_key
 
 
 def serialize_episode_name(name: EpisodeName | None) -> dict[str, Any] | None:

@@ -15,7 +15,7 @@ from app.import_provider.exceptions import (
     ImportProviderTimeoutError,
 )
 from app.import_provider.factory import ImportProviderFactory
-from app.import_provider.types import ImportSearchPage, ImportSearchResult
+from app.import_provider.types import ImportAnimeDetail, ImportSearchPage, ImportSearchResult
 from tests.test_auth import register_user
 
 
@@ -48,6 +48,9 @@ class FakeProvider:
         if self.error is not None:
             raise self.error
         return self.page
+
+    def get_anime_detail(self, _external_id: str) -> ImportAnimeDetail:
+        raise NotImplementedError
 
 
 class FakeResponse:

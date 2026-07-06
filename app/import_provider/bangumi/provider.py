@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 import requests
@@ -204,7 +205,15 @@ class BangumiImportProvider:
             names=names,
             episodes=[episode for item in episodes if (episode := self._map_episode(item)) is not None],
             raw_data=subject,
+            air_date=self._pick_air_date(subject, episodes),
         )
+
+    def _pick_air_date(self, subject: dict[str, Any], episodes: list[dict[str, Any]]) -> date | None:
+        air_at = parse_air_at(subject.get('date'))
+        if air_at is not None:
+            return air_at.date()
+        episode_dates = [air_at.date() for item in episodes if (air_at := parse_air_at(item.get('airdate'))) is not None]
+        return min(episode_dates) if episode_dates else None
 
     def _map_episode(self, episode: dict[str, Any]) -> ImportEpisodeInfo | None:
         episode_number = coerce_int(episode.get('sort'))

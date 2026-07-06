@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from flask import Flask
@@ -19,8 +19,15 @@ from app.import_provider.types import (
     ImportEpisodeName,
     ImportSearchPage,
 )
-from app.models.anime import AnimeMetaInfo, AnimePoster, AnimeSummary, Episode, EpisodeName
-from app.models.progress import UserAnimeProgress, UserAnimeStatus
+from app.models.anime import (
+    AnimeMetaInfo,
+    AnimeName,
+    AnimePoster,
+    AnimeSummary,
+    Episode,
+    EpisodeName,
+)
+from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
 from tests.test_auth import register_user
 
 
@@ -109,6 +116,37 @@ def install_provider(app: Flask) -> FakeProvider:
     return provider
 
 
+def add_library_anime(
+    session: Session,
+    *,
+    user_id: int = 1,
+    external_id: str,
+    original_name: str,
+    names: list[tuple[str, str | None]],
+    status: UserAnimeStatus = UserAnimeStatus.PLAN_TO_WATCH,
+    air_date: date | None = None,
+    updated_at: datetime | None = None,
+) -> AnimeMetaInfo:
+    anime = AnimeMetaInfo(
+        provider_type='bangumi',
+        external_id=external_id,
+        original_name=original_name,
+        total_episodes=12,
+        air_date=air_date,
+        last_synced_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    session.add(anime)
+    session.flush()
+    for name, language in names:
+        session.add(AnimeName(anime_id=anime.id, name=name, language=language))
+    progress = UserAnimeProgress(user_id=user_id, anime_id=anime.id, status=status)
+    if updated_at is not None:
+        progress.updated_at = updated_at
+    session.add(progress)
+    session.commit()
+    return anime
+
+
 def test_add_to_library_requires_login(client: FlaskClient) -> None:
     response = client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'})
 
@@ -144,11 +182,17 @@ def test_add_to_library_imports_anime_and_progress(
     assert body['progress']['status'] == 'plan_to_watch'
     assert provider.detail_calls == ['493042']
     assert db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.external_id == '493042')) is not None
-    assert db_session.scalar(select(AnimeSummary)).summary == 'summary'
-    assert db_session.scalar(select(AnimePoster)).status == 'pending'
+    summary = db_session.scalar(select(AnimeSummary))
+    poster = db_session.scalar(select(AnimePoster))
+    progress = db_session.scalar(select(UserAnimeProgress))
+    assert summary is not None
+    assert poster is not None
+    assert progress is not None
+    assert summary.summary == 'summary'
+    assert poster.status == 'pending'
     assert len(db_session.scalars(select(Episode)).all()) == 2
     assert len(db_session.scalars(select(EpisodeName)).all()) == 3
-    assert db_session.scalar(select(UserAnimeProgress)).status == UserAnimeStatus.PLAN_TO_WATCH
+    assert progress.status == UserAnimeStatus.PLAN_TO_WATCH
 
 
 def test_add_to_library_is_idempotent_for_same_user(
@@ -227,6 +271,192 @@ def test_library_list_returns_wall_display_fields(app: Flask, client: FlaskClien
     assert item['progress']['watchedEpisodeCount'] == 1
     assert item['progress']['totalEpisodeCount'] == 2
     assert item['progress']['progressPercent'] == pytest.approx(50.0)
+
+
+def test_library_list_searches_local_names_with_pinyin_and_returns_name_anchors(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, language_preference='zh-CN').status_code == 201
+    add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='K-ON!',
+        names=[('轻音少女', 'zh'), ('K-On!', 'en')],
+        status=UserAnimeStatus.WATCHING,
+        air_date=date(2009, 4, 3),
+    )
+    add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Sousou no Frieren',
+        names=[('葬送的芙莉莲', 'zh')],
+        status=UserAnimeStatus.PLAN_TO_WATCH,
+        air_date=date(2023, 9, 29),
+    )
+
+    response = client.get('/api/anime/library?q=qingyin&sort=name&order=asc&limit=1')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['total'] == 1
+    assert body['items'][0]['anime']['displayName'] == '轻音少女'
+    assert body['navigationAnchors'] == [{'key': 'q', 'label': 'Q', 'offset': 0, 'page': 1}]
+
+
+def test_library_list_filters_status_and_rejects_dropped(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='Visible',
+        names=[('Visible', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Hidden',
+        names=[('Hidden', 'en')],
+        status=UserAnimeStatus.DROPPED,
+    )
+
+    response = client.get('/api/anime/library')
+    watching_response = client.get('/api/anime/library?status=watching')
+    dropped_response = client.get('/api/anime/library?status=dropped')
+
+    assert response.status_code == 200
+    assert response.get_json()['total'] == 1
+    assert watching_response.status_code == 200
+    assert watching_response.get_json()['items'][0]['anime']['displayName'] == 'Visible'
+    assert dropped_response.status_code == 400
+
+
+def test_library_list_sorts_air_date_and_returns_month_anchors(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='Older',
+        names=[('Older', 'en')],
+        air_date=date(2023, 9, 29),
+    )
+    add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Newer',
+        names=[('Newer', 'en')],
+        air_date=date(2024, 2, 1),
+    )
+
+    response = client.get('/api/anime/library?sort=air_date&order=desc&limit=20')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert [item['anime']['displayName'] for item in body['items']] == ['Newer', 'Older']
+    assert body['navigationAnchors'] == [
+        {'key': '2024-02', 'label': '2024-02', 'offset': 0, 'page': 1},
+        {'key': '2023-09', 'label': '2023-09', 'offset': 1, 'page': 1},
+    ]
+
+
+def test_anime_detail_returns_available_names_air_date_and_posters(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='K-ON!',
+        names=[('轻音少女', 'zh'), ('K-On!', 'en')],
+        air_date=date(2009, 4, 3),
+    )
+    db_session.add_all(
+        [
+            AnimePoster(anime_id=anime.id, storage_path='failed.jpg', status='failed'),
+            AnimePoster(anime_id=anime.id, storage_path='ready.jpg', status='ready'),
+        ],
+    )
+    db_session.commit()
+
+    response = client.get(f'/api/anime/{anime.id}')
+
+    assert response.status_code == 200
+    body = response.get_json()['anime']
+    assert body['airDate'] == '2009-04-03'
+    assert body['availableNames'] == [
+        {'id': 1, 'language': 'zh', 'name': '轻音少女'},
+        {'id': 2, 'language': 'en', 'name': 'K-On!'},
+    ]
+    assert body['poster']['id'] == 2
+    assert body['posterUrl'] == f'/api/anime/library/{anime.id}/poster'
+    assert [poster['url'] for poster in body['availablePosters']] == [
+        f'/api/anime/library/{anime.id}/posters/1',
+        f'/api/anime/library/{anime.id}/posters/2',
+    ]
+
+
+def test_anime_name_preference_can_be_set_and_validates_name_owner(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, language_preference='zh-CN').status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='K-ON!',
+        names=[('轻音少女', 'zh'), ('K-On!', 'en')],
+    )
+    other = add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Other',
+        names=[('Other', 'en')],
+    )
+
+    response = client.patch(f'/api/anime/library/{anime.id}/name-preference', json={'nameId': 2})
+    invalid_response = client.patch(f'/api/anime/library/{anime.id}/name-preference', json={'nameId': other.names[0].id})
+    detail_response = client.get(f'/api/anime/{anime.id}')
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'name': {'id': 2, 'language': 'en', 'name': 'K-On!'},
+        'progress': {'id': 1, 'animeId': anime.id, 'preferredNameId': 2},
+    }
+    assert invalid_response.status_code == 400
+    assert detail_response.get_json()['anime']['displayName'] == 'K-On!'
+
+
+def test_episode_name_preference_can_be_set_without_marking_watched(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    install_provider(app)
+    assert register_user(client, language_preference='zh-CN').status_code == 201
+    assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'}).status_code == 201
+
+    response = client.patch('/api/anime/library/1/episodes/1/name-preference', json={'nameId': 2})
+    episodes_response = client.get('/api/anime/library/1/episodes')
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'name': {'id': 2, 'language': 'en', 'name': 'The Journey Begins'},
+        'episode': {'id': 1, 'animeId': 1, 'preferredNameId': 2},
+    }
+    first_episode = episodes_response.get_json()['episodes'][0]
+    assert first_episode['displayName'] == 'The Journey Begins'
+    assert first_episode['watched'] is False
+    episode_progress = db_session.scalar(select(UserEpisodeProgress))
+    assert episode_progress is not None
+    assert episode_progress.watched is False
 
 
 def test_poster_preference_can_be_set_and_cleared(app: Flask, client: FlaskClient) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 
@@ -79,3 +79,4 @@ class ImportAnimeDetail:
     names: list[ImportAnimeName]
     episodes: list[ImportEpisodeInfo]
     raw_data: dict[str, Any]
+    air_date: date | None = None

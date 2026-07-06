@@ -37,7 +37,11 @@ def upsert_poster_record(
     source_url: str,
 ) -> AnimePoster:
     storage_path = build_poster_storage_path(provider, external_id, source_url)
-    poster = session.query(AnimePoster).filter(AnimePoster.anime_id == anime_id).one_or_none()
+    poster = (
+        session.query(AnimePoster)
+        .filter(AnimePoster.anime_id == anime_id, AnimePoster.storage_path == storage_path)
+        .one_or_none()
+    )
     if poster is None:
         poster = AnimePoster(anime_id=anime_id, storage_path=storage_path)
         session.add(poster)

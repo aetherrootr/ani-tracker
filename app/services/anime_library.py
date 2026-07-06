@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -51,6 +51,7 @@ def import_anime_from_provider(
         original_name=detail.title,
         type=_anime_type(detail.anime_type),
         total_episodes=detail.total_episodes,
+        air_date=detail.air_date or _first_episode_air_date(detail.episodes),
         last_synced_at=now,
     )
     session.add(anime)
@@ -267,6 +268,51 @@ def set_poster_preference(
     return progress
 
 
+def set_anime_name_preference(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+    name_id: int | None,
+) -> UserAnimeProgress | None:
+    if name_id is not None:
+        name = session.get(AnimeName, name_id)
+        if name is None or name.anime_id != progress.anime_id:
+            return None
+    progress.preferred_name_id = name_id
+    session.commit()
+    return progress
+
+
+def set_episode_name_preference(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+    episode: Episode,
+    name_id: int | None,
+) -> UserEpisodeProgress | None:
+    if name_id is not None:
+        name = session.get(EpisodeName, name_id)
+        if name is None or name.episode_id != episode.id:
+            return None
+    episode_progress = session.scalar(
+        select(UserEpisodeProgress).where(
+            UserEpisodeProgress.user_id == progress.user_id,
+            UserEpisodeProgress.episode_id == episode.id,
+        ),
+    )
+    if episode_progress is None:
+        episode_progress = UserEpisodeProgress(
+            user_id=progress.user_id,
+            episode_id=episode.id,
+            watched=False,
+            watched_at=None,
+        )
+        session.add(episode_progress)
+    episode_progress.preferred_name_id = name_id
+    session.commit()
+    return episode_progress
+
+
 def _upsert_summaries(session: Session, anime: AnimeMetaInfo, summaries: Sequence[ImportAnimeSummary]) -> None:
     for item in summaries:
         text = item.summary.strip()
@@ -351,3 +397,8 @@ def _episode_status(value: str) -> EpisodeStatus:
         return EpisodeStatus(value)
     except ValueError:
         return EpisodeStatus.UNKNOWN
+
+
+def _first_episode_air_date(episodes: Sequence[ImportEpisodeInfo]) -> date | None:
+    dates = [episode.air_at.date() for episode in episodes if episode.air_at is not None]
+    return min(dates) if dates else None

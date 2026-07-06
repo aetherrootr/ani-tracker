@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.import_provider.types import ProviderType
 from app.models.base import TimestampedBase, enum_values
 from app.models.validater import validate_duration, validate_provider_type
+from app.services.name_keys import build_name_keys
 
 if TYPE_CHECKING:
     from app.models.progress import UserAnimeProgress, UserEpisodeProgress
@@ -58,6 +69,7 @@ class AnimeMetaInfo(TimestampedBase):
         nullable=False,
     )
     total_episodes: Mapped[int | None] = mapped_column(Integer)
+    air_date: Mapped[date | None] = mapped_column(Date)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     names: Mapped[list[AnimeName]] = relationship(
@@ -75,11 +87,10 @@ class AnimeMetaInfo(TimestampedBase):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    poster: Mapped[AnimePoster | None] = relationship(
+    posters: Mapped[list[AnimePoster]] = relationship(
         back_populates="anime",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        uselist=False,
     )
     user_progresses: Mapped[list[UserAnimeProgress]] = relationship(
         back_populates="anime",
@@ -94,7 +105,12 @@ class AnimeMetaInfo(TimestampedBase):
 
 class AnimeName(TimestampedBase):
     __tablename__ = "anime_name"
-    __table_args__ = (UniqueConstraint("anime_id", "name", name="uq_anime_name_anime_id_name"),)
+    __table_args__ = (
+        UniqueConstraint("anime_id", "name", name="uq_anime_name_anime_id_name"),
+        Index("ix_anime_name_sort_key", "sort_key"),
+        Index("ix_anime_name_initial_key", "initial_key"),
+        Index("ix_anime_name_search_key", "search_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     anime_id: Mapped[int] = mapped_column(
@@ -103,8 +119,17 @@ class AnimeName(TimestampedBase):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     language: Mapped[str | None] = mapped_column(String(32))
+    sort_key: Mapped[str] = mapped_column(String(512), default="", server_default="", nullable=False)
+    initial_key: Mapped[str] = mapped_column(String(16), default="#", server_default="#", nullable=False)
+    search_key: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
 
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="names")
+
+    @validates("name")
+    def _validate_name(self, _key: str, name: str) -> str:
+        normalized_name = name.strip()
+        self.sort_key, self.initial_key, self.search_key = build_name_keys(normalized_name)
+        return normalized_name
 
 
 class AnimeSummary(TimestampedBase):
@@ -130,7 +155,7 @@ class AnimeSummary(TimestampedBase):
 
 class AnimePoster(TimestampedBase):
     __tablename__ = "anime_poster"
-    __table_args__ = (UniqueConstraint("anime_id", name="uq_anime_poster_anime_id"),)
+    __table_args__ = (UniqueConstraint("anime_id", "storage_path", name="uq_anime_poster_anime_id_storage_path"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     anime_id: Mapped[int] = mapped_column(
@@ -144,7 +169,7 @@ class AnimePoster(TimestampedBase):
     status: Mapped[str] = mapped_column(String(32), default="pending", server_default="pending", nullable=False)
     last_error: Mapped[str | None] = mapped_column(String(1024))
 
-    anime: Mapped[AnimeMetaInfo] = relationship(back_populates="poster")
+    anime: Mapped[AnimeMetaInfo] = relationship(back_populates="posters")
 
 
 class Episode(TimestampedBase):
