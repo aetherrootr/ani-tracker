@@ -19,14 +19,27 @@ POSTGRES_USER="ani_tracker"
 POSTGRES_PASSWORD="ani_tracker"
 POSTGRES_DB="ani_tracker"
 DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+REDIS_CONTAINER="ani-tracker-redis"
+REDIS_IMAGE="docker.io/library/redis:7-alpine"
+REDIS_DATA_DIR="${TMP_DIR}/redis"
+REDIS_HOST="127.0.0.1"
+REDIS_PORT="56379"
+CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/0"
+ANIME_POSTER_STORAGE_DIR="${TMP_DIR}/anime-posters"
 BACKEND_LOG="${TMP_DIR}/ani-tracker-backend.log"
 FRONTEND_LOG="${TMP_DIR}/ani-tracker-frontend.log"
+WORKER_LOG="${TMP_DIR}/ani-tracker-worker.log"
+ANIME_POSTER_STORAGE_DIR="${TMP_DIR}/anime_posters"
 
 mkdir -p "${TMP_DIR}"
 mkdir -p "${POSTGRES_DATA_DIR}"
+mkdir -p "${REDIS_DATA_DIR}"
+mkdir -p "${ANIME_POSTER_STORAGE_DIR}"
+mkdir -p "${ANIME_POSTER_STORAGE_DIR}"
 
 backend_pid=""
 frontend_pid=""
+worker_pid=""
 
 usage() {
   cat <<EOF
@@ -64,6 +77,14 @@ cleanup() {
 
   if [[ -n "${backend_pid}" ]] && kill -0 "${backend_pid}" 2>/dev/null; then
     kill "${backend_pid}"
+  fi
+
+  if [[ -n "${worker_pid}" ]] && kill -0 "${worker_pid}" 2>/dev/null; then
+    kill "${worker_pid}"
+  fi
+
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    docker stop "${POSTGRES_CONTAINER}" "${REDIS_CONTAINER}" >/dev/null 2>&1 || true
   fi
 }
 
@@ -108,7 +129,7 @@ detect_lan_ip() {
 ensure_docker_available() {
   if ! command -v docker >/dev/null 2>&1; then
     cat >&2 <<EOF
-Docker is required to start the local Postgres test database.
+Docker is required to start the local Postgres and Redis test containers.
 Install Docker or another Docker-compatible container manager, then rerun this script.
 EOF
     exit 1
@@ -120,6 +141,18 @@ Docker is installed but the Docker daemon is not reachable.
 Start Docker or your Docker-compatible container manager, then rerun this script.
 EOF
     exit 1
+  fi
+}
+
+ensure_process_alive() {
+  local pid="$1"
+  local name="$2"
+  local log_path="$3"
+
+  if ! kill -0 "${pid}" 2>/dev/null; then
+    echo "${name} exited unexpectedly." >&2
+    echo "Check ${name} log: ${log_path}" >&2
+    return 1
   fi
 }
 
@@ -169,21 +202,102 @@ start_postgres() {
   return 1
 }
 
+start_redis() {
+  ensure_docker_available
+
+  local redis_volume
+  redis_volume="${REDIS_DATA_DIR}:/data"
+  if docker --version 2>/dev/null | grep -qi podman; then
+    redis_volume="${REDIS_DATA_DIR}:/data:Z,U"
+  fi
+
+  local existing_container
+  existing_container="$(docker ps -aq -f "name=^/${REDIS_CONTAINER}$")"
+
+  if [[ -n "${existing_container}" ]]; then
+    if [[ "$(docker inspect -f '{{.State.Running}}' "${REDIS_CONTAINER}")" != "true" ]]; then
+      echo "Recreating stopped Redis container ${REDIS_CONTAINER}"
+      docker rm "${REDIS_CONTAINER}" >/dev/null
+      existing_container=""
+    fi
+  fi
+
+  if [[ -z "${existing_container}" ]]; then
+    echo "Creating Redis container ${REDIS_CONTAINER}"
+    docker run -d \
+      --name "${REDIS_CONTAINER}" \
+      -p "${REDIS_HOST}:${REDIS_PORT}:6379" \
+      -v "${redis_volume}" \
+      "${REDIS_IMAGE}" \
+      redis-server --appendonly yes >/dev/null
+  else
+    echo "Using running Redis container ${REDIS_CONTAINER}"
+  fi
+
+  echo "Waiting for Redis on ${REDIS_HOST}:${REDIS_PORT}"
+  for _ in {1..80}; do
+    if docker exec "${REDIS_CONTAINER}" redis-cli ping >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  echo "Redis did not become ready. Check container logs with: docker logs ${REDIS_CONTAINER}" >&2
+  return 1
+}
+
+requeue_pending_posters() {
+  echo "Queueing pending poster downloads"
+  DATABASE_URL="${DATABASE_URL}" \
+  CELERY_BROKER_URL="${CELERY_BROKER_URL}" \
+  ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}" \
+  uv run python - <<'PY'
+from sqlalchemy import select
+
+from app import create_app
+from app.db import get_db
+from app.models.anime import AnimePoster
+from app.services.anime_poster import enqueue_poster_download
+
+app = create_app({"CREATE_TABLES": False})
+with app.app_context():
+    db = get_db()
+    poster_ids = db.scalars(select(AnimePoster.id).where(AnimePoster.status == "pending")).all()
+    for poster_id in poster_ids:
+        enqueue_poster_download(poster_id)
+    print(f"Queued {len(poster_ids)} pending poster download(s).")
+PY
+}
+
 trap cleanup EXIT INT TERM
 
 ensure_url_is_free "${BACKEND_URL}/api/auth/me" "Backend"
 ensure_url_is_free "${FRONTEND_URL}/login" "Frontend"
 start_postgres
+start_redis
 
 cat <<EOF
 Integration environment logs:
 Backend:  ${BACKEND_LOG}
 Frontend: ${FRONTEND_LOG}
+Worker:   ${WORKER_LOG}
 EOF
+
+echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
+DATABASE_URL="${DATABASE_URL}" \
+CELERY_BROKER_URL="${CELERY_BROKER_URL}" \
+ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}" \
+uv run celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo >"${WORKER_LOG}" 2>&1 &
+worker_pid="$!"
+sleep 1
+ensure_process_alive "${worker_pid}" "Celery worker" "${WORKER_LOG}"
+# requeue_pending_posters
 
 echo "Starting backend on ${BACKEND_URL}"
 DATABASE_URL="${DATABASE_URL}" \
 CORS_ORIGIN="${FRONTEND_URL}" \
+CELERY_BROKER_URL="${CELERY_BROKER_URL}" \
+ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}" \
 SECRET_KEY="integration-test-secret" \
 uv run python -m app.main >"${BACKEND_LOG}" 2>&1 &
 backend_pid="$!"
@@ -205,11 +319,15 @@ Integration environment is ready.
 Frontend: ${FRONTEND_URL}
 Backend:  ${BACKEND_URL}
 Database: ${DATABASE_URL}
+Redis:    ${CELERY_BROKER_URL}
 Postgres data: ${POSTGRES_DATA_DIR}
+Redis data:    ${REDIS_DATA_DIR}
+Posters:       ${ANIME_POSTER_STORAGE_DIR}
 
 Logs:
 Backend:  ${BACKEND_LOG}
 Frontend: ${FRONTEND_LOG}
+Worker:   ${WORKER_LOG}
 EOF
 
 if [[ "${ENABLE_LAN_DEV}" == "1" ]]; then
