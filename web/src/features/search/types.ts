@@ -17,6 +17,9 @@ export type AnimeSearchResult = {
   imageUrl: string | null;
   url: string;
   rawData: Record<string, unknown>;
+  inLibrary: boolean;
+  animeId: number | null;
+  libraryStatus: string | null;
 };
 
 export type SearchAnimeInput = {

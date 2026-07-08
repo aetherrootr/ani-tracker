@@ -352,18 +352,25 @@ def _upsert_episodes(session: Session, anime: AnimeMetaInfo, episodes: Sequence[
         episode.episode_number: episode
         for episode in session.scalars(select(Episode).where(Episode.anime_id == anime.id)).all()
     }
+    # Some upstream Bangumi entries represent a movie/special as a single episode
+    # but omit episode-level metadata. Reuse anime-level metadata in that narrow case
+    # so the frontend can render a sensible single-entry detail page.
+    fallback_air_at = _single_episode_fallback_air_at(anime.air_date, episodes)
+    fallback_title = _single_movie_episode_fallback_title(anime, episodes)
     for item in episodes:
         episode = existing.get(item.episode_number)
         if episode is None:
             episode = Episode(anime_id=anime.id, episode_number=item.episode_number)
             session.add(episode)
-        episode.original_title = item.title
-        episode.air_at = item.air_at
+        resolved_air_at = item.air_at or fallback_air_at
+        resolved_title = item.title or fallback_title
+        episode.original_title = resolved_title
+        episode.air_at = resolved_air_at
         episode.duration = item.duration
-        episode.status = _episode_status(item.status)
+        episode.status = _resolved_episode_status(item.status, resolved_air_at)
         episode.last_synced_at = synced_at
         session.flush()
-        _upsert_episode_names(session, episode, item.names, item.title)
+        _upsert_episode_names(session, episode, item.names, resolved_title)
 
 
 def _upsert_episode_names(
@@ -399,6 +406,34 @@ def _episode_status(value: str) -> EpisodeStatus:
         return EpisodeStatus.UNKNOWN
 
 
+def _resolved_episode_status(value: str, air_at: datetime | None) -> EpisodeStatus:
+    if air_at is not None:
+        today = datetime.now(UTC).date()
+        return EpisodeStatus.AIRED if air_at.date() <= today else EpisodeStatus.UPCOMING
+    return _episode_status(value)
+
+
 def _first_episode_air_date(episodes: Sequence[ImportEpisodeInfo]) -> date | None:
     dates = [episode.air_at.date() for episode in episodes if episode.air_at is not None]
     return min(dates) if dates else None
+
+
+def _single_episode_fallback_air_at(anime_air_date: date | None, episodes: Sequence[ImportEpisodeInfo]) -> datetime | None:
+    # Bangumi sometimes stores the release date only on the anime/movie subject and
+    # leaves the lone episode without air time. Promote the anime-level air_date to
+    # the single episode so downstream logic can treat it as aired/upcoming correctly.
+    if anime_air_date is None or len(episodes) != 1:
+        return None
+    if episodes[0].air_at is not None:
+        return None
+    return datetime.combine(anime_air_date, datetime.min.time(), tzinfo=UTC)
+
+
+def _single_movie_episode_fallback_title(anime: AnimeMetaInfo, episodes: Sequence[ImportEpisodeInfo]) -> str | None:
+    # Single-entry movie records can miss the episode title entirely. Falling back to
+    # the anime title keeps the episode list readable and avoids blank labels in the UI.
+    if anime.type != AnimeType.MOVIE or len(episodes) != 1:
+        return None
+    if episodes[0].title is not None and episodes[0].title.strip():
+        return None
+    return anime.original_name.strip() or None

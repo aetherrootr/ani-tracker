@@ -18,7 +18,7 @@ export function MobileTopNav() {
     pathname.startsWith(`${settingsNavigationItem.href}/`);
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur md:hidden">
+    <header className="sticky top-0 z-[60] border-b bg-background/90 backdrop-blur md:hidden">
       <div className="flex h-14 items-center justify-between px-4">
         <Link href="/tracking-list" className="font-semibold tracking-tight">
           Ani Tracker

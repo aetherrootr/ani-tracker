@@ -29,6 +29,7 @@ export function SearchPageContent() {
     updateKeyword,
     loadMore,
     retrySearch,
+    markResultInLibrary,
   } = useAnimeSearch();
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -260,6 +261,7 @@ export function SearchPageContent() {
                   result.imageUrl && failedImageUrls.has(result.imageUrl),
                 )}
                 onImageError={handleImageError}
+                onLibraryAdded={markResultInLibrary}
               />
             ))}
           </div>

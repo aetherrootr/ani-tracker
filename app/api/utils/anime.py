@@ -174,12 +174,13 @@ def serialize_poster(
 ) -> dict[str, Any] | None:
     if poster is None:
         return None
+    version = f'?v={poster.id}-{poster.status}'
     return {
         'id': poster.id,
         'status': poster.status,
-        'url': f'/api/anime/library/{poster.anime_id}/poster'
+        'url': f'/api/anime/library/{poster.anime_id}/poster{version}'
         if current_url
-        else f'/api/anime/library/{poster.anime_id}/posters/{poster.id}',
+        else f'/api/anime/library/{poster.anime_id}/posters/{poster.id}{version}',
         'isPreferred': progress.preferred_poster_id == poster.id,
     }
 
@@ -293,7 +294,7 @@ def serialize_anime(
         'displayName': selected_name.name if selected_name is not None else anime.original_name,
         'originalName': anime.original_name,
         'summary': serialize_summary(selected_summary, progress),
-        'posterUrl': f'/api/anime/library/{anime.id}/poster' if selected_poster is not None else None,
+        'posterUrl': serialize_poster(selected_poster, progress)['url'] if selected_poster is not None else None,
         'poster': serialize_poster(selected_poster, progress),
         'preferredNameId': progress.preferred_name_id,
         'preferredPosterId': progress.preferred_poster_id,

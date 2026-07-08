@@ -1,25 +1,44 @@
-import { ChevronDown, ChevronRight, ExternalLink, ImageOff } from "lucide-react";
+import Link from "next/link";
+import { BookOpenCheck, ChevronDown, ChevronRight, ExternalLink, ImageOff, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { addSearchResultToLibrary } from "@/features/search/api";
 import type { AnimeSearchResult } from "@/features/search/types";
 
 type SearchResultCardProps = {
   result: AnimeSearchResult;
   imageFailed: boolean;
   onImageError: (imageUrl: string) => void;
+  onLibraryAdded: (provider: string, externalId: string, animeId: number, libraryStatus: string) => void;
 };
 
-export function SearchResultCard({ result, imageFailed, onImageError }: SearchResultCardProps) {
+export function SearchResultCard({ result, imageFailed, onImageError, onLibraryAdded }: SearchResultCardProps) {
   const t = useTranslations();
   const hasImage = result.imageUrl && !imageFailed;
   const [showDetails, setShowDetails] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  async function addToLibrary() {
+    setIsAdding(true);
+    setAddError(null);
+    try {
+      const response = await addSearchResultToLibrary(result.provider, result.externalId);
+      onLibraryAdded(result.provider, result.externalId, response.anime.id, response.progress.status);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : t("search.addToLibraryFailed"));
+    } finally {
+      setIsAdding(false);
+    }
+  }
 
   return (
     <Card className="overflow-hidden">
-      <CardContent className="grid grid-cols-[72px_1fr] gap-3 p-3 sm:grid-cols-[128px_1fr] sm:gap-4 sm:p-4 md:p-5">
+      <CardContent className="grid grid-cols-[72px_1fr_auto] gap-3 p-3 sm:grid-cols-[128px_1fr_auto] sm:gap-4 sm:p-4 md:grid-cols-[128px_1fr_180px] md:p-5">
         <div className="flex h-24 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground sm:h-44 sm:rounded-xl">
           {hasImage ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -109,6 +128,35 @@ export function SearchResultCard({ result, imageFailed, onImageError }: SearchRe
             {t("anime.viewOnProvider", { provider: result.provider })}
             <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           </a>
+        </div>
+
+        <div className="flex items-center md:border-l md:pl-4">
+          <div className="flex w-full flex-col items-center justify-center gap-2 md:min-h-44 md:rounded-2xl md:bg-muted/25 md:p-3">
+            {result.inLibrary && result.animeId ? (
+              <Link
+                href={`/library/${result.animeId}`}
+                className="inline-flex h-11 w-11 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border bg-background/60 px-0 text-[11px] font-medium shadow-sm backdrop-blur transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-[46px] md:w-full md:rounded-xl md:px-2.5 lg:text-xs"
+                aria-label={t("search.viewInLibrary")}
+                title={t("search.viewInLibrary")}
+              >
+                <BookOpenCheck className="h-4 w-4" />
+                <span className="hidden md:inline">{t("search.viewInLibrary")}</span>
+              </Link>
+            ) : (
+              <Button
+                type="button"
+                className="h-11 w-11 rounded-full px-0 text-xs md:h-[46px] md:w-full md:rounded-xl md:px-3 sm:text-sm"
+                disabled={isAdding}
+                aria-label={isAdding ? t("search.addingToLibrary") : t("search.addToLibrary")}
+                title={isAdding ? t("search.addingToLibrary") : t("search.addToLibrary")}
+                onClick={() => void addToLibrary()}
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden md:inline">{isAdding ? t("search.addingToLibrary") : t("search.addToLibrary")}</span>
+              </Button>
+            )}
+            {addError ? <p className="text-center text-xs text-destructive">{addError}</p> : null}
+          </div>
         </div>
       </CardContent>
     </Card>

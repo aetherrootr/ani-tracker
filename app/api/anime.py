@@ -23,6 +23,7 @@ from app.api.utils.anime import (
     select_poster_for_user,
     serialize_anime,
     serialize_anime_name,
+    serialize_poster,
     serialize_episode_name,
     serialize_episode_with_watch_state,
     serialize_import_search_result,
@@ -154,7 +155,7 @@ def _sort_library_progresses(
         )
     return sorted(
         progresses,
-        key=lambda progress: _nullable_timestamp_sort_key(progress.updated_at, progress.anime_id, order=order),
+        key=lambda progress: _nullable_timestamp_sort_key(progress.created_at, progress.anime_id, order=order),
     )
 
 
@@ -190,9 +191,11 @@ def _build_navigation_anchors(
             label = key.upper() if key != '#' else '#'
         else:
             if progress.anime.air_date is None:
-                continue
-            key = progress.anime.air_date.strftime('%Y-%m')
-            label = key
+                key = 'unknown'
+                label = 'Unknown'
+            else:
+                key = progress.anime.air_date.strftime('%Y-%m')
+                label = key
         if key in seen:
             continue
         seen.add(key)
@@ -597,14 +600,7 @@ def update_poster_preference(db: Session, user: User, anime_id: int) -> Response
     poster = db.scalar(select(AnimePoster).where(AnimePoster.id == poster_id)) if poster_id is not None else None
     return jsonify(
         {
-            'poster': {
-                'id': poster.id,
-                'status': poster.status,
-                'url': f'/api/anime/library/{anime_id}/poster',
-                'isPreferred': progress.preferred_poster_id == poster.id,
-            }
-            if poster is not None
-            else None,
+            'poster': serialize_poster(poster, progress) if poster is not None else None,
             'progress': {'id': progress.id, 'animeId': anime_id, 'preferredPosterId': progress.preferred_poster_id},
         },
     )

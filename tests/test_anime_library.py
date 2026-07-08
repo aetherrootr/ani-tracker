@@ -125,6 +125,7 @@ def add_library_anime(
     names: list[tuple[str, str | None]],
     status: UserAnimeStatus = UserAnimeStatus.PLAN_TO_WATCH,
     air_date: date | None = None,
+    created_at: datetime | None = None,
     updated_at: datetime | None = None,
 ) -> AnimeMetaInfo:
     anime = AnimeMetaInfo(
@@ -140,6 +141,8 @@ def add_library_anime(
     for name, language in names:
         session.add(AnimeName(anime_id=anime.id, name=name, language=language))
     progress = UserAnimeProgress(user_id=user_id, anime_id=anime.id, status=status)
+    if created_at is not None:
+        progress.created_at = created_at
     if updated_at is not None:
         progress.updated_at = updated_at
     session.add(progress)
@@ -177,7 +180,7 @@ def test_add_to_library_imports_anime_and_progress(
     body = response.get_json()
     assert body['animeCreated'] is True
     assert body['libraryEntryCreatedOrRestored'] is True
-    assert body['anime']['posterUrl'] == '/api/anime/library/1/poster'
+    assert body['anime']['posterUrl'] == '/api/anime/library/1/poster?v=1-pending'
     assert body['anime']['posterStatus'] == 'pending'
     assert body['progress']['status'] == 'plan_to_watch'
     assert provider.detail_calls == ['493042']
@@ -238,6 +241,108 @@ def test_add_to_library_restores_dropped_progress(
     assert response.get_json()['libraryEntryCreatedOrRestored'] is True
     db_session.refresh(progress)
     assert progress.status == UserAnimeStatus.PLAN_TO_WATCH
+
+
+def test_single_episode_uses_anime_air_date_when_episode_air_time_missing(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    class SingleEpisodeProvider(FakeProvider):
+        def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+            self.detail_calls.append(external_id)
+            return ImportAnimeDetail(
+                provider='bangumi',
+                external_id=external_id,
+                title='Ghost in the Shell SAC_2045 Movie',
+                original_title='攻殻機動隊 SAC_2045 持続可能戦争',
+                summaries=[],
+                poster_source_url=None,
+                anime_type='movie',
+                total_episodes=1,
+                url=f'https://bgm.tv/subject/{external_id}',
+                names=[],
+                episodes=[
+                    ImportEpisodeInfo(
+                        provider='bangumi',
+                        external_id='1',
+                        episode_number=1,
+                        title='Sustainable War',
+                        names=[],
+                        air_at=None,
+                        duration='01:58:00',
+                        status='unknown',
+                        url='https://bgm.tv/ep/1',
+                        raw_data={'id': 1},
+                    ),
+                ],
+                raw_data={'id': int(external_id)},
+                air_date=date(2021, 11, 12),
+            )
+
+    provider = SingleEpisodeProvider()
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert register_user(client).status_code == 201
+
+    response = client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '1'})
+
+    assert response.status_code == 201
+    episode = db_session.scalar(select(Episode))
+    assert episode is not None
+    assert episode.air_at is not None
+    assert episode.air_at.date() == date(2021, 11, 12)
+    assert episode.status.value == 'aired'
+
+
+def test_single_movie_episode_without_title_uses_anime_title(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    class SingleMovieProvider(FakeProvider):
+        def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+            self.detail_calls.append(external_id)
+            return ImportAnimeDetail(
+                provider='bangumi',
+                external_id=external_id,
+                title='Ghost in the Shell SAC_2045 Sustainable War',
+                original_title='攻殻機動隊 SAC_2045 持続可能戦争',
+                summaries=[],
+                poster_source_url=None,
+                anime_type='movie',
+                total_episodes=1,
+                url=f'https://bgm.tv/subject/{external_id}',
+                names=[],
+                episodes=[
+                    ImportEpisodeInfo(
+                        provider='bangumi',
+                        external_id='1',
+                        episode_number=1,
+                        title=None,
+                        names=[],
+                        air_at=None,
+                        duration='01:58:00',
+                        status='unknown',
+                        url='https://bgm.tv/ep/1',
+                        raw_data={'id': 1},
+                    ),
+                ],
+                raw_data={'id': int(external_id)},
+                air_date=date(2021, 11, 12),
+            )
+
+    provider = SingleMovieProvider()
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert register_user(client).status_code == 201
+
+    response = client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '2'})
+
+    assert response.status_code == 201
+    episode = db_session.scalar(select(Episode))
+    assert episode is not None
+    assert episode.original_title == 'Ghost in the Shell SAC_2045 Sustainable War'
+    episode_names = db_session.scalars(select(EpisodeName).where(EpisodeName.episode_id == episode.id)).all()
+    assert [name.name for name in episode_names] == ['Ghost in the Shell SAC_2045 Sustainable War']
 
 
 def test_episode_list_returns_preferred_episode_name(app: Flask, client: FlaskClient) -> None:
@@ -335,6 +440,37 @@ def test_library_list_filters_status_and_rejects_dropped(
     assert dropped_response.status_code == 400
 
 
+def test_library_list_updated_at_sort_uses_added_time(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='Added Earlier Updated Later',
+        names=[('Added Earlier Updated Later', 'en')],
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2024, 3, 1, tzinfo=UTC),
+    )
+    add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Added Later Updated Earlier',
+        names=[('Added Later Updated Earlier', 'en')],
+        created_at=datetime(2024, 2, 1, tzinfo=UTC),
+        updated_at=datetime(2024, 1, 15, tzinfo=UTC),
+    )
+
+    response = client.get('/api/anime/library?sort=updated_at&order=desc')
+
+    assert response.status_code == 200
+    assert [item['anime']['displayName'] for item in response.get_json()['items']] == [
+        'Added Later Updated Earlier',
+        'Added Earlier Updated Later',
+    ]
+
+
 def test_library_list_sorts_air_date_and_returns_month_anchors(
     client: FlaskClient,
     db_session: Session,
@@ -363,6 +499,36 @@ def test_library_list_sorts_air_date_and_returns_month_anchors(
     assert body['navigationAnchors'] == [
         {'key': '2024-02', 'label': '2024-02', 'offset': 0, 'page': 1},
         {'key': '2023-09', 'label': '2023-09', 'offset': 1, 'page': 1},
+    ]
+
+
+def test_library_list_air_date_anchors_include_unknown(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='Known',
+        names=[('Known', 'en')],
+        air_date=date(2024, 2, 1),
+    )
+    add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Unknown',
+        names=[('Unknown', 'en')],
+        air_date=None,
+    )
+
+    response = client.get('/api/anime/library?sort=air_date&order=desc&limit=20')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['navigationAnchors'] == [
+        {'key': '2024-02', 'label': '2024-02', 'offset': 0, 'page': 1},
+        {'key': 'unknown', 'label': 'Unknown', 'offset': 1, 'page': 1},
     ]
 
 
@@ -396,10 +562,10 @@ def test_anime_detail_returns_available_names_air_date_and_posters(
         {'id': 2, 'language': 'en', 'name': 'K-On!'},
     ]
     assert body['poster']['id'] == 2
-    assert body['posterUrl'] == f'/api/anime/library/{anime.id}/poster'
+    assert body['posterUrl'] == f'/api/anime/library/{anime.id}/poster?v=2-ready'
     assert [poster['url'] for poster in body['availablePosters']] == [
-        f'/api/anime/library/{anime.id}/posters/1',
-        f'/api/anime/library/{anime.id}/posters/2',
+        f'/api/anime/library/{anime.id}/posters/1?v=1-failed',
+        f'/api/anime/library/{anime.id}/posters/2?v=2-ready',
     ]
 
 
@@ -471,7 +637,7 @@ def test_poster_preference_can_be_set_and_cleared(app: Flask, client: FlaskClien
         'poster': {
             'id': 1,
             'status': 'pending',
-            'url': '/api/anime/library/1/poster',
+            'url': '/api/anime/library/1/poster?v=1-pending',
             'isPreferred': True,
         },
         'progress': {'id': 1, 'animeId': 1, 'preferredPosterId': 1},
