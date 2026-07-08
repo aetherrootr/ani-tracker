@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from functools import wraps
+from typing import Concatenate
 
+from flask import jsonify, session as flask_session
+from flask.typing import ResponseReturnValue
+from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from app.db import get_db
 from app.models.user import DEFAULT_LANGUAGE_PREFERENCE, User
 
 USERNAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
@@ -17,6 +24,30 @@ def hash_password(password: str) -> str:
 
 def verify_password(password_hash: str, password: str) -> bool:
     return check_password_hash(password_hash, password)
+
+
+def get_current_user(db: Session) -> User | None:
+    user_id = flask_session.get('user_id')
+    if not isinstance(user_id, int):
+        return None
+    user = db.get(User, user_id)
+    if user is None:
+        flask_session.clear()
+    return user
+
+
+def require_auth_user[**P, R: ResponseReturnValue](
+    view: Callable[Concatenate[Session, User, P], R],
+) -> Callable[P, ResponseReturnValue]:
+    @wraps(view)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> ResponseReturnValue:
+        db = get_db()
+        user = get_current_user(db)
+        if user is None:
+            return jsonify({'message': 'Authentication required'}), 401
+        return view(db, user, *args, **kwargs)
+
+    return wrapped
 
 
 def user_to_auth_dict(user: User) -> dict[str, object]:

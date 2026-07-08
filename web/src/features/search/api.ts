@@ -2,6 +2,11 @@ import { apiFetch } from "@/lib/api-client";
 
 import type { AnimeSearchResponse, SearchAnimeInput } from "./types";
 
+type AddToLibraryResponse = {
+  anime: { id: number };
+  progress: { status: string };
+};
+
 export function searchAnime({
   keyword,
   limit = 10,
@@ -17,5 +22,12 @@ export function searchAnime({
 
   return apiFetch<AnimeSearchResponse>(`/api/anime/search?${params.toString()}`, {
     signal,
+  });
+}
+
+export function addSearchResultToLibrary(provider: string, externalId: string) {
+  return apiFetch<AddToLibraryResponse>("/api/anime/library", {
+    method: "POST",
+    body: JSON.stringify({ provider, externalId }),
   });
 }

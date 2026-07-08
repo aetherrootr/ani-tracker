@@ -1,9 +1,10 @@
-import { BookOpen, Search, Settings } from "lucide-react";
+import { BookOpen, Library, Search, Settings } from "lucide-react";
 
 import type { TranslationKey } from "@/i18n";
 
 export const navigationItems = [
   { href: "/tracking-list", labelKey: "nav.trackingList", icon: BookOpen },
+  { href: "/library", labelKey: "nav.library", icon: Library },
   { href: "/search", labelKey: "nav.search", icon: Search },
 ] satisfies Array<{
   href: string;

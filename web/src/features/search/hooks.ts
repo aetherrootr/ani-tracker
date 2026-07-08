@@ -154,6 +154,16 @@ export function useAnimeSearch() {
     setRetryKey((current) => current + 1);
   }
 
+  function markResultInLibrary(provider: string, externalId: string, animeId: number, libraryStatus: string) {
+    setResults((currentResults) =>
+      currentResults.map((result) =>
+        result.provider === provider && result.externalId === externalId
+          ? { ...result, inLibrary: true, animeId, libraryStatus }
+          : result,
+      ),
+    );
+  }
+
   return {
     keyword,
     hasKeyword: Boolean(keyword.trim()),
@@ -167,5 +177,6 @@ export function useAnimeSearch() {
     updateKeyword,
     loadMore,
     retrySearch,
+    markResultInLibrary,
   };
 }
