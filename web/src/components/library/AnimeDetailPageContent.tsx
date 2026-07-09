@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -17,6 +16,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { EpisodeList } from "./EpisodeList";
 import { SkeletonBlock } from "./LibraryPagination";
 import { NoPoster } from "./NoPoster";
+import { PosterImage } from "./PosterImage";
 
 const STATUS_OPTIONS: UserAnimeStatus[] = ["plan_to_watch", "watching", "completed", "on_hold", "dropped"];
 
@@ -78,11 +78,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
 
       <section className="relative overflow-hidden rounded-3xl border bg-card shadow-sm">
         {poster ? (
-          <Image
+          <PosterImage
             src={poster}
             alt=""
-            fill
-            unoptimized
             sizes="100vw"
             className="scale-110 object-cover opacity-25 blur-2xl"
           />
@@ -92,11 +90,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         <div className="relative z-10 grid gap-6 p-5 sm:grid-cols-[220px_1fr] sm:p-8">
           <div className="relative mx-auto hidden aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:block sm:w-full">
             {poster ? (
-              <Image
+              <PosterImage
                 src={poster}
                 alt={t("anime.coverAlt", { title: data.anime.displayName })}
-                fill
-                unoptimized
                 sizes="220px"
                 className="object-cover"
               />
@@ -113,11 +109,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
             </div>
             <div className="relative mx-auto aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:hidden">
               {poster ? (
-                <Image
+                <PosterImage
                   src={poster}
                   alt={t("anime.coverAlt", { title: data.anime.displayName })}
-                  fill
-                  unoptimized
                   sizes="176px"
                   className="object-cover"
                 />

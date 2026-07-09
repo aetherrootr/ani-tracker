@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
 import { getTrackingList, getTrackingListPage, updateEpisodeWatchState } from "@/features/library/api";
@@ -21,6 +21,7 @@ export function TrackingListPageContent() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [loadingMoreKey, setLoadingMoreKey] = useState<TrackingListKey | null>(null);
   const [activeMobileTab, setActiveMobileTab] = useState<TrackingListKey>("tracking");
+  const isDesktop = useDesktopLayout();
   const tracking = data?.tracking.items ?? [];
   const backlog = data?.backlog.items ?? [];
   const recentlyWatched = data?.recentlyWatched.items ?? [];
@@ -72,7 +73,7 @@ export function TrackingListPageContent() {
         ...data,
         [listKey]: {
           ...next,
-          items: [...current.items, ...next.items],
+          items: mergeTrackingItems(current.items, next.items),
         },
       });
     } finally {
@@ -116,7 +117,8 @@ export function TrackingListPageContent() {
             ))}
           </div>
 
-          <div className="hidden space-y-8 sm:block">
+          {isDesktop ? (
+          <div className="space-y-8">
             <TrackingSection
               title={t("tracking.trackingSection")}
               items={tracking}
@@ -158,8 +160,10 @@ export function TrackingListPageContent() {
               onLoadMore={handleLoadMore}
             />
           </div>
+          ) : null}
 
-          <div className="min-h-0 flex-1 sm:hidden">
+          {!isDesktop ? (
+          <div className="min-h-0 flex-1">
             {activeMobileTab === "tracking" ? (
               <TrackingSection
                 title={t("tracking.trackingSection")}
@@ -213,10 +217,29 @@ export function TrackingListPageContent() {
               />
             ) : null}
           </div>
+          ) : null}
         </main>
       ) : null}
     </div>
   );
+}
+
+function useDesktopLayout() {
+  return useSyncExternalStore(subscribeToViewport, getDesktopSnapshot, getServerSnapshot);
+}
+
+function subscribeToViewport(onStoreChange: () => void) {
+  const query = window.matchMedia("(min-width: 640px)");
+  query.addEventListener("change", onStoreChange);
+  return () => query.removeEventListener("change", onStoreChange);
+}
+
+function getDesktopSnapshot() {
+  return window.matchMedia("(min-width: 640px)").matches;
+}
+
+function getServerSnapshot() {
+  return false;
 }
 
 function TrackingSection({
@@ -380,4 +403,17 @@ function keepAnimeAtPosition(data: TrackingListResponse, listKey: "tracking" | "
       ],
     },
   };
+}
+
+function mergeTrackingItems(currentItems: TrackingListItem[], nextItems: TrackingListItem[]) {
+  const seen = new Set(currentItems.map((item) => item.episode.id));
+  const merged = [...currentItems];
+  for (const item of nextItems) {
+    if (seen.has(item.episode.id)) {
+      continue;
+    }
+    seen.add(item.episode.id);
+    merged.push(item);
+  }
+  return merged;
 }
