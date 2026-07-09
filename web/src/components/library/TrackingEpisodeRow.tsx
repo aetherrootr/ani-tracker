@@ -18,10 +18,11 @@ type Props = {
   item: TrackingListItem;
   disabled?: boolean;
   isSaving?: boolean;
+  showProgress?: boolean;
   onWatchChange: (item: TrackingListItem, watched: boolean) => Promise<void>;
 };
 
-export function TrackingEpisodeRow({ item, disabled, isSaving, onWatchChange }: Props) {
+export function TrackingEpisodeRow({ item, disabled, isSaving, showProgress = true, onWatchChange }: Props) {
   const t = useTranslations();
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
   const poster = assetUrl(item.anime.posterUrl);
@@ -97,7 +98,7 @@ export function TrackingEpisodeRow({ item, disabled, isSaving, onWatchChange }: 
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <Badge variant="secondary">{t("tracking.nextEpisode")}</Badge>
                   <span>{t("tracking.airedAt")}: {item.episode.airAt?.slice(0, 10) ?? "-"}</span>
-                  <span>{t("tracking.progress")}: {progress}</span>
+                  {showProgress ? <span>{t("tracking.progress")}: {progress}</span> : null}
                 </div>
               </div>
             </div>
