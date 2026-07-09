@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from celery.schedules import crontab_parser
+
 
 def safe_int(value: object, *, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
     try:
@@ -43,6 +45,15 @@ def env_int(name: str, *, default: int, minimum: int | None = None, maximum: int
 
 def env_float(name: str, *, default: float, minimum: float | None = None, maximum: float | None = None) -> float:
     return safe_float(os.environ.get(name, str(default)), default=default, minimum=minimum, maximum=maximum)
+
+
+def safe_cron_months(value: object, *, default: str = '2,5,8,11') -> str:
+    months = str(value or default)
+    try:
+        crontab_parser(12, 1).parse(months)
+    except (KeyError, ValueError):
+        return default
+    return months
 
 
 def local_timezone(value: object | None = None) -> str:

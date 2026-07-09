@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.celery_app import celery_app
+from app.db import default_database_url
+from app.services.anime_cleanup import delete_untracked_anime
+
+
+@celery_app.task(name='app.tasks.anime_cleanup.delete_untracked_anime')
+def delete_untracked_anime_task() -> dict[str, int]:
+    database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
+    storage_dir = str(
+        celery_app.conf.get('anime_poster_storage_dir')
+        or os.environ.get('ANIME_POSTER_STORAGE_DIR', 'instance/anime_posters'),
+    )
+    connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
+    engine = create_engine(database_url, connect_args=connect_args)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with session_factory() as session:
+        return delete_untracked_anime(session, poster_storage_dir=storage_dir)

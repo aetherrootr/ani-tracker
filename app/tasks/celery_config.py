@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+import secrets
 
 from celery.schedules import crontab
 
 from app.celery_app import celery_app
-from app.utils import env_bool, local_timezone, safe_int
+from app.utils import env_bool, local_timezone, safe_cron_months, safe_int
 
 
 def configure_celery_from_env() -> None:
@@ -18,6 +19,10 @@ def configure_celery_from_env() -> None:
         beat_schedule=_beat_schedule(
             os.environ.get('ANIME_SYNC_CRON_HOUR', '4'),
             os.environ.get('ANIME_SYNC_CRON_MINUTE', '0'),
+            os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
+            os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_DAY'),
+            os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_HOUR'),
+            os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE'),
         ),
     )
 
@@ -36,17 +41,37 @@ def configure_celery(config: dict[str, object]) -> None:
         beat_schedule=_beat_schedule(
             config.get('ANIME_SYNC_CRON_HOUR', 4),
             config.get('ANIME_SYNC_CRON_MINUTE', 0),
+            config.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
+            config.get('UNTRACKED_ANIME_CLEANUP_CRON_DAY'),
+            config.get('UNTRACKED_ANIME_CLEANUP_CRON_HOUR'),
+            config.get('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE'),
         ),
     )
 
 
-def _beat_schedule(hour: object, minute: object) -> dict[str, object]:
+def _beat_schedule(
+    hour: object,
+    minute: object,
+    cleanup_months: object = None,
+    cleanup_day: object = None,
+    cleanup_hour: object = None,
+    cleanup_minute: object = None,
+) -> dict[str, object]:
     return {
         'sync-airing-anime': {
             'task': 'app.tasks.anime_sync.sync_airing_anime',
             'schedule': crontab(
                 hour=safe_int(hour, default=4, minimum=0, maximum=23),
                 minute=safe_int(minute, default=0, minimum=0, maximum=59),
+            ),
+        },
+        'delete-untracked-anime': {
+            'task': 'app.tasks.anime_cleanup.delete_untracked_anime',
+            'schedule': crontab(
+                month_of_year=safe_cron_months(cleanup_months),
+                day_of_month=safe_int(cleanup_day, default=secrets.randbelow(28) + 1, minimum=1, maximum=28),
+                hour=safe_int(cleanup_hour, default=secrets.randbelow(24), minimum=0, maximum=23),
+                minute=safe_int(cleanup_minute, default=secrets.randbelow(60), minimum=0, maximum=59),
             ),
         },
     }

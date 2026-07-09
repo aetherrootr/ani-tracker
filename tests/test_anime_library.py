@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from flask import Flask
@@ -1151,15 +1152,98 @@ def test_sync_airing_anime_task_selects_airing_and_continues_after_failure(
 
 
 def test_celery_beat_schedule_defaults_and_env_override() -> None:
-    configure_celery({'CELERY_BROKER_URL': 'memory://', 'ANIME_SYNC_CRON_HOUR': 4, 'ANIME_SYNC_CRON_MINUTE': 0})
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'ANIME_SYNC_CRON_HOUR': 4,
+            'ANIME_SYNC_CRON_MINUTE': 0,
+            'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
+            'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,
+            'UNTRACKED_ANIME_CLEANUP_CRON_MINUTE': 9,
+        },
+    )
     default_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
-    configure_celery({'CELERY_BROKER_URL': 'memory://', 'ANIME_SYNC_CRON_HOUR': 6, 'ANIME_SYNC_CRON_MINUTE': 30})
+    cleanup_schedule = celery_app.conf.beat_schedule['delete-untracked-anime']['schedule']
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'ANIME_SYNC_CRON_HOUR': 6,
+            'ANIME_SYNC_CRON_MINUTE': 30,
+        },
+    )
     override_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
 
     assert default_schedule.hour == {4}
     assert default_schedule.minute == {0}
+    assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
+    assert cleanup_schedule.day_of_month == {7}
+    assert cleanup_schedule.hour == {8}
+    assert cleanup_schedule.minute == {9}
     assert override_schedule.hour == {6}
     assert override_schedule.minute == {30}
+
+
+def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'UNTRACKED_ANIME_CLEANUP_CRON_MONTHS': 'not-a-month',
+            'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
+            'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,
+            'UNTRACKED_ANIME_CLEANUP_CRON_MINUTE': 9,
+        },
+    )
+
+    cleanup_schedule = celery_app.conf.beat_schedule['delete-untracked-anime']['schedule']
+
+    assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
+
+
+def test_delete_untracked_anime_task_removes_database_rows_and_posters(
+    app: Flask,
+    db_session: Session,
+) -> None:
+    from app.tasks.anime_cleanup import delete_untracked_anime_task
+
+    tracked = add_library_anime(db_session, external_id='tracked', original_name='Tracked', names=[('Tracked', 'en')])
+    untracked = AnimeMetaInfo(provider_type='bangumi', external_id='orphan', original_name='Orphan')
+    db_session.add(untracked)
+    db_session.flush()
+    untracked_name = AnimeName(anime_id=untracked.id, name='Orphan', language='en')
+    untracked_summary = AnimeSummary(anime_id=untracked.id, language='en', summary='summary')
+    untracked_episode = Episode(anime_id=untracked.id, episode_number=1, original_title='Episode 1')
+    untracked_poster = AnimePoster(anime_id=untracked.id, storage_path='orphan.jpg', status='ready')
+    db_session.add_all([untracked_name, untracked_summary, untracked_episode, untracked_poster])
+    db_session.flush()
+    untracked_episode_name = EpisodeName(episode_id=untracked_episode.id, name='Episode 1', language='en')
+    db_session.add(untracked_episode_name)
+    poster_dir = Path(app.config['ANIME_POSTER_STORAGE_DIR'])
+    poster_dir.mkdir(parents=True)
+    poster_path = poster_dir / 'orphan.jpg'
+    poster_path.write_bytes(b'poster')
+    db_session.commit()
+    tracked_id = tracked.id
+    untracked_id = untracked.id
+    untracked_name_id = untracked_name.id
+    untracked_summary_id = untracked_summary.id
+    untracked_episode_id = untracked_episode.id
+    untracked_episode_name_id = untracked_episode_name.id
+    untracked_poster_id = untracked_poster.id
+    celery_app.conf.database_url = app.config['DATABASE_URL']
+    celery_app.conf.anime_poster_storage_dir = app.config['ANIME_POSTER_STORAGE_DIR']
+
+    summary = delete_untracked_anime_task()
+
+    db_session.expire_all()
+    assert summary == {'deletedAnime': 1, 'deletedPosters': 1}
+    assert db_session.get(AnimeMetaInfo, tracked_id) is not None
+    assert db_session.get(AnimeMetaInfo, untracked_id) is None
+    assert db_session.get(AnimeName, untracked_name_id) is None
+    assert db_session.get(AnimeSummary, untracked_summary_id) is None
+    assert db_session.get(Episode, untracked_episode_id) is None
+    assert db_session.get(EpisodeName, untracked_episode_name_id) is None
+    assert db_session.get(AnimePoster, untracked_poster_id) is None
+    assert not poster_path.exists()
 
 
 def test_create_app_preserves_celery_task_always_eager_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]

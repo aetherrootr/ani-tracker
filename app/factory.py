@@ -41,6 +41,10 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
         ANIME_SYNC_CRON_HOUR=env_int('ANIME_SYNC_CRON_HOUR', default=4, minimum=0, maximum=23),
         ANIME_SYNC_CRON_MINUTE=env_int('ANIME_SYNC_CRON_MINUTE', default=0, minimum=0, maximum=59),
         ANIME_SYNC_TIMEZONE=os.environ.get('ANIME_SYNC_TIMEZONE') or os.environ.get('TZ'),
+        UNTRACKED_ANIME_CLEANUP_CRON_MONTHS=os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
+        UNTRACKED_ANIME_CLEANUP_CRON_DAY=env_int('UNTRACKED_ANIME_CLEANUP_CRON_DAY', default=0, minimum=1, maximum=28),
+        UNTRACKED_ANIME_CLEANUP_CRON_HOUR=env_int('UNTRACKED_ANIME_CLEANUP_CRON_HOUR', default=-1, minimum=0, maximum=23),
+        UNTRACKED_ANIME_CLEANUP_CRON_MINUTE=env_int('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE', default=-1, minimum=0, maximum=59),
     )
     if config is not None:
         app.config.update(config)
