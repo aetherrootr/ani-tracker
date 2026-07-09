@@ -137,6 +137,7 @@ export function TrackingListPageContent() {
               items={backlog}
               total={data?.backlog.total ?? 0}
               hasMore={data?.backlog.hasMore ?? false}
+              countMode="total"
               isLoading={isLoading}
               isLoadingMore={loadingMoreKey === "backlog"}
               emptyText={t("tracking.emptyBacklog")}
@@ -151,6 +152,8 @@ export function TrackingListPageContent() {
               total={data?.recentlyWatched.total ?? 0}
               hasMore={data?.recentlyWatched.hasMore ?? false}
               allowLoadMore={false}
+              showItemCount={false}
+              showEpisodeProgress={false}
               isLoading={isLoading}
               isLoadingMore={loadingMoreKey === "recentlyWatched"}
               emptyText={t("tracking.emptyRecentlyWatched")}
@@ -187,6 +190,7 @@ export function TrackingListPageContent() {
                 items={backlog}
                 total={data?.backlog.total ?? 0}
                 hasMore={data?.backlog.hasMore ?? false}
+                countMode="total"
                 isLoading={isLoading}
                 isLoadingMore={loadingMoreKey === "backlog"}
                 emptyText={t("tracking.emptyBacklog")}
@@ -205,6 +209,8 @@ export function TrackingListPageContent() {
                 total={data?.recentlyWatched.total ?? 0}
                 hasMore={data?.recentlyWatched.hasMore ?? false}
                 allowLoadMore={false}
+                showItemCount={false}
+                showEpisodeProgress={false}
                 isLoading={isLoading}
                 isLoadingMore={loadingMoreKey === "recentlyWatched"}
                 emptyText={t("tracking.emptyRecentlyWatched")}
@@ -248,6 +254,9 @@ function TrackingSection({
   total,
   hasMore,
   allowLoadMore = true,
+  showItemCount = true,
+  countMode = "loaded",
+  showEpisodeProgress = true,
   fillAvailableHeight = false,
   hideHeaderOnMobile = false,
   isLoading,
@@ -263,6 +272,9 @@ function TrackingSection({
   total: number;
   hasMore: boolean;
   allowLoadMore?: boolean;
+  showItemCount?: boolean;
+  countMode?: "loaded" | "total";
+  showEpisodeProgress?: boolean;
   fillAvailableHeight?: boolean;
   hideHeaderOnMobile?: boolean;
   isLoading: boolean;
@@ -319,10 +331,12 @@ function TrackingSection({
     <section className={fillAvailableHeight ? "flex h-full min-h-0 flex-col" : undefined}>
       <div className={hideHeaderOnMobile ? "mb-3 hidden items-center justify-between gap-3 sm:mb-4 sm:flex" : "mb-3 flex items-center justify-between gap-3 sm:mb-4"}>
         <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-        <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-          {t("tracking.itemCount", { count: items.length })}
-          {total > items.length ? ` / ${total}` : ""}
-        </span>
+        {showItemCount ? (
+          <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+            {t("tracking.itemCount", { count: countMode === "total" ? total : items.length })}
+            {countMode === "loaded" && total > items.length ? ` / ${total}` : ""}
+          </span>
+        ) : null}
       </div>
 
       <div className={fillAvailableHeight ? "relative min-h-0 flex-1" : "relative"}>
@@ -357,6 +371,7 @@ function TrackingSection({
                 item={item}
                 disabled={savingKey !== null}
                 isSaving={savingKey === `${listKey}-${item.anime.id}-${item.episode.id}`}
+                showProgress={showEpisodeProgress}
                 onWatchChange={(nextItem, watched) => onWatchChange(listKey, nextItem, watched)}
               />
             ))

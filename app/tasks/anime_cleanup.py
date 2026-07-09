@@ -10,7 +10,11 @@ from app.db import default_database_url
 from app.services.anime_cleanup import delete_untracked_anime
 
 
-@celery_app.task(name='app.tasks.anime_cleanup.delete_untracked_anime')
+@celery_app.task(
+    name='app.tasks.anime_cleanup.delete_untracked_anime',
+    autoretry_for=(Exception,),
+    retry_kwargs={'countdown': 5 * 60, 'max_retries': 3},
+)
 def delete_untracked_anime_task() -> dict[str, int]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
     storage_dir = str(

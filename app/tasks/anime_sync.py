@@ -17,7 +17,11 @@ from app.utils import env_float, safe_float, safe_int
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name='app.tasks.anime_sync.sync_airing_anime')
+@celery_app.task(
+    name='app.tasks.anime_sync.sync_airing_anime',
+    autoretry_for=(Exception,),
+    retry_kwargs={'countdown': 5 * 60, 'max_retries': 3},
+)
 def sync_airing_anime() -> dict[str, int]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
     connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}

@@ -1199,6 +1199,16 @@ def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
     assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
 
 
+def test_scheduled_tasks_retry_three_times_after_five_minutes() -> None:
+    from app.tasks.anime_cleanup import delete_untracked_anime_task
+    from app.tasks.anime_sync import sync_airing_anime
+
+    for task in (delete_untracked_anime_task, sync_airing_anime):
+        assert task.autoretry_for == (Exception,)
+        assert task.retry_kwargs == {'countdown': 5 * 60, 'max_retries': 3}
+        assert task.max_retries == 3
+
+
 def test_delete_untracked_anime_task_removes_database_rows_and_posters(
     app: Flask,
     db_session: Session,
