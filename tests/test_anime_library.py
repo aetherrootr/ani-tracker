@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from flask import Flask
@@ -26,6 +26,7 @@ from app.models.anime import (
     AnimeSummary,
     Episode,
     EpisodeName,
+    EpisodeStatus,
 )
 from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
 from tests.test_auth import register_user
@@ -148,6 +149,27 @@ def add_library_anime(
     session.add(progress)
     session.commit()
     return anime
+
+
+def add_episode(
+    session: Session,
+    anime: AnimeMetaInfo,
+    *,
+    number: int,
+    status: EpisodeStatus = EpisodeStatus.AIRED,
+    air_at: datetime | None = None,
+    title: str | None = None,
+) -> Episode:
+    episode = Episode(
+        anime_id=anime.id,
+        episode_number=number,
+        original_title=title or f'Episode {number}',
+        air_at=air_at,
+        status=status,
+    )
+    session.add(episode)
+    session.flush()
+    return episode
 
 
 def test_add_to_library_requires_login(client: FlaskClient) -> None:
@@ -530,6 +552,200 @@ def test_library_list_air_date_anchors_include_unknown(
         {'key': '2024-02', 'label': '2024-02', 'offset': 0, 'page': 1},
         {'key': 'unknown', 'label': 'Unknown', 'offset': 1, 'page': 1},
     ]
+
+
+def test_tracking_list_returns_next_episodes_recently_watched_and_excludes_dropped(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+
+    airing = add_library_anime(
+        db_session,
+        external_id='tracking-airing',
+        original_name='Airing Show',
+        names=[('Airing Show', 'en')],
+        air_date=date(2026, 7, 1),
+    )
+    airing_ep1 = add_episode(db_session, airing, number=1, air_at=now - timedelta(days=14), title='Airing 1')
+    add_episode(db_session, airing, number=2, air_at=now - timedelta(days=1), title='Airing 2')
+    add_episode(db_session, airing, number=3, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=6))
+
+    finished_recently = add_library_anime(
+        db_session,
+        external_id='tracking-buffer',
+        original_name='Recently Finished',
+        names=[('Recently Finished', 'en')],
+        air_date=date(2026, 6, 1),
+    )
+    finished_recently.total_episodes = 2
+    finished_recently_ep1 = add_episode(db_session, finished_recently, number=1, air_at=now - timedelta(days=17))
+    add_episode(db_session, finished_recently, number=2, air_at=now - timedelta(days=10))
+
+    finished_old = add_library_anime(
+        db_session,
+        external_id='backlog-old',
+        original_name='Old Finished',
+        names=[('Old Finished', 'en')],
+        air_date=date(2020, 4, 1),
+    )
+    finished_old.total_episodes = 3
+    finished_old_ep1 = add_episode(db_session, finished_old, number=1, air_at=now - timedelta(days=100), title='Old 1')
+    add_episode(db_session, finished_old, number=2, air_at=now - timedelta(days=99), title='Old 2')
+    add_episode(db_session, finished_old, number=3, air_at=now - timedelta(days=98), title='Old 3')
+
+    caught_up = add_library_anime(
+        db_session,
+        external_id='caught-up',
+        original_name='Caught Up',
+        names=[('Caught Up', 'en')],
+        air_date=date(2026, 7, 2),
+    )
+    caught_up_ep1 = add_episode(db_session, caught_up, number=1, air_at=now - timedelta(days=2))
+    add_episode(db_session, caught_up, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=5))
+
+    dropped = add_library_anime(
+        db_session,
+        external_id='dropped',
+        original_name='Dropped Show',
+        names=[('Dropped Show', 'en')],
+        status=UserAnimeStatus.DROPPED,
+        air_date=date(2026, 7, 3),
+    )
+    add_episode(db_session, dropped, number=1, air_at=now - timedelta(days=1))
+    dropped_ep2 = add_episode(db_session, dropped, number=2, air_at=now, title='Dropped 2')
+
+    db_session.add_all(
+        [
+            UserEpisodeProgress(user_id=1, episode_id=airing_ep1.id, watched=True, watched_at=now - timedelta(hours=3)),
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=finished_recently_ep1.id,
+                watched=True,
+                watched_at=now - timedelta(hours=2),
+            ),
+            UserEpisodeProgress(user_id=1, episode_id=finished_old_ep1.id, watched=True, watched_at=now - timedelta(hours=1)),
+            UserEpisodeProgress(user_id=1, episode_id=caught_up_ep1.id, watched=True, watched_at=now - timedelta(hours=4)),
+            UserEpisodeProgress(user_id=1, episode_id=dropped_ep2.id, watched=True, watched_at=now),
+        ],
+    )
+    db_session.commit()
+
+    tracking_response = client.get('/api/anime/library/tracking-list/tracking')
+    backlog_response = client.get('/api/anime/library/tracking-list/backlog')
+    recent_response = client.get('/api/anime/library/tracking-list/recently-watched')
+
+    assert tracking_response.status_code == 200
+    tracking_body = tracking_response.get_json()
+    assert [item['anime']['displayName'] for item in tracking_body['items']] == ['Airing Show', 'Recently Finished']
+    assert [item['episode']['episodeNumber'] for item in tracking_body['items']] == [2, 2]
+    assert tracking_body['total'] == 2
+    assert tracking_body['limit'] == 20
+    assert tracking_body['offset'] == 0
+    assert tracking_body['hasMore'] is False
+    assert all(item['episode']['watched'] is False for item in tracking_body['items'])
+    assert tracking_body['items'][0]['watchedEpisodeCount'] == 1
+    assert tracking_body['items'][0]['airedEpisodeCount'] == 2
+
+    assert backlog_response.status_code == 200
+    backlog_body = backlog_response.get_json()
+    assert [item['anime']['displayName'] for item in backlog_body['items']] == ['Old Finished']
+    assert backlog_body['total'] == 1
+    assert backlog_body['limit'] == 20
+    assert backlog_body['offset'] == 0
+    assert backlog_body['hasMore'] is False
+    assert backlog_body['items'][0]['episode']['episodeNumber'] == 2
+    assert backlog_body['items'][0]['episode']['displayName'] == 'Old 2'
+
+    assert recent_response.status_code == 200
+    recent_body = recent_response.get_json()
+    assert [item['anime']['displayName'] for item in recent_body['items']] == [
+        'Old Finished',
+        'Recently Finished',
+        'Airing Show',
+        'Caught Up',
+    ]
+    assert recent_body['total'] == 4
+    assert recent_body['limit'] == 15
+    assert recent_body['offset'] == 0
+    assert recent_body['hasMore'] is False
+    assert all(item['episode']['watched'] is True for item in recent_body['items'])
+
+    paged_recent_response = client.get('/api/anime/library/tracking-list/recently-watched?limit=2&offset=1')
+
+    assert paged_recent_response.status_code == 200
+    paged_recent_body = paged_recent_response.get_json()
+    assert [item['anime']['displayName'] for item in paged_recent_body['items']] == ['Recently Finished', 'Airing Show']
+    assert paged_recent_body['total'] == 4
+    assert paged_recent_body['limit'] == 2
+    assert paged_recent_body['offset'] == 1
+    assert paged_recent_body['hasMore'] is True
+
+
+def test_tracking_list_paginates_tracking_items(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    for index in range(3):
+        anime = add_library_anime(
+            db_session,
+            external_id=f'tracking-{index}',
+            original_name=f'Tracking {index}',
+            names=[(f'Tracking {index}', 'en')],
+        )
+        add_episode(db_session, anime, number=1, air_at=now - timedelta(days=index + 1))
+        add_episode(db_session, anime, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=index + 1))
+    db_session.commit()
+
+    response = client.get('/api/anime/library/tracking-list/tracking?limit=1&offset=1')
+    invalid_limit_response = client.get('/api/anime/library/tracking-list/tracking?limit=0')
+    invalid_offset_response = client.get('/api/anime/library/tracking-list/tracking?offset=-1')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert [item['anime']['displayName'] for item in body['items']] == ['Tracking 1']
+    assert body['total'] == 3
+    assert body['limit'] == 1
+    assert body['offset'] == 1
+    assert body['hasMore'] is True
+    assert invalid_limit_response.status_code == 400
+    assert invalid_offset_response.status_code == 400
+
+
+def test_tracking_list_paginates_backlog_items(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    for index in range(3):
+        anime = add_library_anime(
+            db_session,
+            external_id=f'backlog-{index}',
+            original_name=f'Backlog {index}',
+            names=[(f'Backlog {index}', 'en')],
+            air_date=date(2020, 1, index + 1),
+        )
+        anime.total_episodes = 1
+        add_episode(db_session, anime, number=1, air_at=now - timedelta(days=100 + index))
+    db_session.commit()
+
+    response = client.get('/api/anime/library/tracking-list/backlog?limit=1&offset=1')
+    invalid_limit_response = client.get('/api/anime/library/tracking-list/backlog?limit=0')
+    invalid_offset_response = client.get('/api/anime/library/tracking-list/backlog?offset=-1')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert [item['anime']['displayName'] for item in body['items']] == ['Backlog 1']
+    assert body['total'] == 3
+    assert body['limit'] == 1
+    assert body['offset'] == 1
+    assert body['hasMore'] is True
+    assert invalid_limit_response.status_code == 400
+    assert invalid_offset_response.status_code == 400
 
 
 def test_anime_detail_returns_available_names_air_date_and_posters(
