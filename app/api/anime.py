@@ -5,12 +5,18 @@ from flask.typing import ResponseReturnValue
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.utils.anime import (
+from app.api.utils.auth import require_auth_user
+from app.api.utils.library import (
     TRACKING_LIST_RECENT_LIMIT,
     build_navigation_anchors,
-    get_import_provider_factory,
     get_search_library_markers,
     library_search_condition,
+    sort_library_progresses,
+    tracking_list_backlog_page,
+    tracking_list_recently_watched_page,
+    tracking_list_tracking_page,
+)
+from app.api.utils.parsing import (
     parse_library_limit,
     parse_library_offset,
     parse_library_order,
@@ -18,10 +24,14 @@ from app.api.utils.anime import (
     parse_library_status,
     parse_search_limit,
     parse_search_offset,
+    total_pages,
+)
+from app.api.utils.posters import send_poster_file
+from app.api.utils.providers import get_import_provider_factory
+from app.api.utils.serializers import (
     select_anime_name_for_user,
     select_episode_name_for_user,
     select_poster_for_user,
-    send_poster_file,
     serialize_anime,
     serialize_anime_name,
     serialize_episode_name,
@@ -31,13 +41,7 @@ from app.api.utils.anime import (
     serialize_poster,
     serialize_progress,
     serialize_summary,
-    sort_library_progresses,
-    total_pages,
-    tracking_list_backlog_page,
-    tracking_list_recently_watched_page,
-    tracking_list_tracking_page,
 )
-from app.api.utils.auth import require_auth_user
 from app.import_provider.exceptions import (
     ImportProviderResponseError,
     ImportProviderTimeoutError,
@@ -67,6 +71,12 @@ from app.services.anime_library import (
     set_poster_preference,
     set_summary_preference,
     update_user_anime_status,
+)
+from app.services.anime_poster import enqueue_poster_download
+from app.services.anime_sync import (
+    resolve_episode_conflicts,
+    serialize_episode_conflict,
+    sync_anime_from_provider,
 )
 
 anime_bp = Blueprint('anime', __name__)
@@ -195,6 +205,7 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
             UserAnimeProgress.user_id == user.id,
         )
     )
+
     if status is None:
         stmt = stmt.where(UserAnimeProgress.status != UserAnimeStatus.DROPPED)
     else:
@@ -241,6 +252,85 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
                 }
                 for progress in progresses
             ],
+        },
+    )
+
+
+@anime_bp.post('/library/<int:anime_id>/sync')
+@require_auth_user
+def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    anime = db.get(AnimeMetaInfo, anime_id)
+    if anime is None:
+        return jsonify({'message': 'Anime not found'}), 404
+
+    try:
+        provider = get_import_provider_factory().get_provider(anime.provider_type)
+        result = sync_anime_from_provider(db, provider, anime_id=anime_id, user_id=user.id)
+        if result is None:
+            db.rollback()
+            return jsonify({'message': 'Anime not found'}), 404
+        db.commit()
+    except ImportProviderTimeoutError:
+        db.rollback()
+        return jsonify({'message': 'Import provider request timed out'}), 504
+    except ImportProviderResponseError:
+        db.rollback()
+        return jsonify({'message': 'Import provider response error'}), 502
+    except Exception:
+        db.rollback()
+        raise
+
+    for poster_id in result.poster_ids_to_enqueue:
+        enqueue_poster_download(poster_id)
+    db.refresh(result.anime)
+    db.refresh(progress)
+    return jsonify(
+        {
+            'anime': serialize_anime(result.anime, progress, user),
+            'progress': serialize_progress(progress),
+            'synced': True,
+            'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
+        },
+    )
+
+
+@anime_bp.post('/library/<int:anime_id>/sync/episode-conflicts/resolve')
+@require_auth_user
+def resolve_library_anime_sync_episode_conflicts(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get('deleteEpisodeIds'), list):
+        return jsonify({'message': 'deleteEpisodeIds is required'}), 400
+    delete_episode_ids = payload['deleteEpisodeIds']
+    if not all(isinstance(episode_id, int) for episode_id in delete_episode_ids):
+        return jsonify({'message': 'deleteEpisodeIds is invalid'}), 400
+
+    try:
+        summary = resolve_episode_conflicts(
+            db,
+            anime_id=anime_id,
+            user_id=user.id,
+            delete_episode_ids=delete_episode_ids,
+        )
+        if summary is None:
+            db.rollback()
+            return jsonify({'message': 'Anime not found'}), 404
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    anime = db.get(AnimeMetaInfo, anime_id)
+    if progress is None or anime is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    return jsonify(
+        {
+            'anime': serialize_anime(anime, progress, user),
+            'progress': serialize_progress(progress),
+            'resolution': summary,
         },
     )
 

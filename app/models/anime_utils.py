@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
@@ -226,7 +227,7 @@ def _get_tracking_list_rows(
     ]
 
 
-def _tracking_list_query_parts(*, user_id: int, now: datetime, recent_days: int) -> dict[str, object]:
+def _tracking_list_query_parts(*, user_id: int, now: datetime, recent_days: int) -> dict[str, Any]:
     next_episode = aliased(Episode)
     watched_next_progress = aliased(UserEpisodeProgress)
     future_episode = aliased(Episode)

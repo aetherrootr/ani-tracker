@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import create_app
+from app.celery_app import celery_app
+from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.types import (
     ImportAnimeDetail,
@@ -29,6 +31,7 @@ from app.models.anime import (
     EpisodeStatus,
 )
 from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
+from app.tasks.celery_config import configure_celery
 from tests.test_auth import register_user
 
 
@@ -109,6 +112,67 @@ class FakeProvider:
             ],
             raw_data={'id': int(external_id)},
         )
+
+
+class MutableDetailProvider(FakeProvider):
+    def __init__(self, details: dict[str, ImportAnimeDetail]) -> None:
+        super().__init__()
+        self.details = details
+
+    def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+        self.detail_calls.append(external_id)
+        detail = self.details.get(external_id)
+        if detail is None:
+            message = 'missing fake detail'
+            raise ImportProviderResponseError(message)
+        return detail
+
+
+def anime_detail(
+    external_id: str,
+    *,
+    title: str = 'Updated Anime',
+    summaries: list[ImportAnimeSummary] | None = None,
+    names: list[ImportAnimeName] | None = None,
+    episodes: list[ImportEpisodeInfo] | None = None,
+    total_episodes: int | None = 2,
+) -> ImportAnimeDetail:
+    return ImportAnimeDetail(
+        provider='bangumi',
+        external_id=external_id,
+        title=title,
+        original_title=title,
+        summaries=summaries if summaries is not None else [ImportAnimeSummary(language='zh', summary='updated summary')],
+        poster_source_url='https://example.test/updated.jpg',
+        anime_type='tv',
+        total_episodes=total_episodes,
+        url=f'https://bgm.tv/subject/{external_id}',
+        names=names if names is not None else [ImportAnimeName(name='Updated Name', language='en')],
+        episodes=episodes if episodes is not None else [episode_info(1, title='Updated Episode 1'), episode_info(2)],
+        raw_data={'id': external_id},
+        air_date=date(2024, 4, 1),
+    )
+
+
+def episode_info(
+    number: int,
+    *,
+    title: str | None = None,
+    status: str = 'aired',
+    air_at: datetime | None = None,
+) -> ImportEpisodeInfo:
+    return ImportEpisodeInfo(
+        provider='bangumi',
+        external_id=str(number),
+        episode_number=number,
+        title=title or f'Updated Episode {number}',
+        names=[ImportEpisodeName(name=f'Updated Episode {number}', language='en')],
+        air_at=air_at or datetime(2024, 4, number, tzinfo=UTC),
+        duration='00:25:00',
+        status=status,
+        url=f'https://bgm.tv/ep/{number}',
+        raw_data={'id': number},
+    )
 
 
 def install_provider(app: Flask) -> FakeProvider:
@@ -877,3 +941,236 @@ def test_poster_preference_rejects_invalid_poster(app: Flask, client: FlaskClien
 
     assert response.status_code == 400
     assert response.get_json() == {'message': 'posterId is invalid'}
+
+
+def test_sync_library_anime_requires_login(client: FlaskClient) -> None:
+    response = client.post('/api/anime/library/1/sync')
+
+    assert response.status_code == 401
+    assert response.get_json() == {'message': 'Authentication required'}
+
+
+def test_sync_library_anime_requires_user_library_entry(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    provider = MutableDetailProvider({'1': anime_detail('1')})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert register_user(client).status_code == 201
+    anime = AnimeMetaInfo(provider_type='bangumi', external_id='1', original_name='Other')
+    db_session.add(anime)
+    db_session.commit()
+
+    response = client.post(f'/api/anime/library/{anime.id}/sync')
+
+    assert response.status_code == 404
+    assert response.get_json() == {'message': 'Anime not found'}
+    assert provider.detail_calls == []
+
+
+def test_sync_library_anime_updates_existing_data_without_duplicate_and_preserves_progress(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='Old Anime',
+        names=[('Old Name', 'en'), ('Remove Name', 'zh')],
+    )
+    old_episode = add_episode(db_session, anime, number=1, title='Old Episode')
+    db_session.add(AnimeSummary(anime_id=anime.id, language='zh', summary='old summary'))
+    db_session.add(EpisodeName(episode_id=old_episode.id, name='Old Episode', language='en'))
+    db_session.add(UserEpisodeProgress(user_id=1, episode_id=old_episode.id, watched=True, watched_at=datetime.now(UTC)))
+    db_session.commit()
+    provider = MutableDetailProvider(
+        {
+            '1': anime_detail(
+                '1',
+                title='New Anime',
+                summaries=[ImportAnimeSummary(language='zh', summary='new summary')],
+                names=[ImportAnimeName(name='New Name', language='en')],
+                episodes=[episode_info(1, title='New Episode'), episode_info(2, title='New Episode 2')],
+            ),
+        },
+    )
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+
+    response = client.post(f'/api/anime/library/{anime.id}/sync')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['synced'] is True
+    assert body['episodeConflicts'] == []
+    assert body['anime']['originalName'] == 'New Anime'
+    assert provider.detail_calls == ['1']
+    db_session.expire_all()
+    updated_anime = db_session.get(AnimeMetaInfo, anime.id)
+    assert updated_anime is not None
+    assert updated_anime.original_name == 'New Anime'
+    assert updated_anime.total_episodes == 2
+    assert db_session.scalars(select(AnimeMetaInfo)).all() == [updated_anime]
+    assert [summary.summary for summary in db_session.scalars(select(AnimeSummary)).all()] == ['new summary']
+    assert sorted(name.name for name in db_session.scalars(select(AnimeName)).all()) == ['New Anime', 'New Name']
+    episodes = db_session.scalars(select(Episode).order_by(Episode.episode_number)).all()
+    assert [episode.original_title for episode in episodes] == ['New Episode', 'New Episode 2']
+    assert db_session.scalar(select(UserEpisodeProgress).where(UserEpisodeProgress.episode_id == old_episode.id)) is not None
+
+
+def test_sync_library_anime_deletes_unwatched_removed_episode_and_reports_watched_conflict(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(db_session, external_id='1', original_name='Old Anime', names=[('Old Anime', 'en')])
+    kept = add_episode(db_session, anime, number=1, title='Kept')
+    unwatched_removed = add_episode(db_session, anime, number=2, title='Unwatched Removed')
+    watched_removed = add_episode(db_session, anime, number=3, title='Watched Removed')
+    kept_id = kept.id
+    unwatched_removed_id = unwatched_removed.id
+    watched_removed_id = watched_removed.id
+    db_session.add(UserEpisodeProgress(user_id=1, episode_id=watched_removed.id, watched=True, watched_at=datetime.now(UTC)))
+    db_session.commit()
+    provider = MutableDetailProvider({'1': anime_detail('1', episodes=[episode_info(1, title='Kept Updated')])})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+
+    response = client.post(f'/api/anime/library/{anime.id}/sync')
+
+    assert response.status_code == 200
+    conflicts = response.get_json()['episodeConflicts']
+    assert len(conflicts) == 1
+    assert conflicts[0]['episodeId'] == watched_removed_id
+    assert conflicts[0]['watchedUserCount'] == 1
+    db_session.expire_all()
+    assert db_session.get(Episode, kept_id) is not None
+    assert db_session.get(Episode, unwatched_removed_id) is None
+    assert db_session.get(Episode, watched_removed_id) is not None
+    assert db_session.scalar(select(UserEpisodeProgress).where(UserEpisodeProgress.episode_id == watched_removed_id)) is not None
+
+
+def test_resolve_episode_conflicts_deletes_only_confirmed_conflict(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(db_session, external_id='1', original_name='Old Anime', names=[('Old Anime', 'en')])
+    normal = add_episode(db_session, anime, number=1, title='Normal')
+    conflict = add_episode(db_session, anime, number=2, title='Conflict')
+    normal_id = normal.id
+    conflict_id = conflict.id
+    db_session.add(UserEpisodeProgress(user_id=1, episode_id=conflict.id, watched=True, watched_at=datetime.now(UTC)))
+    db_session.commit()
+    provider = MutableDetailProvider({'1': anime_detail('1', episodes=[episode_info(1, title='Normal')])})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert client.post(f'/api/anime/library/{anime.id}/sync').status_code == 200
+
+    response = client.post(
+        f'/api/anime/library/{anime.id}/sync/episode-conflicts/resolve',
+        json={'deleteEpisodeIds': [conflict_id, normal_id]},
+    )
+
+    assert response.status_code == 200
+    resolution = response.get_json()['resolution']
+    assert resolution['deletedEpisodeIds'] == [conflict_id]
+    assert resolution['invalidEpisodeIds'] == [normal_id]
+    db_session.expire_all()
+    assert db_session.get(Episode, conflict_id) is None
+    assert db_session.get(Episode, normal_id) is not None
+
+
+def test_sync_library_anime_maps_provider_errors(app: Flask, client: FlaskClient, db_session: Session) -> None:
+    class TimeoutProvider(FakeProvider):
+        def get_anime_detail(self, _external_id: str) -> ImportAnimeDetail:
+            message = 'timeout'
+            raise ImportProviderTimeoutError(message)
+
+    class ResponseErrorProvider(FakeProvider):
+        def get_anime_detail(self, _external_id: str) -> ImportAnimeDetail:
+            message = 'bad'
+            raise ImportProviderResponseError(message)
+
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(db_session, external_id='1', original_name='Old Anime', names=[('Old Anime', 'en')])
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': TimeoutProvider()})
+    timeout_response = client.post(f'/api/anime/library/{anime.id}/sync')
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': ResponseErrorProvider()})
+    response_error_response = client.post(f'/api/anime/library/{anime.id}/sync')
+
+    assert timeout_response.status_code == 504
+    assert timeout_response.get_json() == {'message': 'Import provider request timed out'}
+    assert response_error_response.status_code == 502
+    assert response_error_response.get_json() == {'message': 'Import provider response error'}
+
+
+def test_sync_airing_anime_task_selects_airing_and_continues_after_failure(
+    app: Flask,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.tasks import anime_sync as anime_sync_task
+
+    now = datetime.now(UTC)
+    upcoming = add_library_anime(db_session, external_id='upcoming', original_name='Upcoming', names=[('Upcoming', 'en')])
+    add_episode(db_session, upcoming, number=1, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    unknown_total = add_library_anime(db_session, external_id='unknown', original_name='Unknown', names=[('Unknown', 'en')])
+    unknown_total.total_episodes = None
+    partial = add_library_anime(db_session, external_id='partial', original_name='Partial', names=[('Partial', 'en')])
+    partial.total_episodes = 2
+    add_episode(db_session, partial, number=1, status=EpisodeStatus.AIRED, air_at=now - timedelta(days=1))
+    finished = add_library_anime(db_session, external_id='finished', original_name='Finished', names=[('Finished', 'en')])
+    finished.total_episodes = 1
+    add_episode(db_session, finished, number=1, status=EpisodeStatus.AIRED, air_at=now - timedelta(days=1))
+    db_session.commit()
+    provider = MutableDetailProvider(
+        {
+            'upcoming': anime_detail('upcoming', episodes=[episode_info(1)]),
+            'partial': anime_detail('partial', episodes=[episode_info(1), episode_info(2)]),
+        },
+    )
+
+    class Factory:
+        @classmethod
+        def from_config(cls, _config):  # type: ignore[no-untyped-def]
+            return ImportProviderFactory({'bangumi': provider})
+
+    monkeypatch.setattr(anime_sync_task, 'ImportProviderFactory', Factory)
+    monkeypatch.setattr(anime_sync_task, '_enqueue_poster_download', lambda *_args: None)
+    celery_app.conf.database_url = app.config['DATABASE_URL']
+
+    summary = anime_sync_task.sync_airing_anime()
+
+    assert summary['checked'] == 3
+    assert summary['synced'] == 2
+    assert summary['failed'] == 1
+    assert provider.detail_calls == ['upcoming', 'unknown', 'partial']
+
+
+def test_celery_beat_schedule_defaults_and_env_override() -> None:
+    configure_celery({'CELERY_BROKER_URL': 'memory://', 'ANIME_SYNC_CRON_HOUR': 4, 'ANIME_SYNC_CRON_MINUTE': 0})
+    default_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
+    configure_celery({'CELERY_BROKER_URL': 'memory://', 'ANIME_SYNC_CRON_HOUR': 6, 'ANIME_SYNC_CRON_MINUTE': 30})
+    override_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
+
+    assert default_schedule.hour == {4}
+    assert default_schedule.minute == {0}
+    assert override_schedule.hour == {6}
+    assert override_schedule.minute == {30}
+
+
+def test_create_app_preserves_celery_task_always_eager_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv('CELERY_TASK_ALWAYS_EAGER', '1')
+
+    create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{tmp_path / 'eager.db'}",
+            'SECRET_KEY': 'test-secret',
+            'TESTING': True,
+        },
+    )
+
+    assert celery_app.conf.task_always_eager is True
