@@ -28,8 +28,9 @@ export function EpisodeRow({ episode, disabled, onWatchChange }: { episode: Epis
               "relative z-10 min-h-24 select-none bg-card p-4 pr-16 motion-reduce:transition-none",
               isDragging ? "cursor-grabbing shadow-lg transition-none" : "cursor-grab transition-[transform,box-shadow] duration-200 ease-out",
               episode.watched && "bg-primary/5",
-              dragState.triggered && dragState.direction === "watched" && "bg-emerald-500/20 shadow-emerald-500/20",
-              dragState.triggered && dragState.direction === "unwatched" && "bg-sky-500/20 shadow-sky-500/20",
+              dragState.triggered && dragState.unavailable && "bg-muted shadow-muted",
+              dragState.triggered && !dragState.unavailable && dragState.direction === "watched" && "bg-emerald-500/20 shadow-emerald-500/20",
+              dragState.triggered && !dragState.unavailable && dragState.direction === "unwatched" && "bg-sky-500/20 shadow-sky-500/20",
             )}
             style={style}
           >

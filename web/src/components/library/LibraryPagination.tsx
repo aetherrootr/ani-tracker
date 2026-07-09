@@ -49,10 +49,11 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
           type="button"
           variant="outline"
           size="sm"
+          className="h-12 min-w-14 px-4 text-base sm:h-9 sm:min-w-0 sm:px-3 sm:text-sm"
           disabled={!canPrevious}
           onClick={() => jump(page - 1)}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-6 w-6 sm:h-4 sm:w-4" />
           <span className="hidden sm:inline">{t("library.previous")}</span>
         </Button>
 
@@ -90,7 +91,7 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
             aria-label={t("library.jumpPage")}
             value={inputPage}
             inputMode="numeric"
-            className="h-9 w-16 text-center"
+            className="h-12 w-20 text-center text-base sm:h-9 sm:w-16 sm:text-sm"
             onChange={(event) => setInputPage(event.target.value)}
           />
           <span className="text-muted-foreground">/ {totalPages}</span>
@@ -100,11 +101,12 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
           type="button"
           variant="outline"
           size="sm"
+          className="h-12 min-w-14 px-4 text-base sm:h-9 sm:min-w-0 sm:px-3 sm:text-sm"
           disabled={!canNext}
           onClick={() => jump(page + 1)}
         >
           <span className="hidden sm:inline">{t("library.next")}</span>
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-6 w-6 sm:h-4 sm:w-4" />
         </Button>
       </div>
     </nav>

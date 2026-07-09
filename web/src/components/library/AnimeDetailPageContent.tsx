@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -76,12 +77,30 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       ) : null}
 
       <section className="relative overflow-hidden rounded-3xl border bg-card shadow-sm">
-        {poster ? <img src={poster} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-25 blur-2xl" /> : <div className="absolute inset-0 bg-gradient-to-br from-muted to-card" />}
+        {poster ? (
+          <Image
+            src={poster}
+            alt=""
+            fill
+            unoptimized
+            sizes="100vw"
+            className="scale-110 object-cover opacity-25 blur-2xl"
+          />
+        ) : <div className="absolute inset-0 bg-gradient-to-br from-muted to-card" />}
         <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/80 to-background/50" />
 
         <div className="relative z-10 grid gap-6 p-5 sm:grid-cols-[220px_1fr] sm:p-8">
-          <div className="mx-auto hidden aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:block sm:w-full">
-            {poster ? <img src={poster} alt={t("anime.coverAlt", { title: data.anime.displayName })} className="h-full w-full object-cover" /> : <NoPoster />}
+          <div className="relative mx-auto hidden aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:block sm:w-full">
+            {poster ? (
+              <Image
+                src={poster}
+                alt={t("anime.coverAlt", { title: data.anime.displayName })}
+                fill
+                unoptimized
+                sizes="220px"
+                className="object-cover"
+              />
+            ) : <NoPoster />}
           </div>
 
           <div className="min-w-0 space-y-4">
@@ -92,8 +111,17 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               </div>
               {showOriginal ? <p className="mt-2 text-muted-foreground">{data.anime.originalName}</p> : null}
             </div>
-            <div className="mx-auto aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:hidden">
-              {poster ? <img src={poster} alt={t("anime.coverAlt", { title: data.anime.displayName })} className="h-full w-full object-cover" /> : <NoPoster />}
+            <div className="relative mx-auto aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:hidden">
+              {poster ? (
+                <Image
+                  src={poster}
+                  alt={t("anime.coverAlt", { title: data.anime.displayName })}
+                  fill
+                  unoptimized
+                  sizes="176px"
+                  className="object-cover"
+                />
+              ) : <NoPoster />}
             </div>
             <div className="scrollbar-none max-h-28 max-w-3xl overflow-y-auto rounded-2xl bg-background/15 p-3 text-xs leading-6 text-muted-foreground backdrop-blur-sm sm:max-h-32 sm:text-sm">
               <p className="whitespace-pre-wrap">{summary}</p>

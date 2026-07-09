@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -22,13 +23,15 @@ export function LibraryAnimeCard({ item }: { item: LibraryItem }) {
     <article className="group h-full overflow-hidden rounded-2xl border bg-card shadow-sm transition-transform motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none sm:flex sm:flex-col">
       <Link href={`/library/${item.anime.id}`} className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <div className="flex h-full gap-4 p-3 sm:block sm:p-0">
-          <div className="aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-full sm:rounded-none">
+          <div className="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-full sm:rounded-none">
             {poster && !imageFailed ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <Image
                 src={poster}
                 alt={t("anime.coverAlt", { title: item.anime.displayName })}
-                className="h-full w-full object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
+                fill
+                unoptimized
+                sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 112px"
+                className="object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
                 onLoad={(event) => event.currentTarget.classList.remove("opacity-0")}
                 onError={() => setImageFailed(true)}
               />

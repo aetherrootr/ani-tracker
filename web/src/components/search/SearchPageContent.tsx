@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowUp, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { BackToTopButton } from "@/components/layout/BackToTopButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,7 +33,6 @@ export function SearchPageContent() {
     markResultInLibrary,
   } = useAnimeSearch();
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
-  const [showBackToTop, setShowBackToTop] = useState(false);
   const [isProviderDialogOpen, setIsProviderDialogOpen] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const canAutoLoadRef = useRef(true);
@@ -59,19 +59,6 @@ export function SearchPageContent() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isProviderDialogOpen]);
-
-  useEffect(() => {
-    function handleScroll() {
-      setShowBackToTop(window.scrollY > 360);
-    }
-
-    handleScroll();
-    window.addEventListener("scroll", handleScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
 
   useLayoutEffect(() => {
     if (restoreScrollYRef.current === null) {
@@ -289,17 +276,7 @@ export function SearchPageContent() {
         </div>
       ) : null}
 
-      {showBackToTop ? (
-        <Button
-          type="button"
-          size="icon"
-          className="fixed bottom-6 right-6 z-50 rounded-full shadow-lg"
-          aria-label={t("search.backToTop")}
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-        >
-          <ArrowUp className="h-4 w-4" />
-        </Button>
-      ) : null}
+      <BackToTopButton />
     </div>
   );
 }
