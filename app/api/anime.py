@@ -1,35 +1,37 @@
 from __future__ import annotations
 
-import math
-from collections.abc import Sequence
-from pathlib import Path
-from typing import Literal
-
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, jsonify, request
 from flask.typing import ResponseReturnValue
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.anime import (
-    anime_display_sort_key,
+    build_navigation_anchors,
     get_import_provider_factory,
     get_search_library_markers,
+    library_search_condition,
     parse_library_limit,
     parse_library_offset,
+    parse_library_order,
+    parse_library_sort,
+    parse_library_status,
     parse_search_limit,
     parse_search_offset,
     select_anime_name_for_user,
     select_episode_name_for_user,
     select_poster_for_user,
+    send_poster_file,
     serialize_anime,
     serialize_anime_name,
-    serialize_poster,
     serialize_episode_name,
     serialize_episode_with_watch_state,
     serialize_import_search_result,
     serialize_library_progress,
+    serialize_poster,
     serialize_progress,
     serialize_summary,
+    sort_library_progresses,
+    total_pages,
 )
 from app.api.utils.auth import require_auth_user
 from app.import_provider.exceptions import (
@@ -62,149 +64,8 @@ from app.services.anime_library import (
     set_summary_preference,
     update_user_anime_status,
 )
-from app.services.anime_poster import resolve_poster_path
-from app.services.name_keys import build_search_key, normalize_text
 
 anime_bp = Blueprint('anime', __name__)
-
-LibrarySort = Literal['updated_at', 'name', 'air_date']
-LibraryOrder = Literal['asc', 'desc']
-
-_LIBRARY_SORT_ALIASES: dict[str, LibrarySort] = {
-    'updated_at': 'updated_at',
-    'updatedAt': 'updated_at',
-    'name': 'name',
-    'air_date': 'air_date',
-    'airDate': 'air_date',
-}
-
-
-def _parse_library_status(value: str | None) -> tuple[UserAnimeStatus | None, str | None]:
-    if value is None or value == '' or value == 'all':
-        return None, None
-    try:
-        status = UserAnimeStatus(value)
-    except ValueError:
-        return None, 'Library status is invalid'
-    if status == UserAnimeStatus.DROPPED:
-        return None, 'Library status is invalid'
-    return status, None
-
-
-def _parse_library_sort(value: str | None) -> tuple[LibrarySort, str | None]:
-    if value is None or value == '':
-        return 'updated_at', None
-    sort = _LIBRARY_SORT_ALIASES.get(value)
-    if sort is None:
-        return 'updated_at', 'Library sort is invalid'
-    return sort, None
-
-
-def _parse_library_order(value: str | None) -> tuple[LibraryOrder, str | None]:
-    if value is None or value == '':
-        return 'desc', None
-    if value not in {'asc', 'desc'}:
-        return 'desc', 'Library order is invalid'
-    return value, None  # type: ignore[return-value]
-
-
-def _library_search_condition(keyword: str):  # type: ignore[no-untyped-def]
-    terms = {keyword.strip(), normalize_text(keyword)}
-    terms.update(build_search_key(keyword).split())
-    patterns = [f'%{_escape_like(term)}%' for term in terms if term]
-    name_conditions = []
-    for pattern in patterns:
-        name_conditions.extend(
-            [
-                AnimeName.name.ilike(pattern, escape='\\'),
-                AnimeName.search_key.ilike(pattern, escape='\\'),
-            ],
-        )
-    return or_(
-        *(AnimeMetaInfo.original_name.ilike(pattern, escape='\\') for pattern in patterns),
-        select(AnimeName.id)
-        .where(
-            AnimeName.anime_id == AnimeMetaInfo.id,
-            or_(*name_conditions),
-        )
-        .exists(),
-    )
-
-
-def _escape_like(value: str) -> str:
-    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-
-
-def _sort_library_progresses(
-    progresses: Sequence[UserAnimeProgress],
-    *,
-    sort: LibrarySort,
-    order: LibraryOrder,
-    user: User,
-) -> list[UserAnimeProgress]:
-    if sort == 'name':
-        return sorted(
-            progresses,
-            key=lambda progress: (anime_display_sort_key(progress.anime, progress, user)[0], progress.anime_id),
-            reverse=order == 'desc',
-        )
-    if sort == 'air_date':
-        return sorted(
-            progresses,
-            key=lambda progress: _nullable_ordinal_sort_key(progress.anime.air_date, progress.anime_id, order=order),
-        )
-    return sorted(
-        progresses,
-        key=lambda progress: _nullable_timestamp_sort_key(progress.created_at, progress.anime_id, order=order),
-    )
-
-
-def _nullable_ordinal_sort_key(value, fallback_id: int, *, order: LibraryOrder) -> tuple[bool, int, int]:  # type: ignore[no-untyped-def]
-    if value is None:
-        return True, 0, fallback_id
-    ordinal = value.toordinal()
-    return False, ordinal if order == 'asc' else -ordinal, fallback_id
-
-
-def _nullable_timestamp_sort_key(value, fallback_id: int, *, order: LibraryOrder) -> tuple[bool, float, int]:  # type: ignore[no-untyped-def]
-    if value is None:
-        return True, 0, fallback_id
-    timestamp = value.timestamp()
-    return False, timestamp if order == 'asc' else -timestamp, fallback_id
-
-
-def _build_navigation_anchors(
-    progresses: list[UserAnimeProgress],
-    *,
-    sort: LibrarySort,
-    limit: int,
-    user: User,
-) -> list[dict[str, int | str]]:
-    if sort not in {'name', 'air_date'}:
-        return []
-    anchors: list[dict[str, int | str]] = []
-    seen: set[str] = set()
-    for index, progress in enumerate(progresses):
-        if sort == 'name':
-            _sort_key, initial_key = anime_display_sort_key(progress.anime, progress, user)
-            key = initial_key if initial_key and initial_key.isalpha() else '#'
-            label = key.upper() if key != '#' else '#'
-        else:
-            if progress.anime.air_date is None:
-                key = 'unknown'
-                label = 'Unknown'
-            else:
-                key = progress.anime.air_date.strftime('%Y-%m')
-                label = key
-        if key in seen:
-            continue
-        seen.add(key)
-        anchors.append({'key': key, 'label': label, 'offset': index, 'page': index // limit + 1})
-    return anchors
-
-
-def _total_pages(total: int, limit: int) -> int:
-    return math.ceil(total / limit) if total > 0 else 0
 
 
 @anime_bp.get('/search')
@@ -306,13 +167,13 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
     offset, error = parse_library_offset(request.args.get('offset'))
     if error is not None:
         return jsonify({'message': error}), 400
-    status, error = _parse_library_status(request.args.get('status'))
+    status, error = parse_library_status(request.args.get('status'))
     if error is not None:
         return jsonify({'message': error}), 400
-    sort, error = _parse_library_sort(request.args.get('sort'))
+    sort, error = parse_library_sort(request.args.get('sort'))
     if error is not None:
         return jsonify({'message': error}), 400
-    order, error = _parse_library_order(request.args.get('order'))
+    order, error = parse_library_order(request.args.get('order'))
     if error is not None:
         return jsonify({'message': error}), 400
     keyword = request.args.get('q', '').strip()
@@ -335,9 +196,9 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
     else:
         stmt = stmt.where(UserAnimeProgress.status == status)
     if keyword:
-        stmt = stmt.where(_library_search_condition(keyword))
+        stmt = stmt.where(library_search_condition(keyword))
 
-    all_progresses = _sort_library_progresses(db.scalars(stmt).all(), sort=sort, order=order, user=user)
+    all_progresses = sort_library_progresses(db.scalars(stmt).all(), sort=sort, order=order, user=user)
     total = len(all_progresses)
     progresses = all_progresses[offset : offset + limit]
     anime_ids = [progress.anime_id for progress in progresses]
@@ -361,10 +222,10 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
             'limit': limit,
             'offset': offset,
             'page': offset // limit + 1,
-            'totalPages': _total_pages(total, limit),
+            'totalPages': total_pages(total, limit),
             'sort': sort,
             'order': order,
-            'navigationAnchors': _build_navigation_anchors(all_progresses, sort=sort, limit=limit, user=user),
+            'navigationAnchors': build_navigation_anchors(all_progresses, sort=sort, limit=limit, user=user),
             'items': [
                 {
                     'anime': serialize_anime(progress.anime, progress, user),
@@ -443,7 +304,7 @@ def list_episodes(db: Session, user: User, anime_id: int) -> ResponseReturnValue
             'limit': limit,
             'offset': offset,
             'page': offset // limit + 1,
-            'totalPages': _total_pages(total, limit),
+            'totalPages': total_pages(total, limit),
             'episodes': [
                 {
                     **serialize_episode_with_watch_state(
@@ -614,7 +475,7 @@ def get_poster(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
         return jsonify({'message': 'Poster not found'}), 404
     posters = db.scalars(select(AnimePoster).where(AnimePoster.anime_id == anime_id).order_by(AnimePoster.id)).all()
     poster = select_poster_for_user(posters, progress)
-    return _send_poster_file(poster)
+    return send_poster_file(poster)
 
 
 @anime_bp.get('/library/<int:anime_id>/posters/<int:poster_id>')
@@ -625,15 +486,4 @@ def get_poster_by_id(db: Session, user: User, anime_id: int, poster_id: int) -> 
     poster = db.get(AnimePoster, poster_id)
     if poster is None or poster.anime_id != anime_id:
         return jsonify({'message': 'Poster not found'}), 404
-    return _send_poster_file(poster)
-
-
-def _send_poster_file(poster: AnimePoster | None) -> ResponseReturnValue:
-    if poster is None or poster.status != 'ready':
-        return jsonify({'message': 'Poster not found'}), 404
-    path = resolve_poster_path(str(current_app.config['ANIME_POSTER_STORAGE_DIR']), poster.storage_path)
-    if path is None or not Path(path).is_file():
-        return jsonify({'message': 'Poster not found'}), 404
-    response = send_file(path, mimetype=poster.mime_type)
-    response.headers['Cache-Control'] = 'public, max-age=86400'
-    return response
+    return send_poster_file(poster)

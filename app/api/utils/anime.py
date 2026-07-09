@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import asdict
-from typing import Any
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Literal
 
-from flask import current_app
-from sqlalchemy import select, tuple_
+from flask import current_app, jsonify, send_file
+from flask.typing import ResponseReturnValue
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.import_provider.factory import ImportProviderFactory
@@ -13,7 +17,19 @@ from app.import_provider.types import ImportSearchResult
 from app.models.anime import AnimeMetaInfo, AnimeName, AnimePoster, AnimeSummary, EpisodeName
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
-from app.services.name_keys import build_name_keys
+from app.services.anime_poster import resolve_poster_path
+from app.services.name_keys import build_name_keys, build_search_key, normalize_text
+
+LibrarySort = Literal['updated_at', 'name', 'air_date']
+LibraryOrder = Literal['asc', 'desc']
+
+_LIBRARY_SORT_ALIASES: dict[str, LibrarySort] = {
+    'updated_at': 'updated_at',
+    'updatedAt': 'updated_at',
+    'name': 'name',
+    'air_date': 'air_date',
+    'airDate': 'air_date',
+}
 
 
 def parse_search_limit(value: str | None) -> tuple[int, str | None]:
@@ -132,6 +148,139 @@ def parse_library_offset(value: str | None) -> tuple[int, str | None]:
     if offset < 0:
         return 0, 'Pagination offset is invalid'
     return offset, None
+
+
+def parse_library_status(value: str | None) -> tuple[UserAnimeStatus | None, str | None]:
+    if value is None or value == '' or value == 'all':
+        return None, None
+    try:
+        status = UserAnimeStatus(value)
+    except ValueError:
+        return None, 'Library status is invalid'
+    if status == UserAnimeStatus.DROPPED:
+        return None, 'Library status is invalid'
+    return status, None
+
+
+def parse_library_sort(value: str | None) -> tuple[LibrarySort, str | None]:
+    if value is None or value == '':
+        return 'updated_at', None
+    sort = _LIBRARY_SORT_ALIASES.get(value)
+    if sort is None:
+        return 'updated_at', 'Library sort is invalid'
+    return sort, None
+
+
+def parse_library_order(value: str | None) -> tuple[LibraryOrder, str | None]:
+    if value is None or value == '':
+        return 'desc', None
+    if value not in {'asc', 'desc'}:
+        return 'desc', 'Library order is invalid'
+    return value, None  # type: ignore[return-value]
+
+
+def library_search_condition(keyword: str):  # type: ignore[no-untyped-def]
+    terms = {keyword.strip(), normalize_text(keyword)}
+    terms.update(build_search_key(keyword).split())
+    patterns = [f'%{escape_like(term)}%' for term in terms if term]
+    name_conditions = []
+    for pattern in patterns:
+        name_conditions.extend(
+            [
+                AnimeName.name.ilike(pattern, escape='\\'),
+                AnimeName.search_key.ilike(pattern, escape='\\'),
+            ],
+        )
+    return or_(
+        *(AnimeMetaInfo.original_name.ilike(pattern, escape='\\') for pattern in patterns),
+        select(AnimeName.id)
+        .where(
+            AnimeName.anime_id == AnimeMetaInfo.id,
+            or_(*name_conditions),
+        )
+        .exists(),
+    )
+
+
+def escape_like(value: str) -> str:
+    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+def sort_library_progresses(
+    progresses: Sequence[UserAnimeProgress],
+    *,
+    sort: LibrarySort,
+    order: LibraryOrder,
+    user: User,
+) -> list[UserAnimeProgress]:
+    if sort == 'name':
+        return sorted(
+            progresses,
+            key=lambda progress: (anime_display_sort_key(progress.anime, progress, user)[0], progress.anime_id),
+            reverse=order == 'desc',
+        )
+    if sort == 'air_date':
+        return sorted(
+            progresses,
+            key=lambda progress: nullable_ordinal_sort_key(progress.anime.air_date, progress.anime_id, order=order),
+        )
+    return sorted(
+        progresses,
+        key=lambda progress: nullable_timestamp_sort_key(progress.created_at, progress.anime_id, order=order),
+    )
+
+
+def nullable_ordinal_sort_key(value: date | None, fallback_id: int, *, order: LibraryOrder) -> tuple[bool, int, int]:
+    if value is None:
+        return True, 0, fallback_id
+    ordinal = value.toordinal()
+    return False, ordinal if order == 'asc' else -ordinal, fallback_id
+
+
+def nullable_timestamp_sort_key(
+    value: datetime | None,
+    fallback_id: int,
+    *,
+    order: LibraryOrder,
+) -> tuple[bool, float, int]:
+    if value is None:
+        return True, 0, fallback_id
+    timestamp = value.timestamp()
+    return False, timestamp if order == 'asc' else -timestamp, fallback_id
+
+
+def build_navigation_anchors(
+    progresses: list[UserAnimeProgress],
+    *,
+    sort: LibrarySort,
+    limit: int,
+    user: User,
+) -> list[dict[str, int | str]]:
+    if sort not in {'name', 'air_date'}:
+        return []
+    anchors: list[dict[str, int | str]] = []
+    seen: set[str] = set()
+    for index, progress in enumerate(progresses):
+        if sort == 'name':
+            _sort_key, initial_key = anime_display_sort_key(progress.anime, progress, user)
+            key = initial_key if initial_key and initial_key.isalpha() else '#'
+            label = key.upper() if key != '#' else '#'
+        else:
+            if progress.anime.air_date is None:
+                key = 'unknown'
+                label = 'Unknown'
+            else:
+                key = progress.anime.air_date.strftime('%Y-%m')
+                label = key
+        if key in seen:
+            continue
+        seen.add(key)
+        anchors.append({'key': key, 'label': label, 'offset': index, 'page': index // limit + 1})
+    return anchors
+
+
+def total_pages(total: int, limit: int) -> int:
+    return math.ceil(total / limit) if total > 0 else 0
 
 
 def select_summary_for_user(
@@ -287,6 +436,7 @@ def serialize_anime(
     selected_name = select_anime_name_for_user(names, progress, user)
     selected_summary = select_summary_for_user(summaries, progress, user)
     selected_poster = select_poster_for_user(posters, progress)
+    serialized_poster = serialize_poster(selected_poster, progress)
     poster_status = selected_poster.status if selected_poster is not None else None
     data: dict[str, Any] = {
         'id': anime.id,
@@ -294,8 +444,8 @@ def serialize_anime(
         'displayName': selected_name.name if selected_name is not None else anime.original_name,
         'originalName': anime.original_name,
         'summary': serialize_summary(selected_summary, progress),
-        'posterUrl': serialize_poster(selected_poster, progress)['url'] if selected_poster is not None else None,
-        'poster': serialize_poster(selected_poster, progress),
+        'posterUrl': serialized_poster['url'] if serialized_poster is not None else None,
+        'poster': serialized_poster,
         'preferredNameId': progress.preferred_name_id,
         'preferredPosterId': progress.preferred_poster_id,
         'posterStatus': poster_status,
@@ -355,3 +505,14 @@ def serialize_episode_with_watch_state(
         'watched': bool(row['watched']),
         'watchedAt': row['watched_at'].isoformat() if row['watched_at'] is not None else None,
     }
+
+
+def send_poster_file(poster: AnimePoster | None) -> ResponseReturnValue:
+    if poster is None or poster.status != 'ready':
+        return jsonify({'message': 'Poster not found'}), 404
+    path = resolve_poster_path(str(current_app.config['ANIME_POSTER_STORAGE_DIR']), poster.storage_path)
+    if path is None or not Path(path).is_file():
+        return jsonify({'message': 'Poster not found'}), 404
+    response = send_file(path, mimetype=poster.mime_type)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response

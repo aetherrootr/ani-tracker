@@ -14,6 +14,7 @@ from app.import_provider.bangumi.utils import (
     pick_episode_count,
     pick_image_url,
 )
+from app.import_provider.base import ImportProvider
 from app.import_provider.exceptions import (
     ImportProviderResponseError,
     ImportProviderTimeoutError,
@@ -32,7 +33,7 @@ from app.import_provider.utils import coerce_int, non_empty_str
 logger = logging.getLogger(__name__)
 
 
-class BangumiImportProvider:
+class BangumiImportProvider(ImportProvider):
     name = 'bangumi'
 
     def __init__(
