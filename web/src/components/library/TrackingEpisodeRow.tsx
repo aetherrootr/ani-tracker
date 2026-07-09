@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -13,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { EpisodeWatchToggle } from "./EpisodeWatchToggle";
 import { NoPoster } from "./NoPoster";
+import { PosterImage } from "./PosterImage";
 
 type Props = {
   item: TrackingListItem;
@@ -23,8 +23,9 @@ type Props = {
 
 export function TrackingEpisodeRow({ item, disabled, isSaving, onWatchChange }: Props) {
   const t = useTranslations();
-  const [imageFailed, setImageFailed] = useState(false);
+  const [failedPoster, setFailedPoster] = useState<string | null>(null);
   const poster = assetUrl(item.anime.posterUrl);
+  const imageFailed = poster !== null && failedPoster === poster;
   const total = item.totalEpisodeCount ?? item.airedEpisodeCount;
   const progress = `${item.watchedEpisodeCount} / ${total || "?"}`;
 
@@ -59,16 +60,14 @@ export function TrackingEpisodeRow({ item, disabled, isSaving, onWatchChange }: 
             <div className="flex min-h-28 gap-3 p-3 sm:gap-4 sm:p-4">
               <div className="relative aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-20">
                 {poster && !imageFailed ? (
-                  <Image
+                  <PosterImage
                     src={poster}
                     alt={t("anime.coverAlt", { title: item.anime.displayName })}
-                    fill
-                    unoptimized
                     sizes="(min-width: 640px) 80px, 64px"
                     className="object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
                     draggable={false}
                     onLoad={(event) => event.currentTarget.classList.remove("opacity-0")}
-                    onError={() => setImageFailed(true)}
+                    onError={() => setFailedPoster(poster)}
                   />
                 ) : (
                   <NoPoster />

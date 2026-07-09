@@ -291,7 +291,7 @@ uv run celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo >"
 worker_pid="$!"
 sleep 1
 ensure_process_alive "${worker_pid}" "Celery worker" "${WORKER_LOG}"
-# requeue_pending_posters
+requeue_pending_posters
 
 echo "Starting backend on ${BACKEND_URL}"
 DATABASE_URL="${DATABASE_URL}" \

@@ -119,6 +119,33 @@ export type AnimeDetailResponse = {
   progress: AnimeProgress;
 };
 
+export type EpisodeConflict = {
+  animeId: number;
+  episodeId: number;
+  episodeNumber: number;
+  displayName?: string | null;
+  watchedUserCount?: number;
+  watched?: boolean;
+  watchedAt?: string | null;
+};
+
+export type AnimeSyncResponse = {
+  anime: Anime;
+  progress: AnimeProgress;
+  synced: boolean;
+  episodeConflicts: EpisodeConflict[];
+};
+
+export type ResolveEpisodeConflictsResponse = {
+  anime: Anime;
+  progress: AnimeProgress;
+  resolution: {
+    deletedEpisodeIds: number[];
+    keptEpisodeIds: number[];
+    invalidEpisodeIds: number[];
+  };
+};
+
 export type TrackingListItem = {
   anime: Anime;
   progress: AnimeProgress;

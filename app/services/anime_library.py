@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -43,33 +44,38 @@ def import_anime_from_provider(
         return anime, False
 
     detail = provider.get_anime_detail(external_id)
-    now = datetime.now(UTC)
     anime = AnimeMetaInfo(
         provider_type=detail.provider,
         external_id=detail.external_id,
-        url=detail.url,
         original_name=detail.title,
-        type=_anime_type(detail.anime_type),
-        total_episodes=detail.total_episodes,
-        air_date=detail.air_date or _first_episode_air_date(detail.episodes),
-        last_synced_at=now,
     )
     session.add(anime)
     session.flush()
+    populate_anime_from_detail(session, anime, detail)
 
+    return anime, True
+
+
+def populate_anime_from_detail(session: Session, anime: AnimeMetaInfo, detail: Any) -> AnimePoster | None:
+    now = datetime.now(UTC)
+    anime.url = detail.url
+    anime.original_name = detail.title
+    anime.type = _anime_type(detail.anime_type)
+    anime.total_episodes = detail.total_episodes
+    anime.air_date = detail.air_date or _first_episode_air_date(detail.episodes)
+    anime.last_synced_at = now
     _upsert_summaries(session, anime, detail.summaries)
     _upsert_names(session, anime, detail.names, detail.original_title)
     _upsert_episodes(session, anime, detail.episodes, now)
-    if detail.poster_source_url:
-        upsert_poster_record(
-            session,
-            anime_id=anime.id,
-            provider=detail.provider,
-            external_id=detail.external_id,
-            source_url=detail.poster_source_url,
-        )
-
-    return anime, True
+    if not detail.poster_source_url:
+        return None
+    return upsert_poster_record(
+        session,
+        anime_id=anime.id,
+        provider=detail.provider,
+        external_id=detail.external_id,
+        source_url=detail.poster_source_url,
+    )
 
 
 def add_anime_to_user_library(
