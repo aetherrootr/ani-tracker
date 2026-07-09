@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.anime import (
+    TRACKING_LIST_RECENT_LIMIT,
     build_navigation_anchors,
     get_import_provider_factory,
     get_search_library_markers,
@@ -32,6 +33,9 @@ from app.api.utils.anime import (
     serialize_summary,
     sort_library_progresses,
     total_pages,
+    tracking_list_backlog_page,
+    tracking_list_recently_watched_page,
+    tracking_list_tracking_page,
 )
 from app.api.utils.auth import require_auth_user
 from app.import_provider.exceptions import (
@@ -239,6 +243,42 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
             ],
         },
     )
+
+
+@anime_bp.get('/library/tracking-list/tracking')
+@require_auth_user
+def get_tracking_list_tracking(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=20, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(tracking_list_tracking_page(db, user, limit=limit, offset=offset))
+
+
+@anime_bp.get('/library/tracking-list/backlog')
+@require_auth_user
+def get_tracking_list_backlog(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=20, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(tracking_list_backlog_page(db, user, limit=limit, offset=offset))
+
+
+@anime_bp.get('/library/tracking-list/recently-watched')
+@require_auth_user
+def get_tracking_list_recently_watched(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=TRACKING_LIST_RECENT_LIMIT, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(tracking_list_recently_watched_page(db, user, limit=limit, offset=offset))
 
 
 @anime_bp.get('/<int:anime_id>')

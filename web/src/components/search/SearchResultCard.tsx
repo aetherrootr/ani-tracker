@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { BookOpenCheck, ChevronDown, ChevronRight, ExternalLink, ImageOff, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -18,7 +19,8 @@ type SearchResultCardProps = {
 
 export function SearchResultCard({ result, imageFailed, onImageError, onLibraryAdded }: SearchResultCardProps) {
   const t = useTranslations();
-  const hasImage = result.imageUrl && !imageFailed;
+  const imageUrl = result.imageUrl;
+  const hasImage = imageUrl && !imageFailed;
   const [showDetails, setShowDetails] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
@@ -39,14 +41,16 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
   return (
     <Card className="overflow-hidden">
       <CardContent className="grid grid-cols-[72px_1fr_auto] gap-3 p-3 sm:grid-cols-[128px_1fr_auto] sm:gap-4 sm:p-4 md:grid-cols-[128px_1fr_180px] md:p-5">
-        <div className="flex h-24 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground sm:h-44 sm:rounded-xl">
+        <div className="relative flex h-24 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground sm:h-44 sm:rounded-xl">
           {hasImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={result.imageUrl ?? undefined}
+            <Image
+              src={imageUrl}
               alt={t("anime.coverAlt", { title: result.title })}
-              className="h-full w-full object-cover"
-              onError={() => result.imageUrl && onImageError(result.imageUrl)}
+              fill
+              unoptimized
+              sizes="(min-width: 640px) 128px, 72px"
+              className="object-cover"
+              onError={() => onImageError(imageUrl)}
             />
           ) : (
             <div className="flex flex-col items-center gap-1 text-[10px] sm:gap-2 sm:text-xs">

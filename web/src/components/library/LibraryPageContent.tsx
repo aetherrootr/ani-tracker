@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { BackToTopButton } from "@/components/layout/BackToTopButton";
 import { Button } from "@/components/ui/button";
 import {
   calculateLibraryPageSize,
@@ -143,6 +144,10 @@ export function LibraryPageContent() {
     if (previousPageRef.current !== query.page) {
       previousPageRef.current = query.page;
       if (pendingAnchorKeyRef.current === null) {
+        if (window.innerWidth < 640) {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
         listTopRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
       }
     }
@@ -322,6 +327,8 @@ export function LibraryPageContent() {
           </main>
         </div>
       ) : null}
+
+      <BackToTopButton />
     </div>
   );
 }

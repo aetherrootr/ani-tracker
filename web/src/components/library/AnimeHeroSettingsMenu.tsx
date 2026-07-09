@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Check, Settings, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
@@ -103,8 +104,8 @@ export function AnimeHeroSettingsMenu({ anime, onAnimeChange }: { anime: Anime; 
             const url = assetUrl(poster.url);
             return (
               <button key={poster.id} type="button" className={cn("overflow-hidden rounded-xl border p-1 text-left", (anime.preferredPosterId === poster.id || poster.isPreferred) && "ring-2 ring-primary", poster.status !== "ready" && "opacity-45")} onClick={() => choosePoster(poster.id)}>
-                <div className="aspect-[2/3] overflow-hidden rounded-lg bg-muted">
-                  {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : <NoPoster />}
+                <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted">
+                  {url ? <Image src={url} alt="" fill unoptimized sizes="120px" className="object-cover" /> : <NoPoster />}
                 </div>
                 <div className="mt-1 text-center text-[11px] text-muted-foreground">{poster.status}</div>
               </button>

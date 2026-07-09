@@ -118,3 +118,26 @@ export type AnimeDetailResponse = {
   anime: Anime;
   progress: AnimeProgress;
 };
+
+export type TrackingListItem = {
+  anime: Anime;
+  progress: AnimeProgress;
+  episode: Episode;
+  watchedEpisodeCount: number;
+  airedEpisodeCount: number;
+  totalEpisodeCount: number | null;
+};
+
+export type TrackingListPage<TItem> = {
+  items: TItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+export type TrackingListResponse = {
+  tracking: TrackingListPage<TrackingListItem>;
+  backlog: TrackingListPage<TrackingListItem>;
+  recentlyWatched: TrackingListPage<TrackingListItem>;
+};

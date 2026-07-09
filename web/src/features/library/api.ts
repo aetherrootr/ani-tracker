@@ -11,6 +11,9 @@ import type {
   LibrarySort,
   LibraryStatusFilter,
   SortOrder,
+  TrackingListPage,
+  TrackingListResponse,
+  TrackingListItem,
   UserAnimeStatus,
 } from "./types";
 
@@ -85,6 +88,44 @@ export function getEpisodes(input: {
     `/api/anime/library/${input.animeId}/episodes?${params.toString()}`,
     { signal: input.signal },
   );
+}
+
+export type TrackingListKey = "tracking" | "backlog" | "recentlyWatched";
+
+const TRACKING_LIST_ENDPOINTS: Record<TrackingListKey, string> = {
+  tracking: "tracking",
+  backlog: "backlog",
+  recentlyWatched: "recently-watched",
+};
+
+export function getTrackingListPage(input: {
+  list: TrackingListKey;
+  limit?: number;
+  offset?: number;
+  signal?: AbortSignal;
+}) {
+  const params = new URLSearchParams();
+  if (input.limit !== undefined) {
+    params.set("limit", String(input.limit));
+  }
+  if (input.offset !== undefined) {
+    params.set("offset", String(input.offset));
+  }
+
+  const query = params.toString();
+  return apiFetch<TrackingListPage<TrackingListItem>>(
+    `/api/anime/library/tracking-list/${TRACKING_LIST_ENDPOINTS[input.list]}${query ? `?${query}` : ""}`,
+    { signal: input.signal },
+  );
+}
+
+export async function getTrackingList(signal?: AbortSignal) {
+  const [tracking, backlog, recentlyWatched] = await Promise.all([
+    getTrackingListPage({ list: "tracking", signal }),
+    getTrackingListPage({ list: "backlog", signal }),
+    getTrackingListPage({ list: "recentlyWatched", signal }),
+  ]);
+  return { tracking, backlog, recentlyWatched } satisfies TrackingListResponse;
 }
 
 export function updateAnimeStatus(animeId: number, status: UserAnimeStatus) {

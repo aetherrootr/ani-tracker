@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { getAnimeDetail, getEpisodes, getLibrary } from "./api";
+import { getAnimeDetail, getEpisodes, getLibrary, getTrackingList } from "./api";
 import type {
   AnimeDetailResponse,
   EpisodeListResponse,
@@ -11,6 +11,7 @@ import type {
   LibrarySort,
   LibraryStatusFilter,
   SortOrder,
+  TrackingListResponse,
 } from "./types";
 
 const DEFAULT_LIBRARY_PAGE_SIZE = 24;
@@ -234,6 +235,41 @@ export function useEpisodes(animeId: number, page: number) {
 
     return () => controller.abort();
   }, [animeId, page, retryKey]);
+
+  return useMemo(
+    () => ({ data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),
+    [data, error, isLoading],
+  );
+}
+
+export function useTrackingList() {
+  const [data, setData] = useState<TrackingListResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsLoading(true);
+    setError(null);
+
+    getTrackingList(controller.signal)
+      .then(setData)
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Request failed");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [retryKey]);
 
   return useMemo(
     () => ({ data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),

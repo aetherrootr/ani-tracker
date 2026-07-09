@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -14,7 +14,23 @@ from sqlalchemy.orm import Session
 
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.types import ImportSearchResult
-from app.models.anime import AnimeMetaInfo, AnimeName, AnimePoster, AnimeSummary, EpisodeName
+from app.models.anime import (
+    AnimeMetaInfo,
+    AnimeName,
+    AnimePoster,
+    AnimeSummary,
+    Episode,
+    EpisodeName,
+    EpisodeStatus,
+)
+from app.models.anime_utils import (
+    RecentlyWatchedQueryRow,
+    TrackingListQueryRow,
+    get_backlog_list_rows,
+    get_progresses_by_ids_with_anime,
+    get_recently_watched_rows,
+    get_tracking_list_rows,
+)
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
 from app.services.anime_poster import resolve_poster_path
@@ -22,6 +38,9 @@ from app.services.name_keys import build_name_keys, build_search_key, normalize_
 
 LibrarySort = Literal['updated_at', 'name', 'air_date']
 LibraryOrder = Literal['asc', 'desc']
+
+TRACKING_LIST_RECENT_LIMIT = 15 # 15 Episodes in the tracking list are considered recent
+TRACKING_LIST_RECENT_DAYS = 30 # 30 Days in the tracking list are considered recent
 
 _LIBRARY_SORT_ALIASES: dict[str, LibrarySort] = {
     'updated_at': 'updated_at',
@@ -403,6 +422,156 @@ def serialize_progress(progress: UserAnimeProgress, *, include_anime_id: bool = 
     if include_anime_id:
         data['animeId'] = progress.anime_id
     return data
+
+
+def serialize_tracking_list_item(
+    *,
+    anime: AnimeMetaInfo,
+    progress: UserAnimeProgress,
+    episode: Episode,
+    watched: bool,
+    watched_at: datetime | None,
+    watched_episode_count: int,
+    aired_episode_count: int,
+    user: User,
+) -> dict[str, object]:
+    selected_name = select_episode_name_for_user(
+        sorted(episode.names, key=lambda item: item.id),
+        user,
+    )
+    return {
+        'anime': serialize_anime(anime, progress, user),
+        'progress': serialize_progress(progress),
+        'episode': serialize_episode_with_watch_state(
+            {
+                'episode_id': episode.id,
+                'episode_number': episode.episode_number,
+                'original_title': episode.original_title,
+                'air_at': episode.air_at,
+                'duration': episode.duration,
+                'status': episode.status,
+                'watched': watched,
+                'watched_at': watched_at,
+            },
+            selected_name=selected_name,
+        ),
+        'watchedEpisodeCount': watched_episode_count,
+        'airedEpisodeCount': aired_episode_count,
+        'totalEpisodeCount': anime.total_episodes or len(anime.episodes) or None,
+    }
+
+
+def serialize_tracking_rows(
+    session: Session,
+    user: User,
+    rows: Sequence[TrackingListQueryRow | RecentlyWatchedQueryRow],
+    *,
+    watched: bool,
+) -> list[dict[str, object]]:
+    progress_by_id = get_progresses_by_ids_with_anime(session, [row.progress_id for row in rows])
+    items = []
+    for row in rows:
+        progress = progress_by_id[row.progress_id]
+        episode = next(episode for episode in progress.anime.episodes if episode.id == row.episode_id)
+        items.append(
+            serialize_tracking_list_item(
+                anime=progress.anime,
+                progress=progress,
+                episode=episode,
+                watched=watched,
+                watched_at=getattr(row, 'watched_at', None),
+                watched_episode_count=row.watched_episode_count,
+                aired_episode_count=row.aired_episode_count,
+                user=user,
+            ),
+        )
+    return items
+
+
+def tracking_list_page_response(items: list[dict[str, object]], *, total: int, limit: int, offset: int) -> dict[str, object]:
+    return {
+        'items': items,
+        'total': total,
+        'limit': limit,
+        'offset': offset,
+        'hasMore': offset + limit < total,
+    }
+
+
+def tracking_list_tracking_page(session: Session, user: User, *, limit: int, offset: int) -> dict[str, object]:
+    total, rows = get_tracking_list_rows(
+        session,
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+        now=datetime.now(UTC),
+        recent_days=TRACKING_LIST_RECENT_DAYS,
+    )
+    return tracking_list_page_response(
+        serialize_tracking_rows(session, user, rows, watched=False),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def tracking_list_backlog_page(session: Session, user: User, *, limit: int, offset: int) -> dict[str, object]:
+    total, rows = get_backlog_list_rows(
+        session,
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+        now=datetime.now(UTC),
+        recent_days=TRACKING_LIST_RECENT_DAYS,
+    )
+    return tracking_list_page_response(
+        serialize_tracking_rows(session, user, rows, watched=False),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def tracking_list_recently_watched_page(session: Session, user: User, *, limit: int, offset: int) -> dict[str, object]:
+    total, rows = get_recently_watched_rows(session, user_id=user.id, limit=limit, offset=offset)
+    return tracking_list_page_response(
+        serialize_tracking_rows(session, user, rows, watched=True),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def as_aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def is_tracking_anime(anime: AnimeMetaInfo, *, now: datetime) -> bool:
+    has_future_episode = any(episode.status != EpisodeStatus.AIRED for episode in anime.episodes)
+    has_missing_imported_episodes = anime.total_episodes is not None and anime.total_episodes > len(anime.episodes)
+    last_aired_at = max(
+        (as_aware_utc(episode.air_at) for episode in anime.episodes if episode.status == EpisodeStatus.AIRED),
+        default=None,
+    )
+    is_recently_finished = last_aired_at is not None and last_aired_at >= now - timedelta(days=TRACKING_LIST_RECENT_DAYS)
+    return has_future_episode or has_missing_imported_episodes or is_recently_finished
+
+
+def desc_nullable_datetime_sort_value(value: datetime | None) -> tuple[bool, float]:
+    aware = as_aware_utc(value)
+    if aware is None:
+        return True, 0
+    return False, -aware.timestamp()
+
+
+def desc_nullable_date_sort_value(value: date | None) -> tuple[bool, int]:
+    if value is None:
+        return True, 0
+    return False, -value.toordinal()
 
 
 def serialize_library_progress(

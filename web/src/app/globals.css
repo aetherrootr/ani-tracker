@@ -89,6 +89,13 @@ body {
   display: none;
 }
 
+@media (max-width: 639px) {
+  html.tracking-list-scroll-lock,
+  body.tracking-list-scroll-lock {
+    overflow: hidden;
+  }
+}
+
 .library-confetti-piece {
   position: absolute;
   left: 0;
