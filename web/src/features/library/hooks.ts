@@ -207,7 +207,7 @@ export function useAnimeDetail(animeId: number) {
   return { data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) };
 }
 
-export function useEpisodes(animeId: number, page: number) {
+export function useEpisodes(animeId: number, page: number, refreshKey = 0) {
   const [data, setData] = useState<EpisodeListResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -234,7 +234,7 @@ export function useEpisodes(animeId: number, page: number) {
       });
 
     return () => controller.abort();
-  }, [animeId, page, retryKey]);
+  }, [animeId, page, refreshKey, retryKey]);
 
   return useMemo(
     () => ({ data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),

@@ -2,12 +2,14 @@ import { apiFetch } from "@/lib/api-client";
 
 import type {
   AnimeDetailResponse,
+  AnimeSyncResponse,
   AnimeName,
   AnimePoster,
   AnimeProgress,
   AnimeSummary,
   EpisodeListResponse,
   LibraryResponse,
+  ResolveEpisodeConflictsResponse,
   LibrarySort,
   LibraryStatusFilter,
   SortOrder,
@@ -132,6 +134,17 @@ export function updateAnimeStatus(animeId: number, status: UserAnimeStatus) {
   return apiFetch<{ progress: AnimeProgress }>(`/api/anime/library/${animeId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
+  });
+}
+
+export function syncAnime(animeId: number) {
+  return apiFetch<AnimeSyncResponse>(`/api/anime/library/${animeId}/sync`, { method: "POST" });
+}
+
+export function resolveEpisodeConflicts(animeId: number, deleteEpisodeIds: number[]) {
+  return apiFetch<ResolveEpisodeConflictsResponse>(`/api/anime/library/${animeId}/sync/episode-conflicts/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ deleteEpisodeIds }),
   });
 }
 

@@ -14,7 +14,7 @@ import { EpisodeSearchMenu, type EpisodeFilter, type EpisodeOrder } from "./Epis
 import { EpisodeTitleSettingsMenu } from "./EpisodeTitleSettingsMenu";
 import { LibraryPagination, SkeletonBlock } from "./LibraryPagination";
 
-export function EpisodeList({ animeId, onProgressChange }: { animeId: number; onProgressChange: (progress: AnimeProgress) => void }) {
+export function EpisodeList({ animeId, refreshKey = 0, onProgressChange }: { animeId: number; refreshKey?: number; onProgressChange: (progress: AnimeProgress) => void }) {
   const t = useTranslations();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
@@ -23,7 +23,7 @@ export function EpisodeList({ animeId, onProgressChange }: { animeId: number; on
   const [openMenu, setOpenMenu] = useState<"search" | "settings" | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
-  const { data, setData, isLoading, error, retry } = useEpisodes(animeId, page);
+  const { data, setData, isLoading, error, retry } = useEpisodes(animeId, page, refreshKey);
   const episodes = useMemo(() => data?.episodes ?? [], [data?.episodes]);
 
   const visibleEpisodes = useMemo(() => {
