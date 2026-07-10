@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -12,7 +13,6 @@ import { cn } from "@/lib/utils";
 
 import { EpisodeWatchToggle } from "./EpisodeWatchToggle";
 import { NoPoster } from "./NoPoster";
-import { PosterImage } from "./PosterImage";
 
 type Props = {
   item: TrackingListItem;
@@ -38,7 +38,7 @@ export function TrackingEpisodeRow({ item, disabled, isSaving, showProgress = tr
       onChange={(watched) => onWatchChange(item, watched)}
     >
       {(style, backdrop, handlers, isDragging, dragState) => (
-        <article className="relative overflow-hidden rounded-2xl border bg-card shadow-sm touch-pan-y">
+        <article className="relative overflow-hidden rounded-2xl border bg-card shadow-sm touch-auto">
           {backdrop}
           <div
             {...handlers}
@@ -61,9 +61,12 @@ export function TrackingEpisodeRow({ item, disabled, isSaving, showProgress = tr
             <div className="flex min-h-28 gap-3 p-3 sm:gap-4 sm:p-4">
               <div className="relative aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-20">
                 {poster && !imageFailed ? (
-                  <PosterImage
+                  <Image
+                    key={poster}
                     src={poster}
                     alt={t("anime.coverAlt", { title: item.anime.displayName })}
+                    fill
+                    unoptimized
                     sizes="(min-width: 640px) 80px, 64px"
                     className="object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
                     draggable={false}

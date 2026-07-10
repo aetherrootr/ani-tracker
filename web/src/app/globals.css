@@ -77,6 +77,11 @@ body {
   color: var(--foreground);
 }
 
+html.dialog-scroll-lock,
+body.dialog-scroll-lock {
+  overflow: hidden;
+}
+
 * {
   border-color: var(--border);
 }
@@ -89,10 +94,61 @@ body {
   display: none;
 }
 
+.glass-surface {
+  background: color-mix(in oklch, var(--background) 80%, transparent);
+  border-color: color-mix(in oklch, var(--border) 78%, transparent);
+  box-shadow:
+    0 18px 48px color-mix(in oklch, var(--background) 34%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 8%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.glass-card {
+  background: color-mix(in oklch, var(--card) 70%, transparent);
+  border-color: color-mix(in oklch, var(--border) 82%, transparent);
+  box-shadow:
+    0 18px 48px color-mix(in oklch, var(--background) 32%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 7%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.glass-dialog {
+  background: color-mix(in oklch, var(--background) 90%, transparent);
+  border-color: color-mix(in oklch, var(--border) 82%, transparent);
+  box-shadow:
+    0 18px 48px color-mix(in oklch, var(--background) 32%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 7%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.mobile-top-popover-enter {
+  animation: mobile-top-popover-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+}
+
 @media (max-width: 639px) {
+  html,
+  body {
+    touch-action: pan-x pan-y;
+  }
+
   html.tracking-list-scroll-lock,
   body.tracking-list-scroll-lock {
     overflow: hidden;
+  }
+
+  html.episode-horizontal-drag-lock,
+  body.episode-horizontal-drag-lock {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html.episode-horizontal-drag-lock .tracking-section-scroll {
+    overflow-y: hidden;
+    overscroll-behavior: none;
   }
 }
 
@@ -167,6 +223,21 @@ body {
   }
 }
 
+@keyframes mobile-top-popover-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-0.75rem) scale(0.97);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(0.08rem) scale(1.005);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .animate-check-pop {
   animation: check-pop 260ms cubic-bezier(0.2, 1.2, 0.4, 1) both;
 }
@@ -174,7 +245,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .library-confetti-piece,
   .library-confetti-ring,
-  .animate-check-pop {
+  .animate-check-pop,
+  .mobile-top-popover-enter {
     animation: none;
   }
 

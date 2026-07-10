@@ -20,7 +20,7 @@ export function EpisodeRow({ episode, disabled, onWatchChange }: { episode: Epis
       onChange={(watched) => onWatchChange(episode, watched)}
     >
       {(style, backdrop, handlers, isDragging, dragState) => (
-        <div className="relative overflow-hidden rounded-2xl border bg-card touch-pan-y">
+        <div className="relative overflow-hidden rounded-2xl border bg-card touch-auto">
           {backdrop}
           <div
             {...handlers}

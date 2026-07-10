@@ -3,7 +3,7 @@
 import { Check, EyeOff } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { HTMLAttributes, PointerEvent, ReactNode } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -15,11 +15,13 @@ const COMMIT_FEEDBACK_MS = 100;
 const DESKTOP_DRAG_AXIS_LOCK_PX = 8;
 const MOBILE_DRAG_AXIS_LOCK_PX = 5;
 const DESKTOP_VERTICAL_AXIS_LOCK_PX = 8;
-const MOBILE_VERTICAL_AXIS_LOCK_PX = 108;
+const MOBILE_VERTICAL_AXIS_LOCK_PX = 8;
 const DESKTOP_VERTICAL_MAX_HORIZONTAL_PX = 18;
-const MOBILE_VERTICAL_MAX_HORIZONTAL_PX = 18;
+const MOBILE_VERTICAL_MAX_HORIZONTAL_PX = 28;
 const DESKTOP_DRAG_AXIS_RATIO = 1.35;
 const MOBILE_DRAG_AXIS_RATIO = 1.12;
+
+let horizontalDragLockCount = 0;
 
 type Props = {
   watched: boolean;
@@ -46,6 +48,7 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
     y: number;
     pointerId: number;
     axis: "pending" | "horizontal" | "vertical";
+    scrollLocked: boolean;
   } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState(false);
   const [commitFeedback, setCommitFeedback] = useState<"watched" | "unwatched" | null>(null);
@@ -60,6 +63,10 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
   const triggered = abs >= threshold;
   const dragDirection = dragX === 0 ? null : dragX < 0 ? "watched" : "unwatched";
   const dragUnavailable = dragDirection === "watched" ? watched : dragDirection === "unwatched" ? !watched : false;
+
+  useEffect(() => {
+    return () => unlockHorizontalDragScroll();
+  }, []);
 
   async function apply(next: boolean) {
     if (disabled || pending || next === watched) {
@@ -94,7 +101,7 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
     if (disabled || pending) {
       return;
     }
-    setDragStart({ x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis: "pending" });
+    setDragStart({ x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis: "pending", scrollLocked: false });
   }
 
   function moveDrag(event: PointerEvent<HTMLElement>) {
@@ -114,6 +121,7 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
       if (absY >= verticalAxisLockThreshold && absX <= verticalMaxHorizontal && absY > absX * axisRatio) {
         setDragStart({ ...dragStart, axis: "vertical" });
         setDragX(0);
+        unlockHorizontalDragScroll();
         return false;
       }
 
@@ -122,7 +130,10 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
       }
 
       event.currentTarget.setPointerCapture(event.pointerId);
-      setDragStart({ ...dragStart, axis: "horizontal" });
+      if (!dragStart.scrollLocked) {
+        lockHorizontalDragScroll();
+      }
+      setDragStart({ ...dragStart, axis: "horizontal", scrollLocked: true });
     }
 
     if (dragStart.axis === "vertical") {
@@ -147,6 +158,7 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
     const axis = dragStart.axis === "horizontal" || inferredHorizontal ? "horizontal" : dragStart.axis;
     setDragStart(null);
     setDragX(0);
+    unlockHorizontalDragScroll();
     if (axis !== "horizontal") {
       return false;
     }
@@ -161,6 +173,7 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
   function cancelDrag() {
     setDragStart(null);
     setDragX(0);
+    unlockHorizontalDragScroll();
   }
 
   const dragHandlers: HTMLAttributes<HTMLDivElement> = {
@@ -267,6 +280,28 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function lockHorizontalDragScroll() {
+  if (horizontalDragLockCount === 0) {
+    window.addEventListener("touchmove", preventTouchScroll, { passive: false });
+  }
+  horizontalDragLockCount += 1;
+  document.documentElement.classList.add("episode-horizontal-drag-lock");
+  document.body.classList.add("episode-horizontal-drag-lock");
+}
+
+function unlockHorizontalDragScroll() {
+  horizontalDragLockCount = Math.max(horizontalDragLockCount - 1, 0);
+  if (horizontalDragLockCount === 0) {
+    window.removeEventListener("touchmove", preventTouchScroll);
+  }
+  document.documentElement.classList.remove("episode-horizontal-drag-lock");
+  document.body.classList.remove("episode-horizontal-drag-lock");
+}
+
+function preventTouchScroll(event: TouchEvent) {
+  event.preventDefault();
 }
 
 function getDragThreshold() {

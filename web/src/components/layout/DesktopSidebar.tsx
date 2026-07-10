@@ -17,12 +17,15 @@ export function DesktopSidebar() {
 
   const displayName = user?.displayName || user?.username || t("app.currentUser");
   const SettingsIcon = settingsNavigationItem.icon;
+  const activeNavigationIndex = navigationItems.findIndex(
+    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
+  );
   const settingsActive =
     pathname === settingsNavigationItem.href ||
     pathname.startsWith(`${settingsNavigationItem.href}/`);
 
   return (
-    <aside className="hidden w-72 shrink-0 border-r bg-card/80 px-4 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto">
+    <aside className="glass-surface hidden w-72 shrink-0 border-r px-4 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto">
       <Link href="/tracking-list" className="mb-8 flex items-center gap-3 px-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
           A
@@ -32,7 +35,14 @@ export function DesktopSidebar() {
         </div>
       </Link>
 
-      <nav className="space-y-1">
+      <nav className="relative space-y-1">
+        {activeNavigationIndex >= 0 ? (
+          <div
+            className="absolute left-0 right-0 top-0 h-11 rounded-xl bg-primary transition-transform duration-300 ease-out"
+            style={{ transform: `translateY(${activeNavigationIndex * 3}rem)` }}
+            aria-hidden="true"
+          />
+        ) : null}
         {navigationItems.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -42,8 +52,8 @@ export function DesktopSidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-                active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+                "relative z-10 flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+                active && "text-primary-foreground hover:bg-transparent hover:text-primary-foreground",
               )}
             >
               <Icon className="h-4 w-4" />
@@ -53,7 +63,7 @@ export function DesktopSidebar() {
         })}
       </nav>
 
-      <div className="mt-auto rounded-2xl border bg-background p-4">
+      <div className="glass-card mt-auto rounded-2xl border p-4">
         <p className="text-sm font-medium">{displayName}</p>
         {user?.email ? <p className="mt-1 truncate text-xs text-muted-foreground">{user.email}</p> : null}
         <div className="mt-4 flex items-center gap-2">

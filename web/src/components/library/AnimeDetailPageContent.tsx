@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown, ExternalLink, RefreshCw } from "lucide-react";
+import Image from "next/image";
+import { Check, ChevronDown, ExternalLink, RefreshCw, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { assetUrl, getAnimeDetail, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
@@ -17,7 +18,6 @@ import { EpisodeConflictDialog } from "./EpisodeConflictDialog";
 import { EpisodeList } from "./EpisodeList";
 import { SkeletonBlock } from "./LibraryPagination";
 import { NoPoster } from "./NoPoster";
-import { PosterImage } from "./PosterImage";
 
 const STATUS_OPTIONS: UserAnimeStatus[] = ["plan_to_watch", "watching", "completed", "on_hold", "dropped"];
 const POSTER_POLL_INTERVAL_MS = 1200;
@@ -27,6 +27,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const t = useTranslations();
   const { data, setData, isLoading, error, retry } = useAnimeDetail(animeId);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const statusMenuRef = useRef<HTMLDivElement | null>(null);
   const [dropConfirm, setDropConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -34,6 +35,57 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [episodeConflicts, setEpisodeConflicts] = useState<EpisodeConflict[]>([]);
   const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
   const [isPosterRefreshing, setIsPosterRefreshing] = useState(false);
+  const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (!summaryDialogOpen) {
+      return;
+    }
+
+    document.documentElement.classList.add("dialog-scroll-lock");
+    document.body.classList.add("dialog-scroll-lock");
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSummaryDialogOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.documentElement.classList.remove("dialog-scroll-lock");
+      document.body.classList.remove("dialog-scroll-lock");
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [summaryDialogOpen]);
+
+  useEffect(() => {
+    if (!statusMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (statusMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setStatusMenuOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setStatusMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [statusMenuOpen]);
 
   async function setStatus(status: UserAnimeStatus) {
     if (!data || status === data.progress.status) {
@@ -116,7 +168,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }
 
   const poster = assetUrl(data.anime.posterUrl);
-  const summary = data.anime.summary?.summary ?? t("anime.noSummary");
+  const summary = data.anime.summary?.summary?.trim() || t("anime.noSummary");
   const showOriginal = data.anime.originalName !== data.anime.displayName;
 
   return (
@@ -137,23 +189,31 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         </div>
       ) : null}
 
-      <section className="relative overflow-hidden rounded-3xl border bg-card shadow-sm">
-        {poster ? (
-          <PosterImage
-            src={poster}
-            alt=""
-            sizes="100vw"
-            className="scale-110 object-cover opacity-25 blur-2xl"
-          />
-        ) : <div className="absolute inset-0 bg-gradient-to-br from-muted to-card" />}
-        <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/80 to-background/50" />
+      <section className="relative rounded-3xl border bg-card shadow-sm">
+        <div className="absolute inset-0 overflow-hidden rounded-3xl">
+          {poster ? (
+            <Image
+              key={poster}
+              src={poster}
+              alt=""
+              fill
+              unoptimized
+              sizes="100vw"
+              className="scale-110 object-cover opacity-25 blur-2xl"
+            />
+          ) : <div className="absolute inset-0 bg-gradient-to-br from-muted to-card" />}
+          <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/80 to-background/50" />
+        </div>
 
         <div className="relative z-10 grid gap-6 p-5 sm:grid-cols-[220px_1fr] sm:p-8">
           <div className="relative mx-auto hidden aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:block sm:w-full">
             {poster ? (
-              <PosterImage
+              <Image
+                key={poster}
                 src={poster}
                 alt={t("anime.coverAlt", { title: data.anime.displayName })}
+                fill
+                unoptimized
                 sizes="220px"
                 className="object-cover"
               />
@@ -187,23 +247,35 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
             </div>
             <div className="relative mx-auto aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:hidden">
               {poster ? (
-                <PosterImage
+                <Image
+                  key={poster}
                   src={poster}
                   alt={t("anime.coverAlt", { title: data.anime.displayName })}
+                  fill
+                  unoptimized
                   sizes="176px"
                   className="object-cover"
                 />
               ) : <NoPoster />}
             </div>
-            <div className="scrollbar-none max-h-28 max-w-3xl overflow-y-auto rounded-2xl bg-background/15 p-3 text-xs leading-6 text-muted-foreground backdrop-blur-sm sm:max-h-32 sm:text-sm">
+            <button
+              type="button"
+              className="relative block max-h-28 w-full max-w-3xl overflow-hidden rounded-2xl bg-background/15 p-3 text-left text-xs leading-6 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
+              onClick={() => setSummaryDialogOpen(true)}
+            >
+              <p className="whitespace-pre-wrap">{summary}</p>
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/70 to-transparent" aria-hidden="true" />
+            </button>
+            <div className="scrollbar-none hidden max-h-32 max-w-3xl overflow-y-auto rounded-2xl bg-background/15 p-3 text-sm leading-6 text-muted-foreground backdrop-blur-sm sm:block">
               <p className="whitespace-pre-wrap">{summary}</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <div className="relative z-20 rounded-2xl border bg-background/35 p-3 backdrop-blur">
+              <div ref={statusMenuRef} className="relative z-20 rounded-2xl border bg-background/35 p-3 backdrop-blur">
                 <button
                   type="button"
                   className="flex w-full items-center justify-between gap-3 text-left"
                   aria-expanded={statusMenuOpen}
+                  aria-haspopup="menu"
                   onClick={() => setStatusMenuOpen((current) => !current)}
                 >
                   <span>
@@ -213,24 +285,27 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                   <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", statusMenuOpen && "rotate-180")} />
                 </button>
                 {statusMenuOpen ? (
-                  <div className="absolute left-0 right-0 top-full z-40 mt-2 rounded-2xl border bg-background/95 p-2 text-foreground shadow-lg shadow-background/30 backdrop-blur-xl dark:bg-background/90">
-                    <div className="grid grid-cols-2 gap-2 p-1">
-                      {STATUS_OPTIONS.map((status) => (
-                        <Button
+                  <div className="glass-dialog absolute left-0 top-full z-40 mt-2 w-40 max-w-full overflow-hidden rounded-2xl border p-1 text-foreground sm:w-44" role="menu">
+                    {STATUS_OPTIONS.map((status) => {
+                      const active = data.progress.status === status;
+                      return (
+                        <button
                           key={status}
                           type="button"
-                          size="sm"
-                          variant={data.progress.status === status ? "default" : "outline"}
+                          role="menuitemradio"
+                          aria-checked={active}
                           className={cn(
-                            "min-h-11 px-3 py-2 text-sm sm:min-h-10 sm:text-xs",
-                            status === "dropped" && "border-destructive text-destructive hover:bg-destructive/10",
+                            "flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground sm:min-h-11",
+                            active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+                            status === "dropped" && !active && "text-destructive hover:bg-destructive/10 hover:text-destructive",
                           )}
                           onClick={() => { setStatusMenuOpen(false); void setStatus(status); }}
                         >
-                          {t(`library.status.${status}`)}
-                        </Button>
-                      ))}
-                    </div>
+                          <span>{t(`library.status.${status}`)}</span>
+                          {active ? <Check className="h-4 w-4" /> : null}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>
@@ -274,6 +349,30 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         onCancel={() => setEpisodeConflicts([])}
         onConfirm={(deleteEpisodeIds) => void resolveConflicts(deleteEpisodeIds)}
       />
+      {summaryDialogOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="summary-dialog-title"
+          onClick={() => setSummaryDialogOpen(false)}
+        >
+          <div
+            className="glass-dialog flex max-h-[80svh] w-full flex-col rounded-2xl border text-foreground sm:mx-auto sm:max-w-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b p-4">
+              <h2 id="summary-dialog-title" className="font-semibold tracking-tight">简介</h2>
+              <Button type="button" variant="ghost" size="icon" aria-label={t("library.closeFilters")} onClick={() => setSummaryDialogOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 text-sm leading-7 text-muted-foreground">
+              <p className="whitespace-pre-wrap">{summary}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

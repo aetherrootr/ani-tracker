@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -9,7 +10,6 @@ import { assetUrl } from "@/features/library/api";
 import type { LibraryItem } from "@/features/library/types";
 
 import { NoPoster } from "./NoPoster";
-import { PosterImage } from "./PosterImage";
 
 export function LibraryAnimeCard({ item }: { item: LibraryItem }) {
   const t = useTranslations();
@@ -26,9 +26,12 @@ export function LibraryAnimeCard({ item }: { item: LibraryItem }) {
         <div className="flex h-full gap-4 p-3 sm:block sm:p-0">
           <div className="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-full sm:rounded-none">
             {poster && !imageFailed ? (
-              <PosterImage
+              <Image
+                key={poster}
                 src={poster}
                 alt={t("anime.coverAlt", { title: item.anime.displayName })}
+                fill
+                unoptimized
                 sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 112px"
                 className="object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
                 onLoad={(event) => event.currentTarget.classList.remove("opacity-0")}
