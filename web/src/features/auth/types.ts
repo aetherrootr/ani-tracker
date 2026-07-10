@@ -6,6 +6,11 @@ export type AuthUser = {
   displayName?: string | null;
   email: string;
   languagePreference: Locale;
+  oidcLinked: boolean;
+};
+
+export type OidcConfigResponse = {
+  enabled: boolean;
 };
 
 export type LoginInput = {

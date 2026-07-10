@@ -24,6 +24,7 @@ export const zhCN = {
       missingCredentials: "请输入用户名和密码。",
       fallbackError: "登录失败，请稍后重试。",
       noAccount: "还没有账号？",
+      sso: "通过 SSO 登录",
     },
     register: {
       title: "创建账号",
@@ -69,11 +70,18 @@ export const zhCN = {
     title: "设置",
     language: {
       title: "语言",
-      description: "选择前端界面语言。",
+      description: "选择偏好语言。",
     },
     account: {
       title: "账号",
       description: "退出当前账号并返回登录页。",
+      ssoLinked: "SSO 账户已绑定",
+      ssoUnlinked: "SSO 账户未绑定",
+      linkSso: "绑定 SSO 账户",
+      unlinkSso: "解除 SSO 绑定",
+      unlinkingSso: "解除中...",
+      unlinkSsoConfirmTitle: "解除 SSO 绑定？",
+      unlinkSsoConfirmDescription: "解除后将无法继续使用当前 SSO 身份登录此账号，除非重新绑定。",
     },
   },
   search: {

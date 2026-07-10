@@ -26,6 +26,12 @@ export function useLogout() {
   return logout;
 }
 
+export function useUnlinkOidc() {
+  const { unlinkOidc } = useAuth();
+
+  return unlinkOidc;
+}
+
 export function useUpdateLanguagePreference() {
   const { updateLanguagePreference } = useAuth();
 

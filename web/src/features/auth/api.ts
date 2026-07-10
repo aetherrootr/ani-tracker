@@ -5,6 +5,7 @@ import type {
   CurrentUserResponse,
   LoginInput,
   LogoutResponse,
+  OidcConfigResponse,
   RegisterInput,
   UpdateLanguagePreferenceInput,
 } from "./types";
@@ -31,6 +32,16 @@ export function logout(): Promise<LogoutResponse> {
 
 export function getCurrentUser(): Promise<CurrentUserResponse> {
   return apiFetch<CurrentUserResponse>("/api/auth/me");
+}
+
+export function getOidcConfig(): Promise<OidcConfigResponse> {
+  return apiFetch<OidcConfigResponse>("/api/auth/oidc/config");
+}
+
+export function unlinkOidc(): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>("/api/auth/oidc/link", {
+    method: "DELETE",
+  });
 }
 
 export function updateLanguagePreference(

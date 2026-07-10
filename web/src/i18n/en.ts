@@ -27,6 +27,7 @@ export const en = {
       missingCredentials: "Enter your username and password.",
       fallbackError: "Login failed. Please try again later.",
       noAccount: "No account yet?",
+      sso: "Log in with SSO",
     },
     register: {
       title: "Create Account",
@@ -72,11 +73,18 @@ export const en = {
     title: "Settings",
     language: {
       title: "Language",
-      description: "Choose the frontend interface language.",
+      description: "Choose your preferred language.",
     },
     account: {
       title: "Account",
       description: "Sign out of the current account and return to the login page.",
+      ssoLinked: "SSO account linked",
+      ssoUnlinked: "SSO account not linked",
+      linkSso: "Link SSO account",
+      unlinkSso: "Unlink SSO account",
+      unlinkingSso: "Unlinking...",
+      unlinkSsoConfirmTitle: "Unlink SSO account?",
+      unlinkSsoConfirmDescription: "After unlinking, you cannot use this SSO identity to log in to this account unless you link it again.",
     },
   },
   search: {
