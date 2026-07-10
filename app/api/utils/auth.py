@@ -57,6 +57,7 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'displayName': user.display_name,
         'email': user.email,
         'languagePreference': user.language_preference,
+        'oidcLinked': bool(user.oidc_identities),
     }
 
 

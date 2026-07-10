@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from flask import Flask
+from flask import Flask, redirect
 from flask.testing import FlaskClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import create_app
-from app.models.user import User
+from app.models.user import User, UserOidcIdentity
 
 
 @pytest.fixture()
@@ -56,6 +56,29 @@ def register_user(
     )
 
 
+class FakeOidcClient:
+    def __init__(self, claims: dict[str, object]) -> None:
+        self.claims = claims
+
+    def authorize_redirect(self, redirect_uri: str):  # type: ignore[no-untyped-def]
+        return redirect(redirect_uri)
+
+    def authorize_access_token(self) -> dict[str, object]:
+        return {"userinfo": self.claims}
+
+
+def configure_oidc(app: Flask, claims: dict[str, object]) -> None:
+    app.config.update(
+        OIDC_ENABLED=True,
+        OIDC_ISSUER="https://sso.example.test/application/o/ani-tracker/",
+        OIDC_CLIENT_ID="ani-tracker",
+        OIDC_CLIENT_SECRET="secret",
+        OIDC_POST_LOGIN_REDIRECT="http://localhost:3000/tracking-list",
+        OIDC_POST_LINK_REDIRECT="http://localhost:3000/settings",
+    )
+    app.extensions["oidc_client"] = FakeOidcClient(claims)
+
+
 def test_register_creates_user_logs_in_and_never_returns_password_hash(
     client: FlaskClient,
     db_session: Session,
@@ -71,6 +94,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "displayName": "Link",
             "email": "link@link.com",
             "languagePreference": "zh-CN",
+            "oidcLinked": False,
         },
     }
     assert "password_hash" not in str(body)
@@ -181,3 +205,156 @@ def test_validation_errors(client: FlaskClient) -> None:
 
     login_response = client.post("/api/auth/login", json={"username": "", "password": ""})
     assert login_response.status_code == 400
+
+
+def test_oidc_config_and_unconfigured_endpoints_do_not_fail(client: FlaskClient) -> None:
+    assert client.get("/api/auth/oidc/config").get_json() == {"enabled": False}
+
+    login_response = client.get("/api/auth/oidc/login")
+    assert login_response.status_code == 404
+    assert login_response.get_json() == {"message": "OIDC is not configured"}
+
+    link_response = client.get("/api/auth/oidc/link")
+    assert link_response.status_code == 404
+    assert link_response.get_json() == {"message": "OIDC is not configured"}
+
+
+def test_oidc_callback_auto_registers_user_and_identity(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    configure_oidc(
+        app,
+        {
+            "sub": "authentik|user-1",
+            "email": "sso@example.test",
+            "preferred_username": "sso_user",
+            "name": "SSO User",
+        },
+    )
+
+    response = client.get("/api/auth/oidc/callback")
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "http://localhost:3000/tracking-list"
+    user = db_session.scalar(select(User).where(User.username == "sso_user"))
+    assert user is not None
+    assert user.email == "sso@example.test"
+    identity = db_session.scalar(select(UserOidcIdentity).where(UserOidcIdentity.user_id == user.id))
+    assert identity is not None
+    assert identity.subject == "authentik|user-1"
+    assert client.get("/api/auth/me").get_json()["user"]["oidcLinked"] is True
+
+
+def test_oidc_existing_identity_logs_in_original_user_without_duplicate(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    configure_oidc(app, {"sub": "same-sub", "email": "first@example.test", "preferred_username": "first"})
+    assert client.get("/api/auth/oidc/callback").status_code == 302
+    client.post("/api/auth/logout")
+
+    configure_oidc(app, {"sub": "same-sub", "email": "changed@example.test", "preferred_username": "second"})
+    assert client.get("/api/auth/oidc/callback").status_code == 302
+
+    users = db_session.scalars(select(User)).all()
+    identities = db_session.scalars(select(UserOidcIdentity)).all()
+    assert len(users) == 1
+    assert len(identities) == 1
+    assert client.get("/api/auth/me").get_json()["user"]["username"] == "first"
+
+
+def test_oidc_auto_register_does_not_merge_by_email(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, username="local", email="shared@example.test").status_code == 201
+    local_user = db_session.scalar(select(User).where(User.username == "local"))
+    assert local_user is not None
+    client.post("/api/auth/logout")
+    configure_oidc(app, {"sub": "new-sub", "email": "shared@example.test", "preferred_username": "local"})
+
+    assert client.get("/api/auth/oidc/callback").status_code == 302
+
+    users = db_session.scalars(select(User).where(User.email == "shared@example.test")).all()
+    assert len(users) == 2
+    assert client.get("/api/auth/me").get_json()["user"]["id"] != local_user.id
+
+
+def test_oidc_link_updates_me(
+    app: Flask,
+    client: FlaskClient,
+) -> None:
+    assert register_user(client).status_code == 201
+    configure_oidc(app, {"sub": "link-sub", "email": "link-sso@example.test"})
+
+    assert client.get("/api/auth/oidc/link").status_code == 302
+    response = client.get("/api/auth/oidc/link/callback")
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "http://localhost:3000/settings"
+    assert client.get("/api/auth/me").get_json()["user"]["oidcLinked"] is True
+
+
+def test_oidc_unlink_requires_login(app: Flask, client: FlaskClient) -> None:
+    configure_oidc(app, {"sub": "unlink-sub"})
+
+    response = client.delete("/api/auth/oidc/link")
+
+    assert response.status_code == 401
+    assert response.get_json() == {"message": "Authentication required"}
+
+
+def test_oidc_unlink_removes_current_user_identity(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    configure_oidc(app, {"sub": "unlink-sub", "email": "unlink@example.test"})
+    assert client.get("/api/auth/oidc/link").status_code == 302
+    assert client.get("/api/auth/oidc/link/callback").status_code == 302
+
+    response = client.delete("/api/auth/oidc/link")
+
+    assert response.status_code == 200
+    assert response.get_json()["user"]["oidcLinked"] is False
+    assert client.get("/api/auth/me").get_json()["user"]["oidcLinked"] is False
+    assert db_session.scalar(select(UserOidcIdentity)) is None
+
+
+def test_oidc_link_conflicts_when_identity_belongs_to_other_user(
+    app: Flask,
+    client: FlaskClient,
+) -> None:
+    configure_oidc(app, {"sub": "taken-sub", "email": "sso@example.test"})
+    assert client.get("/api/auth/oidc/callback").status_code == 302
+    client.post("/api/auth/logout")
+    assert register_user(client, username="local", email="local@example.test").status_code == 201
+    configure_oidc(app, {"sub": "taken-sub", "email": "sso@example.test"})
+
+    assert client.get("/api/auth/oidc/link").status_code == 302
+    response = client.get("/api/auth/oidc/link/callback")
+
+    assert response.status_code == 409
+    assert response.get_json() == {"message": "OIDC identity is already linked to another user"}
+
+
+def test_oidc_link_conflicts_when_user_already_has_issuer_identity(
+    app: Flask,
+    client: FlaskClient,
+) -> None:
+    assert register_user(client).status_code == 201
+    configure_oidc(app, {"sub": "first-sub", "email": "first@example.test"})
+    assert client.get("/api/auth/oidc/link").status_code == 302
+    assert client.get("/api/auth/oidc/link/callback").status_code == 302
+    configure_oidc(app, {"sub": "second-sub", "email": "second@example.test"})
+
+    assert client.get("/api/auth/oidc/link").status_code == 302
+    response = client.get("/api/auth/oidc/link/callback")
+
+    assert response.status_code == 409
+    assert response.get_json() == {"message": "User already has an OIDC identity for this issuer"}

@@ -3,12 +3,14 @@
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getOidcConfig } from "@/features/auth/api";
 import { useLogin } from "@/features/auth/hooks";
+import { getApiUrl } from "@/lib/api-client";
 
 import { AuthErrorMessage } from "./AuthErrorMessage";
 
@@ -20,6 +22,27 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOidcEnabled, setIsOidcEnabled] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getOidcConfig()
+      .then((config) => {
+        if (isMounted) {
+          setIsOidcEnabled(config.enabled);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsOidcEnabled(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -73,6 +96,16 @@ export function LoginForm() {
       <Button className="h-11 w-full" type="submit" disabled={isSubmitting}>
         {isSubmitting ? t("auth.login.submitting") : t("auth.login.submit")}
       </Button>
+      {isOidcEnabled ? (
+        <Button
+          className="h-11 w-full"
+          type="button"
+          variant="outline"
+          onClick={() => window.location.assign(getApiUrl("/api/auth/oidc/login"))}
+        >
+          {t("auth.login.sso")}
+        </Button>
+      ) : null}
       <p className="text-center text-sm text-muted-foreground">
         {t("auth.login.noAccount")}{" "}
         <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/register">

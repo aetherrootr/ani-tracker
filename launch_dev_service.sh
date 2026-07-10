@@ -10,6 +10,7 @@ BACKEND_URL="http://localhost:${BACKEND_PORT}"
 FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 FRONTEND_BIND_HOST="localhost"
 ENABLE_LAN_DEV="0"
+OIDC_ENV_FILE=""
 POSTGRES_CONTAINER="ani-tracker-postgres"
 POSTGRES_IMAGE="docker.io/library/postgres:17-alpine"
 POSTGRES_DATA_DIR="${TMP_DIR}/postgres"
@@ -43,10 +44,11 @@ worker_pid=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--enable-lan-access]
+Usage: $(basename "$0") [--enable-lan-access] [--oidc-env-file FILE]
 
 Options:
   --enable-lan-access  Allow LAN devices to access the frontend dev server.
+  --oidc-env-file FILE Load OIDC environment variables for the backend from FILE.
   -h, --help Show this help message.
 EOF
 }
@@ -57,6 +59,15 @@ while [[ $# -gt 0 ]]; do
       FRONTEND_BIND_HOST="0.0.0.0"
       ENABLE_LAN_DEV="1"
       shift
+      ;;
+    --oidc-env-file)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --oidc-env-file" >&2
+        usage >&2
+        exit 1
+      fi
+      OIDC_ENV_FILE="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -69,6 +80,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "${OIDC_ENV_FILE}" && ! -f "${OIDC_ENV_FILE}" ]]; then
+  echo "OIDC env file does not exist: ${OIDC_ENV_FILE}" >&2
+  exit 1
+fi
 
 cleanup() {
   if [[ -n "${frontend_pid}" ]] && kill -0 "${frontend_pid}" 2>/dev/null; then
@@ -294,12 +310,23 @@ ensure_process_alive "${worker_pid}" "Celery worker" "${WORKER_LOG}"
 requeue_pending_posters
 
 echo "Starting backend on ${BACKEND_URL}"
-DATABASE_URL="${DATABASE_URL}" \
-CORS_ORIGIN="${FRONTEND_URL}" \
-CELERY_BROKER_URL="${CELERY_BROKER_URL}" \
-ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}" \
-SECRET_KEY="integration-test-secret" \
-uv run python -m app.main >"${BACKEND_LOG}" 2>&1 &
+(
+  if [[ -n "${OIDC_ENV_FILE}" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${OIDC_ENV_FILE}"
+    set +a
+  fi
+
+  export DATABASE_URL="${DATABASE_URL}"
+  export CORS_ORIGIN="${FRONTEND_URL}"
+  export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
+  export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
+  export SECRET_KEY="integration-test-secret"
+  export OIDC_LOGIN_REDIRECT_URI="${OIDC_LOGIN_REDIRECT_URI:-${BACKEND_URL}/api/auth/oidc/callback}"
+  export OIDC_LINK_REDIRECT_URI="${OIDC_LINK_REDIRECT_URI:-${BACKEND_URL}/api/auth/oidc/link/callback}"
+  uv run python -m app.main
+) >"${BACKEND_LOG}" 2>&1 &
 backend_pid="$!"
 
 wait_for_url "${BACKEND_URL}/api/auth/me" "Backend" "${backend_pid}" "${BACKEND_LOG}"

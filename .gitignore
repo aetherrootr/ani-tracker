@@ -11,3 +11,4 @@ wheels/
 
 # OpenCode
 .opencode/
+oidc.env

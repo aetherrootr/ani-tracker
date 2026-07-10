@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import TimestampedBase
@@ -38,3 +38,25 @@ class User(TimestampedBase):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    oidc_identities: Mapped[list[UserOidcIdentity]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class UserOidcIdentity(TimestampedBase):
+    __tablename__ = "user_oidc_identities"
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_user_oidc_identities_issuer_subject"),
+        UniqueConstraint("user_id", "issuer", name="uq_user_oidc_identities_user_issuer"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    issuer: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255))
+    preferred_username: Mapped[str | None] = mapped_column(String(255))
+
+    user: Mapped[User] = relationship(back_populates="oidc_identities")

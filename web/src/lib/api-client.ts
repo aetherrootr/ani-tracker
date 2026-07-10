@@ -12,6 +12,10 @@ function getApiBaseUrl() {
   return "";
 }
 
+export function getApiUrl(path: string) {
+  return `${getApiBaseUrl().replace(/\/$/, "")}${path}`;
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) {
@@ -19,7 +23,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   }
 
   const response = await withTimeout(
-    fetch(`${getApiBaseUrl().replace(/\/$/, "")}${path}`, {
+      fetch(getApiUrl(path), {
       ...options,
       credentials: "include",
       headers,
