@@ -1,15 +1,13 @@
 "use client";
 
-import { Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { BackToTopButton } from "@/components/layout/BackToTopButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FloatingSearchInput } from "@/components/ui/floating-search-input";
 import { useAnimeSearch } from "@/features/search/hooks";
 
 import { SearchResultCard } from "./SearchResultCard";
@@ -129,64 +127,35 @@ export function SearchPageContent() {
         <h1 className="text-3xl font-semibold tracking-tight">{t("search.title")}</h1>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5" />
-            {t("search.cardTitle")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="md:hidden">
+      <FloatingSearchInput
+        id="anime-search"
+        value={keyword}
+        onChange={(event) => updateKeyword(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            handleSearchAction();
+          }
+        }}
+        placeholder={t("search.placeholder")}
+        aria-label={t("search.placeholder")}
+        autoComplete="off"
+        leading={(
+          <>
             <Button
               type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-2 rounded-full px-3"
+              variant="ghost"
+              className="h-10 gap-2 rounded-full px-3 md:hidden"
               onClick={() => setIsProviderDialogOpen(true)}
             >
-              {t("search.provider")}
               <Badge variant="secondary">bangumi</Badge>
             </Button>
-          </div>
-
-          <div className="flex items-end gap-2 md:gap-4">
-            <div className="hidden space-y-2 md:block md:w-48">
-              <Label>{t("search.provider")}</Label>
-              <div className="flex h-12 items-center rounded-md border bg-muted/40 px-2 md:px-3">
-                <Badge variant="secondary">bangumi</Badge>
-              </div>
+            <div className="hidden h-10 items-center gap-2 rounded-full px-3 md:flex">
+              <span className="text-sm text-muted-foreground">{t("search.provider")}</span>
+              <Badge variant="secondary">bangumi</Badge>
             </div>
-
-            <div className="flex min-w-0 flex-1 gap-2">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="anime-search"
-                  value={keyword}
-                  onChange={(event) => updateKeyword(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      handleSearchAction();
-                    }
-                  }}
-                  placeholder={t("search.placeholder")}
-                  className="h-12 pl-9 text-base"
-                  autoComplete="off"
-                />
-              </div>
-              <Button
-                type="button"
-                className="h-12 px-3 md:px-5"
-                disabled={!hasKeyword || isLoading || isLoadingMore}
-                onClick={handleSearchAction}
-              >
-                {error || paginationError ? t("search.retry") : t("search.cardTitle")}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </>
+        )}
+      />
 
       {isProviderDialogOpen ? (
         <div
@@ -197,7 +166,7 @@ export function SearchPageContent() {
           onClick={() => setIsProviderDialogOpen(false)}
         >
           <div
-            className="w-full rounded-2xl border bg-card p-4 shadow-lg"
+            className="glass-dialog w-full rounded-2xl border p-4"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3">

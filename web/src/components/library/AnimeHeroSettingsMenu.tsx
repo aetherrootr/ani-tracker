@@ -72,7 +72,7 @@ export function AnimeHeroSettingsMenu({ anime, onAnimeChange }: { anime: Anime; 
           <Settings className="h-4 w-4" />
         </Button>
         {menuOpen ? (
-          <div className="absolute right-0 top-12 w-48 rounded-2xl border bg-background/80 p-2 text-sm text-foreground shadow-lg shadow-background/30 backdrop-blur-xl dark:bg-background/70">
+          <div className="glass-dialog absolute right-0 top-12 w-48 rounded-2xl border p-2 text-sm text-foreground">
             <MenuButton onClick={() => { setDialog("name"); setMenuOpen(false); }}>{t("library.changeTitle")}</MenuButton>
             <MenuButton onClick={() => { setDialog("poster"); setMenuOpen(false); }}>{t("library.changePoster")}</MenuButton>
             <MenuButton onClick={() => { setDialog("summary"); setMenuOpen(false); }}>{t("library.summaryPreference")}</MenuButton>
@@ -128,7 +128,7 @@ function ChoiceDialog({ open, title, error, children, onClose }: { open: boolean
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/88 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border bg-background/95 p-5 text-foreground shadow-2xl backdrop-blur-xl dark:bg-background/70">
+      <div className="glass-dialog max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border p-5 text-foreground">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{title}</h2>
           <Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>

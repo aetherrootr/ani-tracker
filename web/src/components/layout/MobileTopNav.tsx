@@ -13,12 +13,15 @@ export function MobileTopNav() {
   const pathname = usePathname();
   const t = useTranslations();
   const SettingsIcon = settingsNavigationItem.icon;
+  const activeNavigationIndex = navigationItems.findIndex(
+    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
+  );
   const settingsActive =
     pathname === settingsNavigationItem.href ||
     pathname.startsWith(`${settingsNavigationItem.href}/`);
 
   return (
-    <header className="sticky top-0 z-[60] border-b bg-background/90 backdrop-blur md:hidden">
+    <header className="glass-surface sticky top-0 z-[60] border-b md:hidden">
       <div className="flex h-14 items-center justify-between px-4">
         <Link href="/tracking-list" className="font-semibold tracking-tight">
           Ani Tracker
@@ -37,7 +40,14 @@ export function MobileTopNav() {
           </Link>
         </div>
       </div>
-      <nav className="flex gap-1 overflow-x-auto px-3 pb-3">
+      <nav className="relative mx-3 mb-3 grid grid-cols-3 gap-1 rounded-2xl bg-background/20 p-1">
+        {activeNavigationIndex >= 0 ? (
+          <div
+            className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-1rem)/3)] rounded-xl bg-primary shadow-md transition-transform duration-300 ease-out"
+            style={{ transform: `translateX(calc(${activeNavigationIndex} * (100% + 0.25rem)))` }}
+            aria-hidden="true"
+          />
+        ) : null}
         {navigationItems.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -47,8 +57,8 @@ export function MobileTopNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex min-h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-medium text-muted-foreground",
-                active && "bg-primary text-primary-foreground",
+                "relative z-10 flex min-h-10 items-center justify-center gap-2 rounded-xl px-2 text-sm font-medium text-muted-foreground transition-colors duration-300",
+                active && "text-primary-foreground",
               )}
             >
               <Icon className="h-4 w-4" />

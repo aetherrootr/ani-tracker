@@ -9,6 +9,7 @@ import { getTrackingList, getTrackingListPage, updateEpisodeWatchState } from "@
 import type { TrackingListKey } from "@/features/library/api";
 import { useTrackingList } from "@/features/library/hooks";
 import type { TrackingListItem, TrackingListResponse } from "@/features/library/types";
+import { cn } from "@/lib/utils";
 
 import { SkeletonBlock } from "./LibraryPagination";
 import { TrackingEpisodeRow } from "./TrackingEpisodeRow";
@@ -26,6 +27,7 @@ export function TrackingListPageContent() {
   const backlog = data?.backlog.items ?? [];
   const recentlyWatched = data?.recentlyWatched.items ?? [];
   const hasQueueItems = tracking.length > 0 || backlog.length > 0;
+  const activeMobileTabIndex = TRACKING_TABS.indexOf(activeMobileTab);
 
   useEffect(() => {
     document.documentElement.classList.add("tracking-list-scroll-lock");
@@ -104,12 +106,20 @@ export function TrackingListPageContent() {
             </div>
           ) : null}
 
-          <div className="mb-3 grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1 sm:hidden">
+          <div className="relative mb-3 grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1 sm:hidden">
+            <div
+              className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-0.5rem)/3)] rounded-xl bg-background shadow-sm transition-transform duration-300 ease-out"
+              style={{ transform: `translateX(calc(${activeMobileTabIndex} * (100% + 0.25rem)))` }}
+              aria-hidden="true"
+            />
             {TRACKING_TABS.map((tab) => (
               <button
                 key={tab}
                 type="button"
-                className={activeMobileTab === tab ? "rounded-xl bg-background px-2 py-2 text-sm font-medium shadow-sm" : "rounded-xl px-2 py-2 text-sm font-medium text-muted-foreground"}
+                className={cn(
+                  "relative z-10 rounded-xl px-2 py-2 text-sm font-medium text-muted-foreground transition-colors duration-300",
+                  activeMobileTab === tab && "text-foreground",
+                )}
                 onClick={() => setActiveMobileTab(tab)}
               >
                 {tab === "tracking" ? t("tracking.trackingSection") : tab === "backlog" ? t("tracking.backlogSection") : t("tracking.recentlyWatchedSection")}
@@ -360,7 +370,7 @@ function TrackingSection({
             <ChevronDown className="h-7 w-7 text-foreground/45" />
           </button>
         ) : null}
-        <div ref={scrollRef} className={fillAvailableHeight ? "scrollbar-none h-full overflow-y-auto overscroll-contain" : "scrollbar-none max-h-[34rem] overflow-y-auto"} onScroll={updateScrollHints}>
+        <div ref={scrollRef} className={fillAvailableHeight ? "tracking-section-scroll scrollbar-none h-full overflow-y-auto overscroll-contain" : "tracking-section-scroll scrollbar-none max-h-[34rem] overflow-y-auto"} onScroll={updateScrollHints}>
         <div className="space-y-3 pb-1">
           {isLoading ? (
             Array.from({ length: 4 }).map((_, index) => <SkeletonBlock key={index} className="h-28 rounded-2xl" />)

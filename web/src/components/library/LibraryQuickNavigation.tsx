@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { NavigationAnchor } from "@/features/library/types";
 import { cn } from "@/lib/utils";
@@ -15,8 +15,30 @@ type Props = {
 export function LibraryQuickNavigation({ anchors, activeAnchorKey, onAnchor }: Props) {
   const t = useTranslations();
   const navRef = useRef<HTMLElement | null>(null);
+  const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
   const [canShow, setCanShow] = useState(true);
+  const [indicator, setIndicator] = useState<{ top: number; height: number } | null>(null);
+
+  const updateIndicator = useCallback(() => {
+    if (!activeAnchorKey) {
+      setIndicator(null);
+      return;
+    }
+
+    const button = buttonRefs.current.get(activeAnchorKey);
+    if (!button) {
+      setIndicator(null);
+      return;
+    }
+
+    setIndicator({ top: button.offsetTop, height: button.offsetHeight });
+  }, [activeAnchorKey]);
+
+  useLayoutEffect(() => {
+    const frameId = window.requestAnimationFrame(updateIndicator);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [anchors, updateIndicator]);
 
   useEffect(() => {
     let frameId: number | null = null;
@@ -36,6 +58,7 @@ export function LibraryQuickNavigation({ anchors, activeAnchorKey, onAnchor }: P
         const top = rect.top;
         setMaxHeight(Math.max(160, window.innerHeight - top - 24));
         setCanShow(rect.left >= 304);
+        updateIndicator();
       });
     }
 
@@ -50,7 +73,7 @@ export function LibraryQuickNavigation({ anchors, activeAnchorKey, onAnchor }: P
       window.removeEventListener("resize", updateMaxHeight);
       window.removeEventListener("scroll", updateMaxHeight);
     };
-  }, []);
+  }, [updateIndicator]);
 
   if (anchors.length === 0) {
     return null;
@@ -66,16 +89,30 @@ export function LibraryQuickNavigation({ anchors, activeAnchorKey, onAnchor }: P
       style={maxHeight ? { maxHeight } : undefined}
       aria-label="Library anchors"
     >
-      <div className="flex flex-col items-stretch gap-1 p-1.5">
+      <div className="relative flex flex-col items-stretch gap-1 p-1.5">
+        {indicator ? (
+          <div
+            className="absolute left-1.5 right-1.5 top-0 rounded-xl bg-primary shadow-md transition-[height,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform"
+            style={{ height: indicator.height, transform: `translateY(${indicator.top}px)` }}
+            aria-hidden="true"
+          />
+        ) : null}
         {anchors.map((anchor) => {
           const active = anchor.key === activeAnchorKey;
           return (
             <button
               key={anchor.key}
+              ref={(element) => {
+                if (element) {
+                  buttonRefs.current.set(anchor.key, element);
+                  return;
+                }
+                buttonRefs.current.delete(anchor.key);
+              }}
               type="button"
               className={cn(
-                "rounded-xl px-2.5 py-1.5 text-center text-xs font-medium text-muted-foreground transition-colors backdrop-blur-xl hover:bg-background/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-background/20",
-                active && "border border-primary/35 bg-primary/60 text-primary-foreground shadow-md hover:bg-primary/70 hover:text-primary-foreground dark:bg-primary/55 dark:hover:bg-primary/65",
+                "relative z-10 rounded-xl px-2.5 py-1.5 text-center text-xs font-medium text-muted-foreground transition-colors backdrop-blur-xl hover:bg-background/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-background/20",
+                active && "text-primary-foreground hover:bg-transparent hover:text-primary-foreground dark:hover:bg-transparent",
               )}
               aria-current={active ? "location" : undefined}
               onClick={() => onAnchor(anchor)}

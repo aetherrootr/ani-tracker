@@ -259,7 +259,7 @@ from app.db import get_db
 from app.models.anime import AnimePoster
 from app.services.anime_poster import enqueue_poster_download
 
-app = create_app({"CREATE_TABLES": False})
+app = create_app()
 with app.app_context():
     db = get_db()
     poster_ids = db.scalars(select(AnimePoster.id).where(AnimePoster.status == "pending")).all()

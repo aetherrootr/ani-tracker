@@ -41,7 +41,7 @@ export function EpisodeConflictDialog({ open, conflicts, isResolving, onCancel, 
   const deleteCount = deleteIds.size;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="episode-conflict-title">
-      <div className="flex max-h-[90svh] w-full max-w-2xl flex-col rounded-2xl border bg-background/95 text-foreground shadow-2xl backdrop-blur-xl dark:bg-background/90">
+      <div className="glass-dialog flex max-h-[90svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
         <div className="border-b p-5">
           <h2 id="episode-conflict-title" className="text-lg font-semibold tracking-tight">{t("library.episodeConflictsTitle")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{t("library.episodeConflictsDescription")}</p>

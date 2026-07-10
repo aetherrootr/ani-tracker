@@ -66,7 +66,7 @@ export function EpisodeTitleSettingsMenu({
         <Settings className="h-4 w-4" />
       </Button>
       {open ? (
-        <div className="fixed inset-x-4 top-24 z-50 max-h-[min(60vh,28rem)] overflow-y-auto rounded-2xl border bg-background/95 p-4 text-foreground shadow-lg shadow-background/30 backdrop-blur-xl dark:bg-background/90 md:absolute md:inset-auto md:left-0 md:top-11 md:z-30 md:max-h-none md:w-80 md:overflow-visible md:bg-background/80 md:dark:bg-background/70">
+        <div className="glass-dialog mobile-top-popover-enter fixed inset-x-4 top-24 z-50 max-h-[min(60vh,28rem)] overflow-y-auto rounded-2xl border p-4 text-foreground md:absolute md:inset-auto md:left-0 md:top-11 md:z-30 md:max-h-none md:w-80 md:overflow-visible md:animate-none">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-semibold">{t("library.episodeSettingsMenuTitle")}</h3>
             <Button type="button" variant="ghost" size="icon" aria-label={t("library.closeFilters")} onClick={closeMenu}>
@@ -88,8 +88,8 @@ export function EpisodeTitleSettingsMenu({
       ) : null}
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/80 px-4 pb-4 pt-[7.5rem] backdrop-blur-sm md:items-center md:p-4" role="dialog" aria-modal="true">
-          <div className="flex max-h-[calc(100dvh-8rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border bg-background/80 text-foreground shadow-2xl backdrop-blur-xl dark:bg-background/70 md:max-h-[86vh]">
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-background/80 p-5 backdrop-blur-xl dark:bg-background/70">
+          <div className="glass-dialog flex max-h-[calc(100dvh-8rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border text-foreground md:max-h-[86vh]">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-background/65 p-5 backdrop-blur-xl dark:bg-background/65">
               <div>
                 <h3 className="text-lg font-semibold">{t("library.editEpisodeTitles")}</h3>
                 <p className="text-sm text-muted-foreground">{t("library.episodeTitlePageSummary", { page, totalPages, total })}</p>
@@ -127,7 +127,7 @@ export function EpisodeTitleSettingsMenu({
               })}
             </div>
 
-            <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t bg-background/80 p-5 backdrop-blur-xl dark:bg-background/70">
+            <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t bg-background/65 p-5 backdrop-blur-xl dark:bg-background/65">
               <Button type="button" variant="outline" disabled={page <= 1 || isLoading} onClick={() => onPageChange(page - 1)}>{t("library.previous")}</Button>
               <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
               <Button type="button" variant="outline" disabled={page >= totalPages || isLoading} onClick={() => onPageChange(page + 1)}>{t("library.next")}</Button>
