@@ -11,6 +11,7 @@ FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 FRONTEND_BIND_HOST="localhost"
 ENABLE_LAN_DEV="0"
 ENV_FILE=""
+OIDC_ENV_FILE=""
 POSTGRES_CONTAINER="ani-tracker-postgres"
 POSTGRES_IMAGE="docker.io/library/postgres:17-alpine"
 POSTGRES_DATA_DIR="${TMP_DIR}/postgres"
@@ -44,12 +45,12 @@ worker_pid=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--enable-lan-access] [--env-file FILE]
+Usage: $(basename "$0") [--enable-lan-access] [--env-file FILE] [--oidc-env-file FILE]
 
 Options:
   --enable-lan-access  Allow LAN devices to access the frontend dev server.
-  --env-file FILE      Load backend environment variables from FILE.
-  --oidc-env-file FILE Compatibility alias for --env-file.
+  --env-file FILE      Load backend and worker environment variables from FILE.
+  --oidc-env-file FILE Load OIDC environment variables after --env-file.
   -h, --help Show this help message.
 EOF
 }
@@ -61,13 +62,22 @@ while [[ $# -gt 0 ]]; do
       ENABLE_LAN_DEV="1"
       shift
       ;;
-    --env-file|--oidc-env-file)
+    --env-file)
       if [[ $# -lt 2 ]]; then
         echo "Missing value for $1" >&2
         usage >&2
         exit 1
       fi
       ENV_FILE="$2"
+      shift 2
+      ;;
+    --oidc-env-file)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      OIDC_ENV_FILE="$2"
       shift 2
       ;;
     -h|--help)
@@ -84,6 +94,11 @@ done
 
 if [[ -n "${ENV_FILE}" && ! -f "${ENV_FILE}" ]]; then
   echo "Env file does not exist: ${ENV_FILE}" >&2
+  exit 1
+fi
+
+if [[ -n "${OIDC_ENV_FILE}" && ! -f "${OIDC_ENV_FILE}" ]]; then
+  echo "OIDC env file does not exist: ${OIDC_ENV_FILE}" >&2
   exit 1
 fi
 
@@ -173,14 +188,20 @@ ensure_process_alive() {
   fi
 }
 
-load_env_file() {
-  if [[ -z "${ENV_FILE}" ]]; then
+source_env_file() {
+  local env_file="$1"
+  if [[ -z "${env_file}" ]]; then
     return 0
   fi
   set -a
   # shellcheck source=/dev/null
-  source "${ENV_FILE}"
+  source "${env_file}"
   set +a
+}
+
+load_env_files() {
+  source_env_file "${ENV_FILE}"
+  source_env_file "${OIDC_ENV_FILE}"
 }
 
 start_postgres() {
@@ -276,7 +297,7 @@ start_redis() {
 requeue_pending_posters() {
   echo "Queueing pending poster downloads"
   (
-    load_env_file
+    load_env_files
     export DATABASE_URL="${DATABASE_URL}"
     export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
     export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
@@ -318,7 +339,7 @@ EOF
 
 echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
 (
-  load_env_file
+  load_env_files
   export DATABASE_URL="${DATABASE_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
@@ -331,7 +352,7 @@ requeue_pending_posters
 
 echo "Starting backend on ${BACKEND_URL}"
 (
-  load_env_file
+  load_env_files
   export DATABASE_URL="${DATABASE_URL}"
   export CORS_ORIGIN="${FRONTEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
