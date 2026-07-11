@@ -70,7 +70,7 @@ export function StatisticsPageContent() {
       {summary.data ? (
         <StatisticsSection title={t("statistics.groups.trends")}>
           <div className="space-y-4">
-            <DailyHeatmap days={summary.data.daily} />
+            <DailyHeatmap days={summary.data.daily} weekStartDay={user?.weekStartDay ?? summary.data.weekStartDay} />
             <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(220px,0.36fr)_minmax(0,1fr)]">
               <AverageWeeklyCard data={summary.data} />
               <WeeklyWatchTime weeks={summary.data.weekly} />
@@ -211,10 +211,25 @@ function AverageWeeklyCard({ data }: { data: StatisticsSummary }) {
   );
 }
 
-function DailyHeatmap({ days }: { days: StatisticsDay[] }) {
+function DailyHeatmap({ days, weekStartDay }: { days: StatisticsDay[]; weekStartDay: number }) {
   const t = useTranslations();
+  const isNarrowScreen = useIsNarrowScreen();
+  const [heatmapRef, heatmapWidth] = useElementWidth<HTMLDivElement>();
+  const minimumCellWidth = 12;
+  const heatmapGap = 4;
+  const visibleWeeks = heatmapWidth > 0
+    ? Math.max(4, Math.floor((heatmapWidth + heatmapGap) / (minimumCellWidth + heatmapGap)))
+    : Math.ceil(days.length / 7);
+  const mobileLastDate = isNarrowScreen ? minIsoDate(days.at(-1)?.date, getLocalIsoDate()) : undefined;
+  const heatmapCells = isNarrowScreen && mobileLastDate
+    ? buildMobileHeatmapCells(days, mobileLastDate, weekStartDay, visibleWeeks)
+    : days;
+  const visibleDays = heatmapCells.filter((cell): cell is StatisticsDay => !("emptyKey" in cell));
   const [selectedDay, setSelectedDay] = useState<StatisticsDay | null>(days.at(-1) ?? null);
-  const maxCount = Math.max(1, ...days.map((day) => day.watchedEpisodeCount));
+  const activeDay = visibleDays.some((day) => day.date === selectedDay?.date)
+    ? selectedDay
+    : visibleDays.at(-1) ?? null;
+  const maxCount = Math.max(1, ...visibleDays.map((day) => day.watchedEpisodeCount));
 
   return (
     <Card className="min-w-0 overflow-hidden">
@@ -225,22 +240,29 @@ function DailyHeatmap({ days }: { days: StatisticsDay[] }) {
         <div className="mx-auto w-full max-w-[1600px]">
           <div className="px-3">
             <div className="mb-4 rounded-xl border bg-background/40 p-3">
-              {selectedDay ? (
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <Badge variant="secondary">{formatIsoDate(selectedDay.date)}</Badge>
-                  <span className="font-medium">
-                    {t("statistics.daily.selected", { count: selectedDay.watchedEpisodeCount })}
-                  </span>
-                  <span className="text-muted-foreground">{formatDuration(selectedDay.watchSeconds, t)}</span>
+              {activeDay ? (
+                <div className="grid gap-2 text-sm sm:flex sm:flex-wrap sm:items-center">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{formatIsoDate(activeDay.date)}</Badge>
+                    <span className="font-medium">
+                      {t("statistics.daily.selected", { count: activeDay.watchedEpisodeCount })}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground">{formatDuration(activeDay.watchSeconds, t)}</span>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">{t("statistics.daily.selectPrompt")}</p>
               )}
             </div>
           </div>
-          <div className="overflow-x-auto px-3 py-3">
-            <div className="grid min-w-[720px] grid-flow-col grid-rows-7 gap-1 sm:min-w-0">
-              {days.map((day) => {
+          <div ref={heatmapRef} className="px-3 py-3">
+            <div className="grid min-w-0 grid-flow-col auto-cols-fr grid-rows-7 gap-1">
+              {heatmapCells.map((cell) => {
+                if ("emptyKey" in cell) {
+                  return <span key={cell.emptyKey} className="aspect-square w-full min-w-3" aria-hidden="true" />;
+                }
+
+                const day = cell;
                 const label = t("statistics.daily.tooltip", {
                   date: formatIsoDate(day.date),
                   count: day.watchedEpisodeCount,
@@ -252,12 +274,12 @@ function DailyHeatmap({ days }: { days: StatisticsDay[] }) {
                     type="button"
                     title={label}
                     aria-label={label}
-                    aria-pressed={selectedDay?.date === day.date}
+                    aria-pressed={activeDay?.date === day.date}
                     onClick={() => setSelectedDay(day)}
                     onFocus={() => setSelectedDay(day)}
                     className={cn(
                       "aspect-square w-full min-w-3 rounded-[4px] border border-border transition-transform focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover:scale-125",
-                      selectedDay?.date === day.date && "ring-2 ring-ring ring-offset-2",
+                      activeDay?.date === day.date && "ring-2 ring-ring ring-offset-2",
                       heatmapClass(day.watchedEpisodeCount, maxCount),
                     )}
                   />
@@ -282,8 +304,12 @@ function DailyHeatmap({ days }: { days: StatisticsDay[] }) {
 
 function WeeklyWatchTime({ weeks }: { weeks: StatisticsWeek[] }) {
   const t = useTranslations();
-  const isNarrowScreen = useIsNarrowScreen();
-  const visibleWeeks = isNarrowScreen ? weeks.slice(-7) : weeks;
+  const [chartRef, chartContainerWidth] = useElementWidth<HTMLDivElement>();
+  const pointSpacing = 56;
+  const visibleWeekCount = chartContainerWidth > 0
+    ? Math.max(4, Math.floor(chartContainerWidth / pointSpacing))
+    : weeks.length;
+  const visibleWeeks = weeks.slice(-Math.min(weeks.length, visibleWeekCount));
   const [selectedWeek, setSelectedWeek] = useState<StatisticsWeek | null>(visibleWeeks.at(-1) ?? null);
   const activeWeek = visibleWeeks.some((week) => week.weekStartDate === selectedWeek?.weekStartDate)
     ? selectedWeek
@@ -305,21 +331,23 @@ function WeeklyWatchTime({ weeks }: { weeks: StatisticsWeek[] }) {
     <Card>
       <CardHeader>
         <CardTitle>{t("statistics.weekly.title")}</CardTitle>
-        <p className="text-sm text-muted-foreground">{t("statistics.weekly.description")}</p>
+        <p className="text-sm text-muted-foreground">{t("statistics.weekly.description", { count: visibleWeeks.length })}</p>
       </CardHeader>
       <CardContent>
         <div className="mb-4 rounded-xl border bg-background/40 p-3">
           {activeWeek ? (
-            <div className="flex flex-wrap items-center gap-2 text-sm">
+            <div className="grid gap-2 text-sm sm:flex sm:flex-wrap sm:items-center">
               <Badge variant="secondary">
                 {formatIsoDate(activeWeek.weekStartDate)} - {formatIsoDate(activeWeek.weekEndDate)}
               </Badge>
-              <span className="font-medium">{t("statistics.weekly.episodes", { count: activeWeek.watchedEpisodeCount })}</span>
-              <span className="text-muted-foreground">{formatDuration(activeWeek.watchSeconds, t)}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{t("statistics.weekly.episodes", { count: activeWeek.watchedEpisodeCount })}</span>
+                <span className="text-muted-foreground">{formatDuration(activeWeek.watchSeconds, t)}</span>
+              </div>
             </div>
           ) : null}
         </div>
-        <div className="pb-2">
+        <div ref={chartRef} className="pb-2">
           <svg className="w-full" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={t("statistics.weekly.chartLabel")}>
             <line x1={padding.left} y1={padding.top + plotHeight} x2={chartWidth - padding.right} y2={padding.top + plotHeight} className="stroke-border" />
             <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + plotHeight} className="stroke-border" />
@@ -354,7 +382,7 @@ function WeeklyWatchTime({ weeks }: { weeks: StatisticsWeek[] }) {
                   onFocus={() => setSelectedWeek(point.week)}
                 >
                   <title>{label}</title>
-                  <circle cx={point.x} cy={point.y} r={isNarrowScreen ? 18 : 12} className="fill-transparent" />
+                  <circle cx={point.x} cy={point.y} r={visibleWeekCount < 10 ? 18 : 12} className="fill-transparent" />
                   <circle
                     cx={point.x}
                     cy={point.y}
@@ -379,6 +407,37 @@ function WeeklyWatchTime({ weeks }: { weeks: StatisticsWeek[] }) {
   );
 }
 
+function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+
+    const updateWidth = () => setWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, width] as const;
+}
+
 function useIsNarrowScreen() {
   const [isNarrow, setIsNarrow] = useState(() => {
     if (typeof window === "undefined") {
@@ -390,11 +449,57 @@ function useIsNarrowScreen() {
   useEffect(() => {
     const query = window.matchMedia("(max-width: 640px)");
     const handleChange = () => setIsNarrow(query.matches);
+    handleChange();
     query.addEventListener("change", handleChange);
     return () => query.removeEventListener("change", handleChange);
   }, []);
 
   return isNarrow;
+}
+
+function buildMobileHeatmapCells(days: StatisticsDay[], lastDate: string, weekStartDay: number, visibleWeeks: number) {
+  const daysByDate = new Map(days.map((day) => [day.date, day]));
+  const lastDayOffset = (getIsoDateDayOfWeek(lastDate) - weekStartDay + 7) % 7;
+  const firstDate = addIsoDays(lastDate, -lastDayOffset - (visibleWeeks - 1) * 7);
+  const dayCellCount = visibleWeeks * 7 - (6 - lastDayOffset);
+  const cells: Array<StatisticsDay | { emptyKey: string }> = [];
+
+  for (let index = 0; index < dayCellCount; index += 1) {
+    const date = addIsoDays(firstDate, index);
+    cells.push(daysByDate.get(date) ?? { emptyKey: `missing-${date}` });
+  }
+
+  for (let index = 0; index < 6 - lastDayOffset; index += 1) {
+    cells.push({ emptyKey: `trailing-${index}` });
+  }
+
+  return cells;
+}
+
+function getIsoDateDayOfWeek(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
+}
+
+function addIsoDays(value: string, days: number) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function getLocalIsoDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function minIsoDate(left: string | undefined, right: string) {
+  if (!left) {
+    return right;
+  }
+  return left <= right ? left : right;
 }
 
 function WatchTimelineSection({ timeline }: { timeline: ReturnType<typeof useWatchTimeline> }) {
