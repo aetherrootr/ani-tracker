@@ -224,12 +224,14 @@ def add_episode(
     status: EpisodeStatus = EpisodeStatus.AIRED,
     air_at: datetime | None = None,
     title: str | None = None,
+    duration: str | None = None,
 ) -> Episode:
     episode = Episode(
         anime_id=anime.id,
         episode_number=number,
         original_title=title or f'Episode {number}',
         air_at=air_at,
+        duration=duration,
         status=status,
     )
     session.add(episode)
@@ -811,6 +813,176 @@ def test_tracking_list_paginates_backlog_items(
     assert body['hasMore'] is True
     assert invalid_limit_response.status_code == 400
     assert invalid_offset_response.status_code == 400
+
+
+def test_statistics_summary_counts_duration_user_isolation_and_dropped(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    visible = add_library_anime(
+        db_session,
+        external_id='stats-visible',
+        original_name='Stats Visible',
+        names=[('Stats Visible', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    watched = add_episode(db_session, visible, number=1, duration='00:24:00')
+    invalid_duration = add_episode(db_session, visible, number=2)
+    unwatched = add_episode(db_session, visible, number=3, duration='00:25:00')
+    dropped = add_library_anime(
+        db_session,
+        external_id='stats-dropped',
+        original_name='Stats Dropped',
+        names=[('Stats Dropped', 'en')],
+        status=UserAnimeStatus.DROPPED,
+    )
+    dropped_episode = add_episode(db_session, dropped, number=1, duration='00:24:00')
+    other_user_anime = add_library_anime(
+        db_session,
+        user_id=2,
+        external_id='other-user',
+        original_name='Other User',
+        names=[('Other User', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    other_user_episode = add_episode(db_session, other_user_anime, number=1, duration='00:24:00')
+    assert unwatched.status == EpisodeStatus.AIRED
+    db_session.add_all(
+        [
+            UserEpisodeProgress(user_id=1, episode_id=watched.id, watched=True, watched_at=now),
+            UserEpisodeProgress(user_id=1, episode_id=invalid_duration.id, watched=True, watched_at=now),
+            UserEpisodeProgress(user_id=1, episode_id=dropped_episode.id, watched=True, watched_at=now),
+            UserEpisodeProgress(user_id=2, episode_id=other_user_episode.id, watched=True, watched_at=now),
+        ],
+    )
+    db_session.commit()
+
+    response = client.get('/api/anime/statistics/summary')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['status'] == 'ready'
+    assert body['watchedEpisodeCount'] == 2
+    assert body['unwatchedAiredEpisodeCount'] == 1
+    assert body['libraryAnimeCount'] == 1
+    assert body['totalWatchSeconds'] == 24 * 60
+    assert body['averageWeeklyWatchedEpisodesLastQuarter'] == pytest.approx(0.15)
+    assert body['weekStartDay'] == 0
+    assert len(body['weekly']) == 13
+    assert sum(item['watchedEpisodeCount'] for item in body['daily']) == 2
+
+
+def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+    assert client.patch('/api/auth/me/preferences', json={'weekStartDay': 6}).status_code == 200
+    anime = add_library_anime(
+        db_session,
+        external_id='week-start',
+        original_name='Week Start',
+        names=[('Week Start', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    sunday_episode = add_episode(db_session, anime, number=1, duration='00:24:00')
+    monday_episode = add_episode(db_session, anime, number=2, duration='00:24:00')
+    db_session.add_all(
+        [
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=sunday_episode.id,
+                watched=True,
+                watched_at=datetime(2026, 7, 5, 12, tzinfo=UTC),
+            ),
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=monday_episode.id,
+                watched=True,
+                watched_at=datetime(2026, 7, 6, 12, tzinfo=UTC),
+            ),
+        ],
+    )
+    db_session.commit()
+
+    response = client.get('/api/anime/statistics/summary')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['weekStartDay'] == 6
+    week = next(item for item in body['weekly'] if item['weekStartDate'] == '2026-07-05')
+    assert week['weekEndDate'] == '2026-07-11'
+    assert week['watchedEpisodeCount'] == 2
+
+
+def test_statistics_watch_timeline_paginates_and_excludes_dropped(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='timeline',
+        original_name='Timeline Anime',
+        names=[('Timeline Name', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    first = add_episode(db_session, anime, number=1, title='First', duration='00:24:00')
+    second = add_episode(db_session, anime, number=2, title='Second', duration='00:25:00')
+    dropped = add_library_anime(
+        db_session,
+        external_id='timeline-dropped',
+        original_name='Timeline Dropped',
+        names=[('Timeline Dropped', 'en')],
+        status=UserAnimeStatus.DROPPED,
+    )
+    dropped_episode = add_episode(db_session, dropped, number=1, title='Dropped')
+    db_session.add_all(
+        [
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=first.id,
+                watched=True,
+                watched_at=datetime(2026, 7, 10, 12, tzinfo=UTC),
+            ),
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=second.id,
+                watched=True,
+                watched_at=datetime(2026, 7, 11, 12, tzinfo=UTC),
+            ),
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=dropped_episode.id,
+                watched=True,
+                watched_at=datetime(2026, 7, 12, 12, tzinfo=UTC),
+            ),
+        ],
+    )
+    db_session.commit()
+
+    response = client.get('/api/anime/statistics/watch-timeline?limit=1&offset=0')
+    second_response = client.get('/api/anime/statistics/watch-timeline?limit=1&offset=1')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['total'] == 2
+    assert body['hasMore'] is True
+    assert body['items'][0]['anime']['displayName'] == 'Timeline Name'
+    assert body['items'][0]['episode']['episodeNumber'] == 2
+    assert body['items'][0]['episode']['durationSeconds'] == 25 * 60
+    assert second_response.status_code == 200
+    second_body = second_response.get_json()
+    assert second_body['hasMore'] is False
+    assert second_body['items'][0]['episode']['episodeNumber'] == 1
+
+
+def test_statistics_recalculate_returns_ready_summary(client: FlaskClient) -> None:
+    assert register_user(client).status_code == 201
+
+    response = client.post('/api/anime/statistics/recalculate')
+
+    assert response.status_code == 200
+    assert response.get_json()['status'] == 'ready'
 
 
 def test_anime_detail_returns_available_names_air_date_and_posters(

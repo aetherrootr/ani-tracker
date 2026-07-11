@@ -40,10 +40,10 @@ export function MobileTopNav() {
           </Link>
         </div>
       </div>
-      <nav className="relative mx-3 mb-3 grid grid-cols-3 gap-1 rounded-2xl bg-background/20 p-1">
+      <nav className="relative mx-3 mb-3 grid grid-cols-4 gap-1 rounded-2xl bg-background/20 p-1">
         {activeNavigationIndex >= 0 ? (
           <div
-            className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-1rem)/3)] rounded-xl bg-primary shadow-md transition-transform duration-300 ease-out"
+            className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-1.25rem)/4)] rounded-xl bg-primary shadow-md transition-transform duration-300 ease-out"
             style={{ transform: `translateX(calc(${activeNavigationIndex} * (100% + 0.25rem)))` }}
             aria-hidden="true"
           />

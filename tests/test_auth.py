@@ -94,6 +94,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "displayName": "Link",
             "email": "link@link.com",
             "languagePreference": "zh-CN",
+            "weekStartDay": 0,
             "oidcLinked": False,
         },
     }
@@ -182,6 +183,25 @@ def test_update_language_preference_requires_login_and_valid_language(client: Fl
     assert update_response.status_code == 200
     assert update_response.get_json()["user"]["languagePreference"] == "en"
     assert client.get("/api/auth/me").get_json()["user"]["languagePreference"] == "en"
+
+
+def test_update_preferences_updates_week_start_day(client: FlaskClient, db_session: Session) -> None:
+    response = client.patch("/api/auth/me/preferences", json={"weekStartDay": 6})
+    assert response.status_code == 401
+
+    assert register_user(client).status_code == 201
+
+    invalid_response = client.patch("/api/auth/me/preferences", json={"weekStartDay": 7})
+    assert invalid_response.status_code == 400
+    assert invalid_response.get_json() == {"message": "Week start day is invalid"}
+
+    update_response = client.patch("/api/auth/me/preferences", json={"weekStartDay": 6})
+
+    assert update_response.status_code == 200
+    assert update_response.get_json()["user"]["weekStartDay"] == 6
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.week_start_day == 6
 
 
 def test_logout_clears_current_user(client: FlaskClient) -> None:

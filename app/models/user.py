@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import TimestampedBase
@@ -27,6 +27,7 @@ class User(TimestampedBase):
         nullable=False,
         default=DEFAULT_LANGUAGE_PREFERENCE,
     )
+    week_start_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
     episode_progresses: Mapped[list[UserEpisodeProgress]] = relationship(
         back_populates="user",

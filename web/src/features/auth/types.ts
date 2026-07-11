@@ -6,6 +6,7 @@ export type AuthUser = {
   displayName?: string | null;
   email: string;
   languagePreference: Locale;
+  weekStartDay: number;
   oidcLinked: boolean;
 };
 
@@ -28,6 +29,10 @@ export type RegisterInput = {
 
 export type UpdateLanguagePreferenceInput = {
   languagePreference: Locale;
+};
+
+export type UpdatePreferencesInput = {
+  weekStartDay: number;
 };
 
 export type AuthResponse = {
