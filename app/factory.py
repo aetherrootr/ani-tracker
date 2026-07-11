@@ -7,7 +7,7 @@ from authlib.integrations.flask_client import OAuth
 from flask import Flask, Response, request
 
 from app.api import register_api
-from app.db import default_database_url, init_db
+from app.db import default_database_url, ensure_database_current, init_db
 from app.import_provider import ImportProviderFactory
 from app.tasks.celery_config import configure_celery
 from app.utils import env_bool, env_float, env_int
@@ -17,6 +17,8 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(_build_app_config(app, config))
 
+    if app.config["MIGRATE_DATABASE"]:
+        ensure_database_current(str(app.config["DATABASE_URL"]))
     init_db(app)
     init_oidc(app)
     configure_celery(app.config)
@@ -47,7 +49,7 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "SESSION_COOKIE_HTTPONLY": True,
         "SESSION_COOKIE_SAMESITE": os.environ.get("SESSION_COOKIE_SAMESITE", "Lax"),
         "SESSION_COOKIE_SECURE": os.environ.get("FLASK_ENV") == "production",
-        "CREATE_TABLES": True,
+        "MIGRATE_DATABASE": True,
 
         # Browser integration settings for the Next.js frontend and session cookie API calls.
         "CORS_ORIGIN": os.environ.get("CORS_ORIGIN", "http://localhost:3000"),

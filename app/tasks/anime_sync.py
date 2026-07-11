@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, func, or_, select
 from sqlalchemy.orm import sessionmaker
 
 from app.celery_app import celery_app
-from app.db import default_database_url
+from app.db import default_database_url, ensure_database_current
 from app.import_provider import ImportProviderFactory
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
 from app.services.anime_sync import sync_anime_from_provider
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 )
 def sync_airing_anime() -> dict[str, int]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
+    ensure_database_current(database_url)
     connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
     engine = create_engine(database_url, connect_args=connect_args)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import os
+import threading
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from flask import Flask, current_app, g
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import Base
+_MIGRATION_LOCK_KEY = 1_487_207_031
+_migrated_database_urls: set[str] = set()
+_migration_lock = threading.Lock()
 
 
 def init_db(app: Flask) -> None:
@@ -17,9 +24,6 @@ def init_db(app: Flask) -> None:
 
     app.extensions["db_engine"] = engine
     app.extensions["db_session_factory"] = session_factory
-
-    if app.config.get("CREATE_TABLES", True):
-        Base.metadata.create_all(engine)
 
     @app.teardown_appcontext
     def close_db(_error: BaseException | None = None) -> None:
@@ -43,3 +47,30 @@ def get_engine(app: Flask) -> Engine:
 
 def default_database_url() -> str:
     return os.environ.get("DATABASE_URL", "sqlite:///ani_tracker.db")
+
+
+def ensure_database_current(database_url: str) -> None:
+    with _migration_lock:
+        if database_url in _migrated_database_urls:
+            return
+        upgrade_database(database_url)
+        _migrated_database_urls.add(database_url)
+
+
+def upgrade_database(database_url: str) -> None:
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    engine = create_engine(database_url, connect_args=connect_args)
+    try:
+        with engine.begin() as connection:
+            is_postgres = make_url(database_url).get_backend_name().startswith("postgresql")
+            if is_postgres:
+                connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": _MIGRATION_LOCK_KEY})
+            try:
+                alembic_config = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
+                alembic_config.attributes["connection"] = connection
+                command.upgrade(alembic_config, "head")
+            finally:
+                if is_postgres:
+                    connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": _MIGRATION_LOCK_KEY})
+    finally:
+        engine.dispose()

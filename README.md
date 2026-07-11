@@ -8,6 +8,28 @@ Run the application:
 uv run python -m app.main
 ```
 
+Database schema is managed by Alembic. Application startup upgrades the database
+to the latest migration by default.
+
+Run migrations manually:
+
+```bash
+DATABASE_URL=sqlite:///ani_tracker.db uv run alembic upgrade head
+```
+
+Create a new migration after model changes:
+
+```bash
+DATABASE_URL=sqlite:///ani_tracker.db uv run alembic revision --autogenerate -m "message"
+```
+
+Inspect or upgrade an environment:
+
+```bash
+DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/ani_tracker uv run alembic current
+DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/ani_tracker uv run alembic upgrade head
+```
+
 Run a local frontend/backend integration environment:
 
 ```bash
@@ -25,7 +47,7 @@ container manager must be installed and running.
 Run lint checks:
 
 ```bash
-uv run ruff check app
+uv run ruff check app tests migrations
 ```
 
 Run type checks:

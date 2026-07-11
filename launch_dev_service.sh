@@ -292,6 +292,9 @@ ensure_url_is_free "${FRONTEND_URL}/login" "Frontend"
 start_postgres
 start_redis
 
+echo "Migrating database to latest Alembic revision"
+DATABASE_URL="${DATABASE_URL}" uv run alembic upgrade head
+
 cat <<EOF
 Integration environment logs:
 Backend:  ${BACKEND_LOG}

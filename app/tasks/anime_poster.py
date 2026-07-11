@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.celery_app import celery_app
+from app.db import ensure_database_current
 from app.services.anime_poster import download_poster_to_storage
 
 
@@ -15,6 +16,7 @@ def download_anime_poster(
     max_bytes: int,
     timeout: float,
 ) -> None:
+    ensure_database_current(database_url)
     connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
     engine = create_engine(database_url, connect_args=connect_args)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
