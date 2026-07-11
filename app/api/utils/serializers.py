@@ -80,9 +80,9 @@ def serialize_poster(
     return {
         'id': poster.id,
         'status': poster.status,
-        'url': f'/api/anime/library/{poster.anime_id}/poster{version}'
+        'url': f'/api/anime/{poster.anime_id}/assets/poster{version}'
         if current_url
-        else f'/api/anime/library/{poster.anime_id}/posters/{poster.id}{version}',
+        else f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}{version}',
         'isPreferred': progress.preferred_poster_id == poster.id,
     }
 

@@ -135,7 +135,7 @@ export default function SettingsPage() {
             ) : (
               <Button
                 variant="outline"
-                onClick={() => window.location.assign(getApiUrl("/api/auth/oidc/link"))}
+                onClick={() => window.location.assign(getApiUrl("/api/oidc/link"))}
               >
                 {t("settings.account.linkSso")}
               </Button>

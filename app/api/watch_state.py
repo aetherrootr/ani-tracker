@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from flask import Blueprint, jsonify, request
+from flask.typing import ResponseReturnValue
+from sqlalchemy.orm import Session
+
+from app.api.utils.auth import require_auth_user
+from app.api.utils.library import (
+    TRACKING_LIST_RECENT_LIMIT,
+    tracking_list_backlog_page,
+    tracking_list_recently_watched_page,
+    tracking_list_tracking_page,
+)
+from app.api.utils.parsing import (
+    parse_library_limit,
+    parse_library_offset,
+)
+from app.api.utils.serializers import (
+    serialize_progress,
+)
+from app.models.anime import (
+    Episode,
+)
+from app.models.user import User
+from app.services.anime_library import (
+    get_user_progress,
+    set_episode_watch_state,
+)
+from app.services.anime_statistics import get_watch_timeline
+
+watch_state_bp = Blueprint("watch_state", __name__)
+
+
+@watch_state_bp.get('/tracking-list/tracking')
+@require_auth_user
+def get_tracking_list_tracking(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=20, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(tracking_list_tracking_page(db, user, limit=limit, offset=offset))
+
+
+@watch_state_bp.get('/tracking-list/backlog')
+@require_auth_user
+def get_tracking_list_backlog(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=20, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(tracking_list_backlog_page(db, user, limit=limit, offset=offset))
+
+
+@watch_state_bp.get('/tracking-list/recently-watched')
+@require_auth_user
+def get_tracking_list_recently_watched(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=TRACKING_LIST_RECENT_LIMIT, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(tracking_list_recently_watched_page(db, user, limit=limit, offset=offset))
+
+
+@watch_state_bp.get('/watch-timeline')
+@require_auth_user
+def get_statistics_watch_timeline(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=30, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(get_watch_timeline(db, user, limit=limit, offset=offset))
+
+
+@watch_state_bp.patch('/anime/<int:anime_id>/episodes/<int:episode_id>')
+@require_auth_user
+def update_episode_watch_state(db: Session, user: User, anime_id: int, episode_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get('watched'), bool):
+        return jsonify({'message': 'Episode watched state is required'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    episode = db.get(Episode, episode_id)
+    if progress is None or episode is None or episode.anime_id != anime_id:
+        return jsonify({'message': 'Episode not found'}), 404
+    watch_progress = set_episode_watch_state(db, progress=progress, episode=episode, watched=payload['watched'])
+    return jsonify(
+        {
+            'episode': {
+                'id': episode.id,
+                'episodeNumber': episode.episode_number,
+                'watched': bool(watch_progress.watched) if watch_progress is not None else False,
+                'watchedAt': watch_progress.watched_at.isoformat() if watch_progress is not None and watch_progress.watched_at else None,
+            },
+            'progress': serialize_progress(progress),
+        },
+    )
