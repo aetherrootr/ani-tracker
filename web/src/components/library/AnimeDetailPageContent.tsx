@@ -442,7 +442,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
         <h2 className="text-xl font-semibold tracking-tight">{t("library.relatedAnimeTitle")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeDescription", { provider })}</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="scrollbar-none flex gap-3 overflow-x-auto overscroll-x-contain pb-1">
         {items.map((item) => {
           const poster = assetUrl(item.posterUrl);
           const content = (
@@ -453,7 +453,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
                 ) : <NoPoster />}
               </div>
               <span className="min-w-0">
-                <span className="block truncate font-medium text-foreground">{item.title}</span>
+                <span className="line-clamp-2 block font-medium leading-snug text-foreground">{item.title}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">
                   {item.airDate ?? t("anime.unknown")}
                   {item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}
@@ -461,7 +461,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
               </span>
             </>
           );
-          const className = "flex min-h-24 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent";
+          const className = "flex min-h-24 w-80 shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent sm:w-96";
           if (item.animeId !== null) {
             return <Link key={item.externalId} href={`/library/${item.animeId}`} className={className}>{content}</Link>;
           }
