@@ -240,4 +240,4 @@ def _poster_url(anime: AnimeMetaInfo, progress: UserAnimeProgress) -> str | None
         poster = next((item for item in anime.posters if item.id == progress.preferred_poster_id), None)
     if poster is None:
         poster = min(anime.posters, key=lambda item: (item.status != 'ready', item.id))
-    return f'/api/anime/library/{anime.id}/poster?v={poster.id}-{poster.status}'
+    return f'/api/anime/{anime.id}/assets/poster?v={poster.id}-{poster.status}'

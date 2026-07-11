@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.celery_app import celery_app
-from app.db import default_database_url
+from app.db import default_database_url, ensure_database_current
 from app.services.anime_cleanup import delete_untracked_anime
 
 
@@ -17,6 +17,7 @@ from app.services.anime_cleanup import delete_untracked_anime
 )
 def delete_untracked_anime_task() -> dict[str, int]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
+    ensure_database_current(database_url)
     storage_dir = str(
         celery_app.conf.get('anime_poster_storage_dir')
         or os.environ.get('ANIME_POSTER_STORAGE_DIR', 'instance/anime_posters'),

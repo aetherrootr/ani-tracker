@@ -116,7 +116,7 @@ export function getTrackingListPage(input: {
 
   const query = params.toString();
   return apiFetch<TrackingListPage<TrackingListItem>>(
-    `/api/anime/library/tracking-list/${TRACKING_LIST_ENDPOINTS[input.list]}${query ? `?${query}` : ""}`,
+    `/api/watch-state/tracking-list/${TRACKING_LIST_ENDPOINTS[input.list]}${query ? `?${query}` : ""}`,
     { signal: input.signal },
   );
 }
@@ -150,7 +150,7 @@ export function resolveEpisodeConflicts(animeId: number, deleteEpisodeIds: numbe
 
 export function updateEpisodeWatchState(animeId: number, episodeId: number, watched: boolean) {
   return apiFetch<{ episode: { id: number; watched: boolean }; progress: AnimeProgress }>(
-    `/api/anime/library/${animeId}/episodes/${episodeId}/watch-state`,
+    `/api/watch-state/anime/${animeId}/episodes/${episodeId}`,
     { method: "PATCH", body: JSON.stringify({ watched }) },
   );
 }

@@ -32,15 +32,15 @@ export function logout(): Promise<LogoutResponse> {
 }
 
 export function getCurrentUser(): Promise<CurrentUserResponse> {
-  return apiFetch<CurrentUserResponse>("/api/auth/me");
+  return apiFetch<CurrentUserResponse>("/api/user/me");
 }
 
 export function getOidcConfig(): Promise<OidcConfigResponse> {
-  return apiFetch<OidcConfigResponse>("/api/auth/oidc/config");
+  return apiFetch<OidcConfigResponse>("/api/oidc/config");
 }
 
 export function unlinkOidc(): Promise<AuthResponse> {
-  return apiFetch<AuthResponse>("/api/auth/oidc/link", {
+  return apiFetch<AuthResponse>("/api/oidc/link", {
     method: "DELETE",
   });
 }
@@ -48,14 +48,14 @@ export function unlinkOidc(): Promise<AuthResponse> {
 export function updateLanguagePreference(
   input: UpdateLanguagePreferenceInput,
 ): Promise<AuthResponse> {
-  return apiFetch<AuthResponse>("/api/auth/me/language-preference", {
+  return apiFetch<AuthResponse>("/api/user/me/preferences", {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
 export function updatePreferences(input: UpdatePreferencesInput): Promise<AuthResponse> {
-  return apiFetch<AuthResponse>("/api/auth/me/preferences", {
+  return apiFetch<AuthResponse>("/api/user/me/preferences", {
     method: "PATCH",
     body: JSON.stringify(input),
   });

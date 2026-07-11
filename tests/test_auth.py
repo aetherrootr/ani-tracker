@@ -107,7 +107,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
     assert user.password_hash != "password123"
     assert user.language_preference == "zh-CN"
 
-    me_response = client.get("/api/auth/me")
+    me_response = client.get("/api/user/me")
     assert me_response.status_code == 200
     assert me_response.get_json() == body
 
@@ -164,38 +164,38 @@ def test_login_success_and_wrong_password_failure(client: FlaskClient) -> None:
 
 
 def test_update_language_preference_requires_login_and_valid_language(client: FlaskClient) -> None:
-    response = client.patch("/api/auth/me/language-preference", json={"languagePreference": "en"})
+    response = client.patch("/api/user/me/preferences", json={"languagePreference": "en"})
     assert response.status_code == 401
 
     assert register_user(client).status_code == 201
 
     invalid_response = client.patch(
-        "/api/auth/me/language-preference",
+        "/api/user/me/preferences",
         json={"languagePreference": "ja"},
     )
     assert invalid_response.status_code == 400
     assert invalid_response.get_json() == {"message": "Language preference is invalid"}
 
     update_response = client.patch(
-        "/api/auth/me/language-preference",
+        "/api/user/me/preferences",
         json={"languagePreference": "en"},
     )
     assert update_response.status_code == 200
     assert update_response.get_json()["user"]["languagePreference"] == "en"
-    assert client.get("/api/auth/me").get_json()["user"]["languagePreference"] == "en"
+    assert client.get("/api/user/me").get_json()["user"]["languagePreference"] == "en"
 
 
 def test_update_preferences_updates_week_start_day(client: FlaskClient, db_session: Session) -> None:
-    response = client.patch("/api/auth/me/preferences", json={"weekStartDay": 6})
+    response = client.patch("/api/user/me/preferences", json={"weekStartDay": 6})
     assert response.status_code == 401
 
     assert register_user(client).status_code == 201
 
-    invalid_response = client.patch("/api/auth/me/preferences", json={"weekStartDay": 7})
+    invalid_response = client.patch("/api/user/me/preferences", json={"weekStartDay": 7})
     assert invalid_response.status_code == 400
     assert invalid_response.get_json() == {"message": "Week start day is invalid"}
 
-    update_response = client.patch("/api/auth/me/preferences", json={"weekStartDay": 6})
+    update_response = client.patch("/api/user/me/preferences", json={"weekStartDay": 6})
 
     assert update_response.status_code == 200
     assert update_response.get_json()["user"]["weekStartDay"] == 6
@@ -204,15 +204,32 @@ def test_update_preferences_updates_week_start_day(client: FlaskClient, db_sessi
     assert user.week_start_day == 6
 
 
+def test_update_preferences_updates_language_and_week_start_day_together(client: FlaskClient) -> None:
+    assert register_user(client).status_code == 201
+
+    missing_response = client.patch("/api/user/me/preferences", json={})
+    assert missing_response.status_code == 400
+    assert missing_response.get_json() == {"message": "User preference is required"}
+
+    update_response = client.patch(
+        "/api/user/me/preferences",
+        json={"languagePreference": "en", "weekStartDay": 6},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.get_json()["user"]["languagePreference"] == "en"
+    assert update_response.get_json()["user"]["weekStartDay"] == 6
+
+
 def test_logout_clears_current_user(client: FlaskClient) -> None:
-    assert client.get("/api/auth/me").get_json() == {"user": None}
+    assert client.get("/api/user/me").get_json() == {"user": None}
     assert register_user(client).status_code == 201
 
     logout_response = client.post("/api/auth/logout")
 
     assert logout_response.status_code == 200
     assert logout_response.get_json() == {"success": True}
-    assert client.get("/api/auth/me").get_json() == {"user": None}
+    assert client.get("/api/user/me").get_json() == {"user": None}
 
 
 def test_validation_errors(client: FlaskClient) -> None:
@@ -228,13 +245,13 @@ def test_validation_errors(client: FlaskClient) -> None:
 
 
 def test_oidc_config_and_unconfigured_endpoints_do_not_fail(client: FlaskClient) -> None:
-    assert client.get("/api/auth/oidc/config").get_json() == {"enabled": False}
+    assert client.get("/api/oidc/config").get_json() == {"enabled": False}
 
-    login_response = client.get("/api/auth/oidc/login")
+    login_response = client.get("/api/oidc/login")
     assert login_response.status_code == 404
     assert login_response.get_json() == {"message": "OIDC is not configured"}
 
-    link_response = client.get("/api/auth/oidc/link")
+    link_response = client.get("/api/oidc/link")
     assert link_response.status_code == 404
     assert link_response.get_json() == {"message": "OIDC is not configured"}
 
@@ -254,7 +271,7 @@ def test_oidc_callback_auto_registers_user_and_identity(
         },
     )
 
-    response = client.get("/api/auth/oidc/callback")
+    response = client.get("/api/oidc/callback")
 
     assert response.status_code == 302
     assert response.headers["Location"] == "http://localhost:3000/tracking-list"
@@ -264,7 +281,7 @@ def test_oidc_callback_auto_registers_user_and_identity(
     identity = db_session.scalar(select(UserOidcIdentity).where(UserOidcIdentity.user_id == user.id))
     assert identity is not None
     assert identity.subject == "authentik|user-1"
-    assert client.get("/api/auth/me").get_json()["user"]["oidcLinked"] is True
+    assert client.get("/api/user/me").get_json()["user"]["oidcLinked"] is True
 
 
 def test_oidc_existing_identity_logs_in_original_user_without_duplicate(
@@ -273,17 +290,17 @@ def test_oidc_existing_identity_logs_in_original_user_without_duplicate(
     db_session: Session,
 ) -> None:
     configure_oidc(app, {"sub": "same-sub", "email": "first@example.test", "preferred_username": "first"})
-    assert client.get("/api/auth/oidc/callback").status_code == 302
+    assert client.get("/api/oidc/callback").status_code == 302
     client.post("/api/auth/logout")
 
     configure_oidc(app, {"sub": "same-sub", "email": "changed@example.test", "preferred_username": "second"})
-    assert client.get("/api/auth/oidc/callback").status_code == 302
+    assert client.get("/api/oidc/callback").status_code == 302
 
     users = db_session.scalars(select(User)).all()
     identities = db_session.scalars(select(UserOidcIdentity)).all()
     assert len(users) == 1
     assert len(identities) == 1
-    assert client.get("/api/auth/me").get_json()["user"]["username"] == "first"
+    assert client.get("/api/user/me").get_json()["user"]["username"] == "first"
 
 
 def test_oidc_auto_register_does_not_merge_by_email(
@@ -297,11 +314,11 @@ def test_oidc_auto_register_does_not_merge_by_email(
     client.post("/api/auth/logout")
     configure_oidc(app, {"sub": "new-sub", "email": "shared@example.test", "preferred_username": "local"})
 
-    assert client.get("/api/auth/oidc/callback").status_code == 302
+    assert client.get("/api/oidc/callback").status_code == 302
 
     users = db_session.scalars(select(User).where(User.email == "shared@example.test")).all()
     assert len(users) == 2
-    assert client.get("/api/auth/me").get_json()["user"]["id"] != local_user.id
+    assert client.get("/api/user/me").get_json()["user"]["id"] != local_user.id
 
 
 def test_oidc_link_updates_me(
@@ -311,18 +328,18 @@ def test_oidc_link_updates_me(
     assert register_user(client).status_code == 201
     configure_oidc(app, {"sub": "link-sub", "email": "link-sso@example.test"})
 
-    assert client.get("/api/auth/oidc/link").status_code == 302
-    response = client.get("/api/auth/oidc/link/callback")
+    assert client.get("/api/oidc/link").status_code == 302
+    response = client.get("/api/oidc/link/callback")
 
     assert response.status_code == 302
     assert response.headers["Location"] == "http://localhost:3000/settings"
-    assert client.get("/api/auth/me").get_json()["user"]["oidcLinked"] is True
+    assert client.get("/api/user/me").get_json()["user"]["oidcLinked"] is True
 
 
 def test_oidc_unlink_requires_login(app: Flask, client: FlaskClient) -> None:
     configure_oidc(app, {"sub": "unlink-sub"})
 
-    response = client.delete("/api/auth/oidc/link")
+    response = client.delete("/api/oidc/link")
 
     assert response.status_code == 401
     assert response.get_json() == {"message": "Authentication required"}
@@ -335,14 +352,14 @@ def test_oidc_unlink_removes_current_user_identity(
 ) -> None:
     assert register_user(client).status_code == 201
     configure_oidc(app, {"sub": "unlink-sub", "email": "unlink@example.test"})
-    assert client.get("/api/auth/oidc/link").status_code == 302
-    assert client.get("/api/auth/oidc/link/callback").status_code == 302
+    assert client.get("/api/oidc/link").status_code == 302
+    assert client.get("/api/oidc/link/callback").status_code == 302
 
-    response = client.delete("/api/auth/oidc/link")
+    response = client.delete("/api/oidc/link")
 
     assert response.status_code == 200
     assert response.get_json()["user"]["oidcLinked"] is False
-    assert client.get("/api/auth/me").get_json()["user"]["oidcLinked"] is False
+    assert client.get("/api/user/me").get_json()["user"]["oidcLinked"] is False
     assert db_session.scalar(select(UserOidcIdentity)) is None
 
 
@@ -351,13 +368,13 @@ def test_oidc_link_conflicts_when_identity_belongs_to_other_user(
     client: FlaskClient,
 ) -> None:
     configure_oidc(app, {"sub": "taken-sub", "email": "sso@example.test"})
-    assert client.get("/api/auth/oidc/callback").status_code == 302
+    assert client.get("/api/oidc/callback").status_code == 302
     client.post("/api/auth/logout")
     assert register_user(client, username="local", email="local@example.test").status_code == 201
     configure_oidc(app, {"sub": "taken-sub", "email": "sso@example.test"})
 
-    assert client.get("/api/auth/oidc/link").status_code == 302
-    response = client.get("/api/auth/oidc/link/callback")
+    assert client.get("/api/oidc/link").status_code == 302
+    response = client.get("/api/oidc/link/callback")
 
     assert response.status_code == 409
     assert response.get_json() == {"message": "OIDC identity is already linked to another user"}
@@ -369,12 +386,12 @@ def test_oidc_link_conflicts_when_user_already_has_issuer_identity(
 ) -> None:
     assert register_user(client).status_code == 201
     configure_oidc(app, {"sub": "first-sub", "email": "first@example.test"})
-    assert client.get("/api/auth/oidc/link").status_code == 302
-    assert client.get("/api/auth/oidc/link/callback").status_code == 302
+    assert client.get("/api/oidc/link").status_code == 302
+    assert client.get("/api/oidc/link/callback").status_code == 302
     configure_oidc(app, {"sub": "second-sub", "email": "second@example.test"})
 
-    assert client.get("/api/auth/oidc/link").status_code == 302
-    response = client.get("/api/auth/oidc/link/callback")
+    assert client.get("/api/oidc/link").status_code == 302
+    response = client.get("/api/oidc/link/callback")
 
     assert response.status_code == 409
     assert response.get_json() == {"message": "User already has an OIDC identity for this issuer"}

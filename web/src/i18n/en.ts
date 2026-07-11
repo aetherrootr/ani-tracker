@@ -154,7 +154,7 @@ export const en = {
     },
     weekly: {
       title: "Weekly watch time",
-      description: "Line chart of watch time across the last 13 natural weeks. Select a point to inspect that week.",
+      description: "Line chart of watch time across the last {count} natural weeks. Select a point to inspect that week.",
       chartLabel: "Weekly watch time line chart for the last 13 weeks",
       tooltip: "{start} to {end}: {count} eps, {duration}",
       oldest: "Older weeks on the left",

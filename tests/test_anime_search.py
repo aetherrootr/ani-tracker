@@ -7,9 +7,10 @@ import requests
 from flask import Flask
 from flask.testing import FlaskClient
 
-import app.api.anime as anime_api
+import app.api.anime_info as anime_api
 from app import create_app
 from app.import_provider.bangumi import BangumiImportProvider
+from app.import_provider.base import ImportProvider
 from app.import_provider.exceptions import (
     ImportProviderResponseError,
     ImportProviderTimeoutError,
@@ -35,7 +36,7 @@ def client(app: Flask) -> FlaskClient:
     return app.test_client()
 
 
-class FakeProvider:
+class FakeProvider(ImportProvider):
     name = 'bangumi'
 
     def __init__(self, page: ImportSearchPage | None = None, error: Exception | None = None) -> None:

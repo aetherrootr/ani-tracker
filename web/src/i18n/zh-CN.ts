@@ -151,7 +151,7 @@ export const zhCN = {
     },
     weekly: {
       title: "每周观看耗时",
-      description: "最近 13 个自然周的观看耗时折线图，点击节点查看该周明细。",
+      description: "最近 {count} 个自然周的观看耗时折线图，点击节点查看该周明细。",
       chartLabel: "最近 13 周每周观看耗时折线图",
       tooltip: "{start} 至 {end}：{count} 集，{duration}",
       oldest: "左侧为更早周",

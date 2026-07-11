@@ -101,7 +101,7 @@ export function LoginForm() {
           className="h-11 w-full"
           type="button"
           variant="outline"
-          onClick={() => window.location.assign(getApiUrl("/api/auth/oidc/login"))}
+          onClick={() => window.location.assign(getApiUrl("/api/oidc/login"))}
         >
           {t("auth.login.sso")}
         </Button>

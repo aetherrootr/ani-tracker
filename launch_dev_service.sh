@@ -287,10 +287,13 @@ PY
 
 trap cleanup EXIT INT TERM
 
-ensure_url_is_free "${BACKEND_URL}/api/auth/me" "Backend"
+ensure_url_is_free "${BACKEND_URL}/api/user/me" "Backend"
 ensure_url_is_free "${FRONTEND_URL}/login" "Frontend"
 start_postgres
 start_redis
+
+echo "Migrating database to latest Alembic revision"
+DATABASE_URL="${DATABASE_URL}" uv run alembic upgrade head
 
 cat <<EOF
 Integration environment logs:
@@ -323,13 +326,13 @@ echo "Starting backend on ${BACKEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
   export SECRET_KEY="integration-test-secret"
-  export OIDC_LOGIN_REDIRECT_URI="${OIDC_LOGIN_REDIRECT_URI:-${BACKEND_URL}/api/auth/oidc/callback}"
-  export OIDC_LINK_REDIRECT_URI="${OIDC_LINK_REDIRECT_URI:-${BACKEND_URL}/api/auth/oidc/link/callback}"
+  export OIDC_LOGIN_REDIRECT_URI="${OIDC_LOGIN_REDIRECT_URI:-${BACKEND_URL}/api/oidc/callback}"
+  export OIDC_LINK_REDIRECT_URI="${OIDC_LINK_REDIRECT_URI:-${BACKEND_URL}/api/oidc/link/callback}"
   uv run python -m app.main
 ) >"${BACKEND_LOG}" 2>&1 &
 backend_pid="$!"
 
-wait_for_url "${BACKEND_URL}/api/auth/me" "Backend" "${backend_pid}" "${BACKEND_LOG}"
+wait_for_url "${BACKEND_URL}/api/user/me" "Backend" "${backend_pid}" "${BACKEND_LOG}"
 
 echo "Starting frontend on ${FRONTEND_URL}"
 (

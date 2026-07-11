@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import create_app
 from app.celery_app import celery_app
+from app.import_provider.base import ImportProvider
 from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.types import (
@@ -60,7 +61,7 @@ def db_session(app: Flask) -> Iterator[Session]:
         yield session
 
 
-class FakeProvider:
+class FakeProvider(ImportProvider):
     name = 'bangumi'
 
     def __init__(self) -> None:
@@ -269,7 +270,7 @@ def test_add_to_library_imports_anime_and_progress(
     body = response.get_json()
     assert body['animeCreated'] is True
     assert body['libraryEntryCreatedOrRestored'] is True
-    assert body['anime']['posterUrl'] == '/api/anime/library/1/poster?v=1-pending'
+    assert body['anime']['posterUrl'] == '/api/anime/1/assets/poster?v=1-pending'
     assert body['anime']['posterStatus'] == 'pending'
     assert body['progress']['status'] == 'plan_to_watch'
     assert provider.detail_calls == ['493042']
@@ -453,7 +454,7 @@ def test_library_list_returns_wall_display_fields(app: Flask, client: FlaskClien
     install_provider(app)
     assert register_user(client, language_preference='zh-CN').status_code == 201
     assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'}).status_code == 201
-    assert client.patch('/api/anime/library/1/episodes/1/watch-state', json={'watched': True}).status_code == 200
+    assert client.patch('/api/watch-state/anime/1/episodes/1', json={'watched': True}).status_code == 200
 
     response = client.get('/api/anime/library')
 
@@ -699,9 +700,9 @@ def test_tracking_list_returns_next_episodes_recently_watched_and_excludes_dropp
     )
     db_session.commit()
 
-    tracking_response = client.get('/api/anime/library/tracking-list/tracking')
-    backlog_response = client.get('/api/anime/library/tracking-list/backlog')
-    recent_response = client.get('/api/anime/library/tracking-list/recently-watched')
+    tracking_response = client.get('/api/watch-state/tracking-list/tracking')
+    backlog_response = client.get('/api/watch-state/tracking-list/backlog')
+    recent_response = client.get('/api/watch-state/tracking-list/recently-watched')
 
     assert tracking_response.status_code == 200
     tracking_body = tracking_response.get_json()
@@ -739,7 +740,7 @@ def test_tracking_list_returns_next_episodes_recently_watched_and_excludes_dropp
     assert recent_body['hasMore'] is False
     assert all(item['episode']['watched'] is True for item in recent_body['items'])
 
-    paged_recent_response = client.get('/api/anime/library/tracking-list/recently-watched?limit=2&offset=1')
+    paged_recent_response = client.get('/api/watch-state/tracking-list/recently-watched?limit=2&offset=1')
 
     assert paged_recent_response.status_code == 200
     paged_recent_body = paged_recent_response.get_json()
@@ -767,9 +768,9 @@ def test_tracking_list_paginates_tracking_items(
         add_episode(db_session, anime, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=index + 1))
     db_session.commit()
 
-    response = client.get('/api/anime/library/tracking-list/tracking?limit=1&offset=1')
-    invalid_limit_response = client.get('/api/anime/library/tracking-list/tracking?limit=0')
-    invalid_offset_response = client.get('/api/anime/library/tracking-list/tracking?offset=-1')
+    response = client.get('/api/watch-state/tracking-list/tracking?limit=1&offset=1')
+    invalid_limit_response = client.get('/api/watch-state/tracking-list/tracking?limit=0')
+    invalid_offset_response = client.get('/api/watch-state/tracking-list/tracking?offset=-1')
 
     assert response.status_code == 200
     body = response.get_json()
@@ -800,9 +801,9 @@ def test_tracking_list_paginates_backlog_items(
         add_episode(db_session, anime, number=1, air_at=now - timedelta(days=100 + index))
     db_session.commit()
 
-    response = client.get('/api/anime/library/tracking-list/backlog?limit=1&offset=1')
-    invalid_limit_response = client.get('/api/anime/library/tracking-list/backlog?limit=0')
-    invalid_offset_response = client.get('/api/anime/library/tracking-list/backlog?offset=-1')
+    response = client.get('/api/watch-state/tracking-list/backlog?limit=1&offset=1')
+    invalid_limit_response = client.get('/api/watch-state/tracking-list/backlog?limit=0')
+    invalid_offset_response = client.get('/api/watch-state/tracking-list/backlog?offset=-1')
 
     assert response.status_code == 200
     body = response.get_json()
@@ -859,7 +860,7 @@ def test_statistics_summary_counts_duration_user_isolation_and_dropped(
     )
     db_session.commit()
 
-    response = client.get('/api/anime/statistics/summary')
+    response = client.get('/api/statistics/summary')
 
     assert response.status_code == 200
     body = response.get_json()
@@ -876,7 +877,7 @@ def test_statistics_summary_counts_duration_user_isolation_and_dropped(
 
 def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session) -> None:
     assert register_user(client).status_code == 201
-    assert client.patch('/api/auth/me/preferences', json={'weekStartDay': 6}).status_code == 200
+    assert client.patch('/api/user/me/preferences', json={'weekStartDay': 6}).status_code == 200
     anime = add_library_anime(
         db_session,
         external_id='week-start',
@@ -904,7 +905,7 @@ def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session:
     )
     db_session.commit()
 
-    response = client.get('/api/anime/statistics/summary')
+    response = client.get('/api/statistics/summary')
 
     assert response.status_code == 200
     body = response.get_json()
@@ -960,8 +961,8 @@ def test_statistics_watch_timeline_paginates_and_excludes_dropped(
     )
     db_session.commit()
 
-    response = client.get('/api/anime/statistics/watch-timeline?limit=1&offset=0')
-    second_response = client.get('/api/anime/statistics/watch-timeline?limit=1&offset=1')
+    response = client.get('/api/watch-state/watch-timeline?limit=1&offset=0')
+    second_response = client.get('/api/watch-state/watch-timeline?limit=1&offset=1')
 
     assert response.status_code == 200
     body = response.get_json()
@@ -979,7 +980,7 @@ def test_statistics_watch_timeline_paginates_and_excludes_dropped(
 def test_statistics_recalculate_returns_ready_summary(client: FlaskClient) -> None:
     assert register_user(client).status_code == 201
 
-    response = client.post('/api/anime/statistics/recalculate')
+    response = client.post('/api/statistics/recalculate')
 
     assert response.status_code == 200
     assert response.get_json()['status'] == 'ready'
@@ -1015,10 +1016,10 @@ def test_anime_detail_returns_available_names_air_date_and_posters(
         {'id': 2, 'language': 'en', 'name': 'K-On!'},
     ]
     assert body['poster']['id'] == 2
-    assert body['posterUrl'] == f'/api/anime/library/{anime.id}/poster?v=2-ready'
+    assert body['posterUrl'] == f'/api/anime/{anime.id}/assets/poster?v=2-ready'
     assert [poster['url'] for poster in body['availablePosters']] == [
-        f'/api/anime/library/{anime.id}/posters/1?v=1-failed',
-        f'/api/anime/library/{anime.id}/posters/2?v=2-ready',
+        f'/api/anime/{anime.id}/assets/posters/1?v=1-failed',
+        f'/api/anime/{anime.id}/assets/posters/2?v=2-ready',
     ]
 
 
@@ -1090,7 +1091,7 @@ def test_poster_preference_can_be_set_and_cleared(app: Flask, client: FlaskClien
         'poster': {
             'id': 1,
             'status': 'pending',
-            'url': '/api/anime/library/1/poster?v=1-pending',
+            'url': '/api/anime/1/assets/poster?v=1-pending',
             'isPreferred': True,
         },
         'progress': {'id': 1, 'animeId': 1, 'preferredPosterId': 1},
