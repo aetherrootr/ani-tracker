@@ -10,7 +10,7 @@ BACKEND_URL="http://localhost:${BACKEND_PORT}"
 FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 FRONTEND_BIND_HOST="localhost"
 ENABLE_LAN_DEV="0"
-OIDC_ENV_FILE=""
+ENV_FILE=""
 POSTGRES_CONTAINER="ani-tracker-postgres"
 POSTGRES_IMAGE="docker.io/library/postgres:17-alpine"
 POSTGRES_DATA_DIR="${TMP_DIR}/postgres"
@@ -44,11 +44,12 @@ worker_pid=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--enable-lan-access] [--oidc-env-file FILE]
+Usage: $(basename "$0") [--enable-lan-access] [--env-file FILE]
 
 Options:
   --enable-lan-access  Allow LAN devices to access the frontend dev server.
-  --oidc-env-file FILE Load OIDC environment variables for the backend from FILE.
+  --env-file FILE      Load backend environment variables from FILE.
+  --oidc-env-file FILE Compatibility alias for --env-file.
   -h, --help Show this help message.
 EOF
 }
@@ -60,13 +61,13 @@ while [[ $# -gt 0 ]]; do
       ENABLE_LAN_DEV="1"
       shift
       ;;
-    --oidc-env-file)
+    --env-file|--oidc-env-file)
       if [[ $# -lt 2 ]]; then
-        echo "Missing value for --oidc-env-file" >&2
+        echo "Missing value for $1" >&2
         usage >&2
         exit 1
       fi
-      OIDC_ENV_FILE="$2"
+      ENV_FILE="$2"
       shift 2
       ;;
     -h|--help)
@@ -81,8 +82,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -n "${OIDC_ENV_FILE}" && ! -f "${OIDC_ENV_FILE}" ]]; then
-  echo "OIDC env file does not exist: ${OIDC_ENV_FILE}" >&2
+if [[ -n "${ENV_FILE}" && ! -f "${ENV_FILE}" ]]; then
+  echo "Env file does not exist: ${ENV_FILE}" >&2
   exit 1
 fi
 
@@ -170,6 +171,16 @@ ensure_process_alive() {
     echo "Check ${name} log: ${log_path}" >&2
     return 1
   fi
+}
+
+load_env_file() {
+  if [[ -z "${ENV_FILE}" ]]; then
+    return 0
+  fi
+  set -a
+  # shellcheck source=/dev/null
+  source "${ENV_FILE}"
+  set +a
 }
 
 start_postgres() {
@@ -264,10 +275,12 @@ start_redis() {
 
 requeue_pending_posters() {
   echo "Queueing pending poster downloads"
-  DATABASE_URL="${DATABASE_URL}" \
-  CELERY_BROKER_URL="${CELERY_BROKER_URL}" \
-  ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}" \
-  uv run python - <<'PY'
+  (
+    load_env_file
+    export DATABASE_URL="${DATABASE_URL}"
+    export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
+    export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
+    uv run python - <<'PY'
 from sqlalchemy import select
 
 from app import create_app
@@ -283,6 +296,7 @@ with app.app_context():
         enqueue_poster_download(poster_id)
     print(f"Queued {len(poster_ids)} pending poster download(s).")
 PY
+  )
 }
 
 trap cleanup EXIT INT TERM
@@ -303,10 +317,13 @@ Worker:   ${WORKER_LOG}
 EOF
 
 echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
-DATABASE_URL="${DATABASE_URL}" \
-CELERY_BROKER_URL="${CELERY_BROKER_URL}" \
-ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}" \
-uv run celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo >"${WORKER_LOG}" 2>&1 &
+(
+  load_env_file
+  export DATABASE_URL="${DATABASE_URL}"
+  export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
+  export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
+  uv run celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
+) >"${WORKER_LOG}" 2>&1 &
 worker_pid="$!"
 sleep 1
 ensure_process_alive "${worker_pid}" "Celery worker" "${WORKER_LOG}"
@@ -314,13 +331,7 @@ requeue_pending_posters
 
 echo "Starting backend on ${BACKEND_URL}"
 (
-  if [[ -n "${OIDC_ENV_FILE}" ]]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "${OIDC_ENV_FILE}"
-    set +a
-  fi
-
+  load_env_file
   export DATABASE_URL="${DATABASE_URL}"
   export CORS_ORIGIN="${FRONTEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"

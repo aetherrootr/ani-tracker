@@ -5,7 +5,14 @@ from dataclasses import asdict
 from typing import Any
 
 from app.import_provider.types import ImportSearchResult
-from app.models.anime import AnimeMetaInfo, AnimeName, AnimePoster, AnimeSummary, EpisodeName
+from app.models.anime import (
+    AnimeMetaInfo,
+    AnimeName,
+    AnimePoster,
+    AnimeRelation,
+    AnimeSummary,
+    EpisodeName,
+)
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
 from app.services.name_keys import build_name_keys
@@ -182,6 +189,7 @@ def serialize_anime(
     include_available_summaries: bool = False,
     include_available_names: bool = False,
     include_available_posters: bool = False,
+    include_related_anime: bool = False,
 ) -> dict[str, Any]:
     summaries = sorted(anime.summaries, key=lambda item: item.id)
     names = sorted(anime.names, key=lambda item: item.id)
@@ -223,7 +231,29 @@ def serialize_anime(
             serialize_poster(poster, progress, current_url=False)
             for poster in posters
         ]
+    if include_related_anime:
+        data['relatedAnime'] = [serialize_related_anime(item) for item in sorted(anime.related_anime, key=lambda item: (item.season_number is None, item.season_number or 0, item.id))]
     return data
+
+
+def serialize_related_anime(relation: AnimeRelation) -> dict[str, Any]:
+    poster_url = relation.poster_source_url
+    if relation.poster is not None:
+        version = f'?v={relation.poster.id}-{relation.poster.status}'
+        poster_url = f'/api/anime/{relation.poster.anime_id}/assets/posters/{relation.poster.id}{version}'
+    return {
+        'provider': relation.provider_type,
+        'externalId': relation.external_id,
+        'animeId': relation.related_anime_id,
+        'inLibrary': relation.related_anime_id is not None,
+        'title': relation.title,
+        'relationType': relation.relation_type,
+        'seasonNumber': relation.season_number,
+        'airDate': relation.air_date.isoformat() if relation.air_date is not None else None,
+        'episodeCount': relation.episode_count,
+        'url': relation.url,
+        'posterUrl': poster_url,
+    }
 
 
 def anime_display_sort_key(anime: AnimeMetaInfo, progress: UserAnimeProgress, user: User) -> tuple[str, str]:

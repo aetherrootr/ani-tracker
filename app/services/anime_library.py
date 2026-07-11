@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
@@ -13,11 +13,13 @@ from app.import_provider.types import (
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
+    ImportRelatedAnime,
 )
 from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
     AnimePoster,
+    AnimeRelation,
     AnimeSummary,
     AnimeType,
     Episode,
@@ -25,6 +27,7 @@ from app.models.anime import (
     EpisodeStatus,
 )
 from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
+from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
 
 
@@ -33,6 +36,7 @@ def import_anime_from_provider(
     provider: ImportProvider,
     *,
     external_id: str,
+    language: str | None = None,
 ) -> tuple[AnimeMetaInfo, bool]:
     anime = session.scalar(
         select(AnimeMetaInfo).where(
@@ -43,7 +47,7 @@ def import_anime_from_provider(
     if anime is not None:
         return anime, False
 
-    detail = provider.get_anime_detail(external_id)
+    detail = provider.get_anime_detail(external_id, language=language)
     anime = AnimeMetaInfo(
         provider_type=detail.provider,
         external_id=detail.external_id,
@@ -67,6 +71,7 @@ def populate_anime_from_detail(session: Session, anime: AnimeMetaInfo, detail: A
     _upsert_summaries(session, anime, detail.summaries)
     _upsert_names(session, anime, detail.names, detail.original_title)
     _upsert_episodes(session, anime, detail.episodes, now)
+    _upsert_related_anime(session, anime, detail.related_anime)
     if not detail.poster_source_url:
         return None
     return upsert_poster_record(
@@ -87,7 +92,13 @@ def add_anime_to_user_library(
 ) -> tuple[AnimeMetaInfo, UserAnimeProgress, bool, bool, bool]:
     poster_to_enqueue: AnimePoster | None = None
     try:
-        anime, anime_created = import_anime_from_provider(session, provider, external_id=external_id)
+        user = session.get(User, user_id)
+        anime, anime_created = import_anime_from_provider(
+            session,
+            provider,
+            external_id=external_id,
+            language=user.language_preference if user is not None else None,
+        )
         progress = session.scalar(
             select(UserAnimeProgress).where(
                 UserAnimeProgress.user_id == user_id,
@@ -396,6 +407,78 @@ def _upsert_episode_names(
             continue
         session.add(EpisodeName(episode_id=episode.id, name=name, language=language))
         existing.add(name)
+
+
+def _upsert_related_anime(session: Session, anime: AnimeMetaInfo, related_items: Sequence[ImportRelatedAnime]) -> None:
+    active_keys: set[tuple[str, str, str]] = set()
+    for item in related_items:
+        if item.provider == anime.provider_type and item.external_id == anime.external_id:
+            continue
+        title = item.title.strip()
+        if not title:
+            continue
+        active_keys.add((item.provider, item.external_id, item.relation_type))
+        related_anime_id = session.scalar(
+            select(AnimeMetaInfo.id).where(
+                AnimeMetaInfo.provider_type == item.provider,
+                AnimeMetaInfo.external_id == item.external_id,
+            ),
+        )
+        poster_id = _relation_poster_id(session, related_anime_id=related_anime_id)
+        relation = session.scalar(
+            select(AnimeRelation).where(
+                AnimeRelation.anime_id == anime.id,
+                AnimeRelation.provider_type == item.provider,
+                AnimeRelation.external_id == item.external_id,
+                AnimeRelation.relation_type == item.relation_type,
+            ),
+        )
+        if relation is None:
+            relation = AnimeRelation(
+                anime_id=anime.id,
+                provider_type=item.provider,
+                external_id=item.external_id,
+                relation_type=item.relation_type,
+            )
+            session.add(relation)
+        relation.related_anime_id = related_anime_id
+        relation.poster_id = poster_id
+        relation.title = title
+        relation.season_number = item.season_number
+        relation.air_date = item.air_date
+        relation.episode_count = item.episode_count
+        relation.url = item.url
+        relation.poster_source_url = item.poster_source_url
+
+    stale_same_series = session.scalars(
+        select(AnimeRelation).where(
+            AnimeRelation.anime_id == anime.id,
+            AnimeRelation.relation_type == 'same_series_season',
+        ),
+    ).all()
+    for relation in stale_same_series:
+        if (relation.provider_type, relation.external_id, relation.relation_type) not in active_keys:
+            session.delete(relation)
+
+    session.flush()
+    session.execute(
+        update(AnimeRelation)
+        .where(
+            AnimeRelation.provider_type == anime.provider_type,
+            AnimeRelation.external_id == anime.external_id,
+        )
+        .values(related_anime_id=anime.id, poster_id=_relation_poster_id(session, related_anime_id=anime.id)),
+    )
+
+
+def _relation_poster_id(session: Session, *, related_anime_id: int | None) -> int | None:
+    if related_anime_id is None:
+        return None
+    return session.scalar(
+        select(AnimePoster.id)
+        .where(AnimePoster.anime_id == related_anime_id)
+        .order_by(AnimePoster.status != 'ready', AnimePoster.id),
+    )
 
 
 def _anime_type(value: str) -> AnimeType:

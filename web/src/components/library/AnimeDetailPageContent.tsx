@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { assetUrl, getAnimeDetail, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
 import { useAnimeDetail } from "@/features/library/hooks";
-import type { Anime, AnimeProgress, EpisodeConflict, UserAnimeStatus } from "@/features/library/types";
+import type { Anime, AnimeProgress, EpisodeConflict, RelatedAnime, UserAnimeStatus } from "@/features/library/types";
 import { cn } from "@/lib/utils";
 
 import { AnimeHeroSettingsMenu } from "./AnimeHeroSettingsMenu";
@@ -327,6 +327,8 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         </div>
       </section>
 
+      <RelatedAnimeSection provider={data.anime.provider} items={data.anime.relatedAnime ?? []} />
+
       <EpisodeList animeId={animeId} refreshKey={episodeRefreshKey} onProgressChange={updateProgress} />
 
       <ConfirmDialog
@@ -424,5 +426,51 @@ function InfoCard({ label, value }: { label: string; value: string }) {
       <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="mt-1 block font-semibold">{value}</span>
     </div>
+  );
+}
+
+function RelatedAnimeSection({ provider, items }: { provider: string; items: RelatedAnime[] }) {
+  const t = useTranslations();
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-3 rounded-3xl border bg-card p-5 shadow-sm">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">{t("library.relatedAnimeTitle")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeDescription", { provider })}</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((item) => {
+          const poster = assetUrl(item.posterUrl);
+          const content = (
+            <>
+              <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-xl border bg-muted">
+                {poster ? (
+                  <Image src={poster} alt="" fill unoptimized sizes="56px" className="object-cover" />
+                ) : <NoPoster />}
+              </div>
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-foreground">{item.title}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {item.airDate ?? t("anime.unknown")}
+                  {item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}
+                </span>
+              </span>
+            </>
+          );
+          const className = "flex min-h-24 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent";
+          if (item.animeId !== null) {
+            return <Link key={item.externalId} href={`/library/${item.animeId}`} className={className}>{content}</Link>;
+          }
+          if (item.url) {
+            return <a key={item.externalId} href={item.url} target="_blank" rel="noreferrer" className={className}>{content}</a>;
+          }
+          return <div key={item.externalId} className={className}>{content}</div>;
+        })}
+      </div>
+    </section>
   );
 }

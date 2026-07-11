@@ -5,7 +5,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.anime import AnimeMetaInfo, Episode
+from app.models.anime import AnimeMetaInfo, AnimeRelation, Episode
 from app.models.progress import UserAnimeProgress
 from app.services.anime_poster import resolve_poster_path
 
@@ -29,14 +29,24 @@ def delete_untracked_anime(session: Session, *, poster_storage_dir: str) -> dict
             .where(~tracked_anime.exists()),
         ),
     )
-    poster_paths = [poster.storage_path for anime in anime_list for poster in anime.posters]
+    protected_poster_ids = set(
+        session.scalars(
+            select(AnimeRelation.poster_id).where(AnimeRelation.poster_id.is_not(None)),
+        ).all(),
+    )
+    deletable_anime = [
+        anime
+        for anime in anime_list
+        if not any(poster.id in protected_poster_ids for poster in anime.posters)
+    ]
+    poster_paths = [poster.storage_path for anime in deletable_anime for poster in anime.posters]
 
-    for anime in anime_list:
+    for anime in deletable_anime:
         session.delete(anime)
     session.commit()
 
     deleted_posters = _delete_poster_files(poster_storage_dir, poster_paths)
-    return {'deletedAnime': len(anime_list), 'deletedPosters': deleted_posters}
+    return {'deletedAnime': len(deletable_anime), 'deletedPosters': deleted_posters}
 
 
 def _delete_poster_files(storage_dir: str, poster_paths: list[str]) -> int:

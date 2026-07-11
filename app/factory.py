@@ -73,6 +73,13 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
             "BANGUMI_USER_AGENT",
             "ani-tracker/0.0.1 (https://github.com/aetherrootr/ani-tracker)",
         ),
+        "TMDB_API_BASE_URL": os.environ.get("TMDB_API_BASE_URL", "https://api.themoviedb.org/3"),
+        "TMDB_WEB_BASE_URL": os.environ.get("TMDB_WEB_BASE_URL", "https://www.themoviedb.org"),
+        "TMDB_IMAGE_BASE_URL": os.environ.get("TMDB_IMAGE_BASE_URL", "https://image.tmdb.org/t/p"),
+        "TMDB_POSTER_SIZE": os.environ.get("TMDB_POSTER_SIZE", "w500"),
+        "TMDB_ACCESS_TOKEN": os.environ.get("TMDB_ACCESS_TOKEN"),
+        "TMDB_API_KEY": os.environ.get("TMDB_API_KEY"),
+        "TMDB_INCLUDE_ADULT": env_bool("TMDB_INCLUDE_ADULT"),
         "IMPORT_PROVIDER_TIMEOUT": 5.0,
 
         # Poster download and local file storage limits.

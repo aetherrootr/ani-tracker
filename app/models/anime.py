@@ -97,6 +97,12 @@ class AnimeMetaInfo(TimestampedBase):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    related_anime: Mapped[list[AnimeRelation]] = relationship(
+        back_populates="anime",
+        cascade="all, delete-orphan",
+        foreign_keys="AnimeRelation.anime_id",
+        passive_deletes=True,
+    )
 
     @validates("provider_type")
     def _validate_provider_type(self, _key: str, provider_type: ProviderType | str) -> str:
@@ -170,6 +176,45 @@ class AnimePoster(TimestampedBase):
     last_error: Mapped[str | None] = mapped_column(String(1024))
 
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="posters")
+
+
+class AnimeRelation(TimestampedBase):
+    __tablename__ = "anime_relation"
+    __table_args__ = (
+        UniqueConstraint(
+            "anime_id",
+            "provider_type",
+            "external_id",
+            "relation_type",
+            name="uq_anime_relation_source_provider_external_relation",
+        ),
+        Index("ix_anime_relation_provider_external", "provider_type", "external_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anime_id: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+    related_anime_id: Mapped[int | None] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="SET NULL"))
+    poster_id: Mapped[int | None] = mapped_column(ForeignKey("anime_poster.id", ondelete="RESTRICT"))
+    provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    season_number: Mapped[int | None] = mapped_column(Integer)
+    air_date: Mapped[date | None] = mapped_column(Date)
+    episode_count: Mapped[int | None] = mapped_column(Integer)
+    url: Mapped[str | None] = mapped_column(String(2048))
+    poster_source_url: Mapped[str | None] = mapped_column(String(2048))
+
+    anime: Mapped[AnimeMetaInfo] = relationship(
+        back_populates="related_anime",
+        foreign_keys=[anime_id],
+    )
+    related_anime: Mapped[AnimeMetaInfo | None] = relationship(foreign_keys=[related_anime_id])
+    poster: Mapped[AnimePoster | None] = relationship(foreign_keys=[poster_id])
+
+    @validates("provider_type")
+    def _validate_provider_type(self, _key: str, provider_type: ProviderType | str) -> str:
+        return validate_provider_type(provider_type)
 
 
 class Episode(TimestampedBase):

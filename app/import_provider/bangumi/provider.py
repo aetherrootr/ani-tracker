@@ -51,7 +51,16 @@ class BangumiImportProvider(ImportProvider):
         self._timeout = timeout
         self._session = session or requests.Session()
 
-    def search_anime(self, keyword: str, *, limit: int, offset: int, nsfw: bool = False) -> ImportSearchPage:
+    def search_anime(
+        self,
+        keyword: str,
+        *,
+        limit: int,
+        offset: int,
+        language: str | None = None,
+        nsfw: bool = False,
+    ) -> ImportSearchPage:
+        _ = language
         body = self._request_json(
             'post',
             '/v0/search/subjects',
@@ -85,7 +94,8 @@ class BangumiImportProvider(ImportProvider):
             results=results,
         )
 
-    def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+    def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+        _ = language
         subject = self._request_json('get', f'/v0/subjects/{external_id}')
         if not isinstance(subject, dict):
             message = 'Bangumi subject response is invalid'

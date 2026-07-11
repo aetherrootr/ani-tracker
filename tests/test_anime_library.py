@@ -27,6 +27,7 @@ from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
     AnimePoster,
+    AnimeRelation,
     AnimeSummary,
     Episode,
     EpisodeName,
@@ -67,10 +68,12 @@ class FakeProvider(ImportProvider):
     def __init__(self) -> None:
         self.detail_calls: list[str] = []
 
-    def search_anime(self, _keyword: str, *, limit: int, offset: int) -> ImportSearchPage:
+    def search_anime(self, _keyword: str, *, limit: int, offset: int, language: str | None = None) -> ImportSearchPage:
+        _ = language
         return ImportSearchPage(total=0, limit=limit, offset=offset, results=[])
 
-    def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+    def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+        _ = language
         self.detail_calls.append(external_id)
         return ImportAnimeDetail(
             provider='bangumi',
@@ -121,7 +124,8 @@ class MutableDetailProvider(FakeProvider):
         super().__init__()
         self.details = details
 
-    def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+    def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+        _ = language
         self.detail_calls.append(external_id)
         detail = self.details.get(external_id)
         if detail is None:
@@ -339,7 +343,8 @@ def test_single_episode_uses_anime_air_date_when_episode_air_time_missing(
     db_session: Session,
 ) -> None:
     class SingleEpisodeProvider(FakeProvider):
-        def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+        def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+            _ = language
             self.detail_calls.append(external_id)
             return ImportAnimeDetail(
                 provider='bangumi',
@@ -390,7 +395,8 @@ def test_single_movie_episode_without_title_uses_anime_title(
     db_session: Session,
 ) -> None:
     class SingleMovieProvider(FakeProvider):
-        def get_anime_detail(self, external_id: str) -> ImportAnimeDetail:
+        def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+            _ = language
             self.detail_calls.append(external_id)
             return ImportAnimeDetail(
                 provider='bangumi',
@@ -1259,12 +1265,14 @@ def test_resolve_episode_conflicts_deletes_only_confirmed_conflict(
 
 def test_sync_library_anime_maps_provider_errors(app: Flask, client: FlaskClient, db_session: Session) -> None:
     class TimeoutProvider(FakeProvider):
-        def get_anime_detail(self, _external_id: str) -> ImportAnimeDetail:
+        def get_anime_detail(self, _external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+            _ = language
             message = 'timeout'
             raise ImportProviderTimeoutError(message)
 
     class ResponseErrorProvider(FakeProvider):
-        def get_anime_detail(self, _external_id: str) -> ImportAnimeDetail:
+        def get_anime_detail(self, _external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+            _ = language
             message = 'bad'
             raise ImportProviderResponseError(message)
 
@@ -1427,6 +1435,48 @@ def test_delete_untracked_anime_task_removes_database_rows_and_posters(
     assert db_session.get(EpisodeName, untracked_episode_name_id) is None
     assert db_session.get(AnimePoster, untracked_poster_id) is None
     assert not poster_path.exists()
+
+
+def test_delete_untracked_anime_task_keeps_poster_referenced_by_relation(
+    app: Flask,
+    db_session: Session,
+) -> None:
+    from app.tasks.anime_cleanup import delete_untracked_anime_task
+
+    tracked = add_library_anime(db_session, external_id='tracked', original_name='Tracked', names=[('Tracked', 'en')])
+    untracked = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related')
+    db_session.add(untracked)
+    db_session.flush()
+    poster = AnimePoster(anime_id=untracked.id, storage_path='related.jpg', status='ready')
+    db_session.add(poster)
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=tracked.id,
+        related_anime_id=untracked.id,
+        poster_id=poster.id,
+        provider_type='bangumi',
+        external_id='related',
+        relation_type='same_series_season',
+        title='Related',
+    )
+    db_session.add(relation)
+    poster_dir = Path(app.config['ANIME_POSTER_STORAGE_DIR'])
+    poster_dir.mkdir(parents=True)
+    poster_path = poster_dir / 'related.jpg'
+    poster_path.write_bytes(b'poster')
+    db_session.commit()
+    untracked_id = untracked.id
+    poster_id = poster.id
+    celery_app.conf.database_url = app.config['DATABASE_URL']
+    celery_app.conf.anime_poster_storage_dir = app.config['ANIME_POSTER_STORAGE_DIR']
+
+    summary = delete_untracked_anime_task()
+
+    db_session.expire_all()
+    assert summary == {'deletedAnime': 0, 'deletedPosters': 0}
+    assert db_session.get(AnimeMetaInfo, untracked_id) is not None
+    assert db_session.get(AnimePoster, poster_id) is not None
+    assert poster_path.exists()
 
 
 def test_create_app_preserves_celery_task_always_eager_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]

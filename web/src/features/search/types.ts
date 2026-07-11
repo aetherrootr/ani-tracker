@@ -24,6 +24,7 @@ export type AnimeSearchResult = {
 
 export type SearchAnimeInput = {
   keyword: string;
+  provider?: string;
   limit?: number;
   offset?: number;
   signal?: AbortSignal;

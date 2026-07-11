@@ -44,13 +44,15 @@ class FakeProvider(ImportProvider):
         self.error = error
         self.calls: list[tuple[str, int, int]] = []
 
-    def search_anime(self, keyword: str, *, limit: int, offset: int) -> ImportSearchPage:
+    def search_anime(self, keyword: str, *, limit: int, offset: int, language: str | None = None) -> ImportSearchPage:
+        _ = language
         self.calls.append((keyword, limit, offset))
         if self.error is not None:
             raise self.error
         return self.page
 
-    def get_anime_detail(self, _external_id: str) -> ImportAnimeDetail:
+    def get_anime_detail(self, _external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
+        _ = language
         raise NotImplementedError
 
 

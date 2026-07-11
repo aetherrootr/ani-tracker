@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -13,8 +13,11 @@ import { useAnimeSearch } from "@/features/search/hooks";
 import { SearchResultCard } from "./SearchResultCard";
 import { SearchState } from "./SearchState";
 
+const PROVIDERS = ["bangumi", "tmdb"];
+
 export function SearchPageContent() {
   const t = useTranslations();
+  const [provider, setProvider] = useState("bangumi");
   const {
     keyword,
     hasKeyword,
@@ -29,16 +32,24 @@ export function SearchPageContent() {
     loadMore,
     retrySearch,
     markResultInLibrary,
-  } = useAnimeSearch();
+  } = useAnimeSearch(provider);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [isProviderDialogOpen, setIsProviderDialogOpen] = useState(false);
+  const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
+  const providerDropdownRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const canAutoLoadRef = useRef(true);
   const restoreScrollYRef = useRef<number | null>(null);
 
   useEffect(() => {
     canAutoLoadRef.current = true;
-  }, [keyword]);
+  }, [keyword, provider]);
+
+  function selectProvider(nextProvider: string) {
+    setProvider(nextProvider);
+    setIsProviderDialogOpen(false);
+    setIsProviderDropdownOpen(false);
+  }
 
   useEffect(() => {
     if (!isProviderDialogOpen) {
@@ -57,6 +68,33 @@ export function SearchPageContent() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isProviderDialogOpen]);
+
+  useEffect(() => {
+    if (!isProviderDropdownOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (providerDropdownRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setIsProviderDropdownOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsProviderDropdownOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProviderDropdownOpen]);
 
   useLayoutEffect(() => {
     if (restoreScrollYRef.current === null) {
@@ -147,11 +185,41 @@ export function SearchPageContent() {
               className="h-10 gap-2 rounded-full px-3 md:hidden"
               onClick={() => setIsProviderDialogOpen(true)}
             >
-              <Badge variant="secondary">bangumi</Badge>
+              <Badge variant="secondary">{provider}</Badge>
             </Button>
-            <div className="hidden h-10 items-center gap-2 rounded-full px-3 md:flex">
+            <div ref={providerDropdownRef} className="relative hidden h-10 items-center gap-2 rounded-full px-3 md:flex">
               <span className="text-sm text-muted-foreground">{t("search.provider")}</span>
-              <Badge variant="secondary">bangumi</Badge>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 gap-2 rounded-full px-3 text-xs"
+                aria-haspopup="menu"
+                aria-expanded={isProviderDropdownOpen}
+                onClick={() => setIsProviderDropdownOpen((current) => !current)}
+              >
+                {provider}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+              {isProviderDropdownOpen ? (
+                <div className="glass-dialog absolute left-3 top-full z-40 mt-2 w-44 overflow-hidden rounded-2xl border p-1 text-foreground shadow-lg" role="menu">
+                  {PROVIDERS.map((item) => {
+                    const active = provider === item;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
+                        onClick={() => selectProvider(item)}
+                      >
+                        <span>{item}</span>
+                        {active ? <Check className="h-4 w-4 text-primary" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           </>
         )}
@@ -166,7 +234,7 @@ export function SearchPageContent() {
           onClick={() => setIsProviderDialogOpen(false)}
         >
           <div
-            className="glass-dialog w-full rounded-2xl border p-4"
+            className="glass-dialog w-full rounded-2xl border p-4 md:max-w-sm"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3">
@@ -186,14 +254,19 @@ export function SearchPageContent() {
               </Button>
             </div>
 
-            <button
-              type="button"
-              className="mt-4 flex w-full items-center justify-between rounded-xl border bg-muted/40 px-4 py-3 text-left"
-              onClick={() => setIsProviderDialogOpen(false)}
-            >
-              <span className="font-medium">bangumi</span>
-              <Badge variant="secondary">{t("search.currentProvider")}</Badge>
-            </button>
+            <div className="mt-4 space-y-2">
+              {PROVIDERS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-xl border bg-muted/40 px-4 py-3 text-left"
+                  onClick={() => selectProvider(item)}
+                >
+                  <span className="font-medium">{item}</span>
+                  {provider === item ? <Badge variant="secondary">{t("search.currentProvider")}</Badge> : null}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
