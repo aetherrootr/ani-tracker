@@ -155,6 +155,36 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "anime_relation",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("anime_id", sa.Integer(), nullable=False),
+        sa.Column("related_anime_id", sa.Integer(), nullable=True),
+        sa.Column("poster_id", sa.Integer(), nullable=True),
+        sa.Column("provider_type", sa.String(length=64), nullable=False),
+        sa.Column("external_id", sa.String(length=255), nullable=False),
+        sa.Column("relation_type", sa.String(length=64), nullable=False),
+        sa.Column("title", sa.String(length=255), nullable=False),
+        sa.Column("season_number", sa.Integer(), nullable=True),
+        sa.Column("air_date", sa.Date(), nullable=True),
+        sa.Column("episode_count", sa.Integer(), nullable=True),
+        sa.Column("url", sa.String(length=2048), nullable=True),
+        sa.Column("poster_source_url", sa.String(length=2048), nullable=True),
+        *_timestamps(),
+        sa.ForeignKeyConstraint(["anime_id"], ["anime_meta_info.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["related_anime_id"], ["anime_meta_info.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["poster_id"], ["anime_poster.id"], ondelete="RESTRICT"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "anime_id",
+            "provider_type",
+            "external_id",
+            "relation_type",
+            name="uq_anime_relation_source_provider_external_relation",
+        ),
+    )
+    op.create_index("ix_anime_relation_provider_external", "anime_relation", ["provider_type", "external_id"])
+
+    op.create_table(
         "episode",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("anime_id", sa.Integer(), nullable=False),
@@ -237,6 +267,8 @@ def downgrade() -> None:
     op.drop_index("ix_episode_anime_id_episode_number", table_name="episode")
     op.drop_index("ix_episode_air_at", table_name="episode")
     op.drop_table("episode")
+    op.drop_index("ix_anime_relation_provider_external", table_name="anime_relation")
+    op.drop_table("anime_relation")
     op.drop_table("anime_poster")
     op.drop_table("anime_summary")
     op.drop_index("ix_anime_name_sort_key", table_name="anime_name")

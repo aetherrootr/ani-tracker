@@ -46,6 +46,21 @@ export type Anime = {
   availableSummaries?: AnimeSummary[];
   availableNames?: AnimeName[];
   availablePosters?: AnimePoster[];
+  relatedAnime?: RelatedAnime[];
+};
+
+export type RelatedAnime = {
+  provider: string;
+  externalId: string;
+  animeId: number | null;
+  inLibrary: boolean;
+  title: string;
+  relationType: string;
+  seasonNumber: number | null;
+  airDate: string | null;
+  episodeCount: number | null;
+  url: string | null;
+  posterUrl: string | null;
 };
 
 export type AnimeProgress = {

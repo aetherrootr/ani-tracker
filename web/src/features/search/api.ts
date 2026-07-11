@@ -9,13 +9,14 @@ type AddToLibraryResponse = {
 
 export function searchAnime({
   keyword,
+  provider = "bangumi",
   limit = 10,
   offset = 0,
   signal,
 }: SearchAnimeInput): Promise<AnimeSearchResponse> {
   const params = new URLSearchParams({
     q: keyword,
-    provider: "bangumi",
+    provider,
     limit: String(limit),
     offset: String(offset),
   });

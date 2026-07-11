@@ -22,6 +22,7 @@ from app.models.anime import (
     EpisodeName,
 )
 from app.models.progress import UserAnimeProgress, UserEpisodeProgress
+from app.models.user import User
 from app.services.anime_library import populate_anime_from_detail, recalculate_user_anime_progress
 
 
@@ -53,7 +54,8 @@ def sync_anime_from_provider(
     anime = session.get(AnimeMetaInfo, anime_id)
     if anime is None:
         return None
-    detail = provider.get_anime_detail(anime.external_id)
+    user = session.get(User, user_id) if user_id is not None else None
+    detail = provider.get_anime_detail(anime.external_id, language=user.language_preference if user is not None else None)
     poster = populate_anime_from_detail(session, anime, detail)
     _prune_summaries(session, anime_id=anime.id, summaries=detail.summaries)
     _prune_names(session, anime_id=anime.id, names=detail.names, original_title=detail.original_title)

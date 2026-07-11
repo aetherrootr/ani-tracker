@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
 
 class ProviderType(enum.StrEnum):
     BANGUMI = 'bangumi'
+    TMDB = 'tmdb'
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,20 @@ class ImportEpisodeInfo:
 
 
 @dataclass(frozen=True)
+class ImportRelatedAnime:
+    provider: str
+    external_id: str
+    title: str
+    relation_type: str
+    season_number: int | None
+    air_date: date | None
+    episode_count: int | None
+    url: str | None
+    poster_source_url: str | None
+    raw_data: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class ImportAnimeDetail:
     provider: str
     external_id: str
@@ -80,3 +95,4 @@ class ImportAnimeDetail:
     episodes: list[ImportEpisodeInfo]
     raw_data: dict[str, Any]
     air_date: date | None = None
+    related_anime: list[ImportRelatedAnime] = field(default_factory=list)

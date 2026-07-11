@@ -8,7 +8,7 @@ import type { AnimeSearchResult } from "./types";
 
 const SEARCH_PAGE_SIZE = 10;
 
-export function useAnimeSearch() {
+export function useAnimeSearch(provider = "bangumi") {
   const t = useTranslations();
   const [keyword, setKeyword] = useState("");
   const [debouncedKeyword, setDebouncedKeyword] = useState("");
@@ -51,6 +51,7 @@ export function useAnimeSearch() {
 
         const data = await searchAnime({
           keyword: debouncedKeyword,
+          provider,
           limit: SEARCH_PAGE_SIZE,
           offset: 0,
           signal: controller.signal,
@@ -82,7 +83,7 @@ export function useAnimeSearch() {
         activeControllerRef.current = null;
       }
     };
-  }, [debouncedKeyword, retryKey, t]);
+  }, [debouncedKeyword, provider, retryKey, t]);
 
   function updateKeyword(value: string) {
     setKeyword(value);
@@ -115,6 +116,7 @@ export function useAnimeSearch() {
 
       const data = await searchAnime({
         keyword: debouncedKeyword,
+        provider,
         limit: SEARCH_PAGE_SIZE,
         offset: results.length,
         signal: controller.signal,

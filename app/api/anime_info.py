@@ -40,6 +40,7 @@ from app.import_provider.types import ProviderType
 from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
+    AnimeRelation,
     AnimeSummary,
     Episode,
 )
@@ -85,7 +86,7 @@ def search_anime(db: Session, user: User) -> ResponseReturnValue:
 
     try:
         provider = factory.get_provider(provider_name)
-        page = provider.search_anime(keyword, limit=limit, offset=offset)
+        page = provider.search_anime(keyword, limit=limit, offset=offset, language=user.language_preference)
     except ImportProviderTimeoutError:
         return jsonify({'message': 'Import provider request timed out'}), 504
     except ImportProviderResponseError:
@@ -293,6 +294,7 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
             selectinload(AnimeMetaInfo.names),
             selectinload(AnimeMetaInfo.episodes),
             selectinload(AnimeMetaInfo.posters),
+            selectinload(AnimeMetaInfo.related_anime).selectinload(AnimeRelation.poster),
         )
         .where(AnimeMetaInfo.id == anime_id),
     )
@@ -307,6 +309,7 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
                 include_available_summaries=True,
                 include_available_names=True,
                 include_available_posters=True,
+                include_related_anime=True,
             ),
             'progress': serialize_progress(progress),
         },
