@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 
 import { useLocaleControls } from "@/i18n/provider";
 
-import { getCurrentUser, login, logout, register, unlinkOidc, updateLanguagePreference } from "./api";
+import { getCurrentUser, login, logout, register, unlinkOidc, updateLanguagePreference, updatePreferences } from "./api";
 import type { AuthUser, LoginInput, RegisterInput } from "./types";
 
 type AuthContextValue = {
@@ -16,6 +16,7 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   unlinkOidc: () => Promise<AuthUser>;
   updateLanguagePreference: (input: AuthUser["languagePreference"]) => Promise<AuthUser>;
+  updateWeekStartDay: (input: number) => Promise<AuthUser>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -97,6 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return response.user;
   }
 
+  async function handleUpdateWeekStartDay(weekStartDay: number) {
+    const response = await updatePreferences({ weekStartDay });
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -108,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout: handleLogout,
         unlinkOidc: handleUnlinkOidc,
         updateLanguagePreference: handleUpdateLanguagePreference,
+        updateWeekStartDay: handleUpdateWeekStartDay,
       }}
     >
       {children}

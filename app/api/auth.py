@@ -11,6 +11,7 @@ from app.api.utils.auth import (
     validate_language_preference_payload,
     validate_login_payload,
     validate_register_payload,
+    validate_week_start_day_payload,
     verify_password,
 )
 from app.api.utils.oidc import (
@@ -113,6 +114,28 @@ def update_language_preference() -> ResponseReturnValue:
         return jsonify({"message": "Authentication required"}), 401
 
     user.language_preference = language_preference
+    db.commit()
+
+    return jsonify({"user": user_to_auth_dict(user)}), 200
+
+
+@auth_bp.patch("/me/preferences")
+def update_preferences() -> ResponseReturnValue:
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int):
+        return jsonify({"message": "Authentication required"}), 401
+
+    week_start_day, error = validate_week_start_day_payload(request.get_json(silent=True))
+    if error is not None or week_start_day is None:
+        return jsonify({"message": error}), 400
+
+    db = get_db()
+    user = db.get(User, user_id)
+    if user is None:
+        session.clear()
+        return jsonify({"message": "Authentication required"}), 401
+
+    user.week_start_day = week_start_day
     db.commit()
 
     return jsonify({"user": user_to_auth_dict(user)}), 200

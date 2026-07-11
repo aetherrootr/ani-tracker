@@ -37,3 +37,9 @@ export function useUpdateLanguagePreference() {
 
   return updateLanguagePreference;
 }
+
+export function useUpdateWeekStartDay() {
+  const { updateWeekStartDay } = useAuth();
+
+  return updateWeekStartDay;
+}

@@ -8,6 +8,7 @@ import type {
   OidcConfigResponse,
   RegisterInput,
   UpdateLanguagePreferenceInput,
+  UpdatePreferencesInput,
 } from "./types";
 
 export function login(input: LoginInput): Promise<AuthResponse> {
@@ -48,6 +49,13 @@ export function updateLanguagePreference(
   input: UpdateLanguagePreferenceInput,
 ): Promise<AuthResponse> {
   return apiFetch<AuthResponse>("/api/auth/me/language-preference", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePreferences(input: UpdatePreferencesInput): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>("/api/auth/me/preferences", {
     method: "PATCH",
     body: JSON.stringify(input),
   });

@@ -73,6 +73,7 @@ from app.services.anime_library import (
     update_user_anime_status,
 )
 from app.services.anime_poster import enqueue_poster_download
+from app.services.anime_statistics import get_statistics_summary, get_watch_timeline
 from app.services.anime_sync import (
     resolve_episode_conflicts,
     serialize_episode_conflict,
@@ -369,6 +370,30 @@ def get_tracking_list_recently_watched(db: Session, user: User) -> ResponseRetur
     if error is not None:
         return jsonify({'message': error}), 400
     return jsonify(tracking_list_recently_watched_page(db, user, limit=limit, offset=offset))
+
+
+@anime_bp.get('/statistics/summary')
+@require_auth_user
+def get_statistics_summary_api(db: Session, user: User) -> ResponseReturnValue:
+    return jsonify(get_statistics_summary(db, user))
+
+
+@anime_bp.post('/statistics/recalculate')
+@require_auth_user
+def recalculate_statistics(db: Session, user: User) -> ResponseReturnValue:
+    return jsonify(get_statistics_summary(db, user))
+
+
+@anime_bp.get('/statistics/watch-timeline')
+@require_auth_user
+def get_statistics_watch_timeline(db: Session, user: User) -> ResponseReturnValue:
+    limit, error = parse_library_limit(request.args.get('limit'), default=30, maximum=100)
+    if error is not None:
+        return jsonify({'message': error}), 400
+    offset, error = parse_library_offset(request.args.get('offset'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    return jsonify(get_watch_timeline(db, user, limit=limit, offset=offset))
 
 
 @anime_bp.get('/<int:anime_id>')

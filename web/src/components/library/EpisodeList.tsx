@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { updateEpisodeWatchState } from "@/features/library/api";
-import { useEpisodes } from "@/features/library/hooks";
+import { EPISODE_PAGE_SIZE, useEpisodes } from "@/features/library/hooks";
 import type { AnimeProgress, Episode } from "@/features/library/types";
 
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -16,7 +17,9 @@ import { LibraryPagination, SkeletonBlock } from "./LibraryPagination";
 
 export function EpisodeList({ animeId, refreshKey = 0, onProgressChange }: { animeId: number; refreshKey?: number; onProgressChange: (progress: AnimeProgress) => void }) {
   const t = useTranslations();
-  const [page, setPage] = useState(1);
+  const searchParams = useSearchParams();
+  const initialEpisodeNumber = parsePositiveInt(searchParams.get("episode"));
+  const [page, setPage] = useState(initialEpisodeNumber === null ? 1 : Math.ceil(initialEpisodeNumber / EPISODE_PAGE_SIZE));
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<EpisodeFilter>("all");
   const [order, setOrder] = useState<EpisodeOrder>("asc");
@@ -25,6 +28,16 @@ export function EpisodeList({ animeId, refreshKey = 0, onProgressChange }: { ani
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const { data, setData, isLoading, error, retry } = useEpisodes(animeId, page, refreshKey);
   const episodes = useMemo(() => data?.episodes ?? [], [data?.episodes]);
+
+  useEffect(() => {
+    if (isLoading || typeof window === "undefined" || !window.location.hash.startsWith("#episode-")) {
+      return;
+    }
+    const element = document.getElementById(window.location.hash.slice(1));
+    if (element) {
+      window.requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
+    }
+  }, [isLoading, episodes]);
 
   const visibleEpisodes = useMemo(() => {
     const keyword = normalizeEpisodeSearchQuery(q);
@@ -148,6 +161,14 @@ export function EpisodeList({ animeId, refreshKey = 0, onProgressChange }: { ani
       />
     </section>
   );
+}
+
+function parsePositiveInt(value: string | null) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return null;
+  }
+  return parsed;
 }
 
 function normalizeEpisodeSearchQuery(value: string) {

@@ -42,6 +42,7 @@ class UserEpisodeProgress(TimestampedBase):
         UniqueConstraint("user_id", "episode_id", name="uq_user_episode_progress_user_id_episode_id"),
         Index("ix_user_episode_progress_user_id", "user_id"),
         Index("ix_user_episode_progress_user_id_episode_id", "user_id", "episode_id"),
+        Index("ix_user_episode_progress_user_watched_at", "user_id", "watched", "watched_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

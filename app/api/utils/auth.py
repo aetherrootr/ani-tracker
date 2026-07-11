@@ -57,6 +57,7 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'displayName': user.display_name,
         'email': user.email,
         'languagePreference': user.language_preference,
+        'weekStartDay': user.week_start_day,
         'oidcLinked': bool(user.oidc_identities),
     }
 
@@ -135,3 +136,14 @@ def validate_language_preference_payload(data: object) -> tuple[str | None, str 
         return None, 'Language preference is invalid'
 
     return language_preference, None
+
+
+def validate_week_start_day_payload(data: object) -> tuple[int | None, str | None]:
+    if not isinstance(data, dict):
+        return None, 'Request body must be a JSON object'
+
+    week_start_day = data.get('weekStartDay')
+    if not isinstance(week_start_day, int) or week_start_day < 0 or week_start_day > 6:
+        return None, 'Week start day is invalid'
+
+    return week_start_day, None
