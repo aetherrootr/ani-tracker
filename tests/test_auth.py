@@ -281,6 +281,31 @@ def test_oidc_login_uses_default_callback_redirect(app: Flask, client: FlaskClie
     assert response.headers["Location"] == "https://anime.example.test/api/oidc/callback"
 
 
+def test_oidc_login_uses_forwarded_proto_and_host_when_proxy_is_trusted(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    app = create_app(
+        {
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'test.db'}",
+            "SECRET_KEY": "test-secret",
+            "TESTING": True,
+            "TRUST_PROXY": True,
+        },
+    )
+    configure_oidc(app, {"sub": "redirect-sub"})
+    client = app.test_client()
+
+    response = client.get(
+        "/api/oidc/login",
+        base_url="http://ani-tracker.default.svc.cluster.local",
+        headers={
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "ani-tracker.corp.aetherrootr.com",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "https://ani-tracker.corp.aetherrootr.com/api/oidc/callback"
+
+
 def test_oidc_callback_auto_registers_user_and_identity(
     app: Flask,
     client: FlaskClient,

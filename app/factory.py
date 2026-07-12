@@ -5,6 +5,7 @@ from pathlib import Path
 
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, Response, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.api import register_api
 from app.db import default_database_url, ensure_database_current, init_db
@@ -16,6 +17,8 @@ from app.utils import env_bool, env_float, env_int
 def create_app(config: dict[str, object] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(_build_app_config(app, config))
+    if app.config["TRUST_PROXY"]:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
     if app.config["MIGRATE_DATABASE"]:
         ensure_database_current(str(app.config["DATABASE_URL"]))
@@ -50,6 +53,7 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "SESSION_COOKIE_SAMESITE": os.environ.get("SESSION_COOKIE_SAMESITE", "Lax"),
         "SESSION_COOKIE_SECURE": os.environ.get("FLASK_ENV") == "production",
         "MIGRATE_DATABASE": True,
+        "TRUST_PROXY": env_bool("TRUST_PROXY"),
 
         # Browser integration settings for the Next.js frontend and session cookie API calls.
         "CORS_ORIGIN": os.environ.get("CORS_ORIGIN", "http://localhost:3000"),
