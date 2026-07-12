@@ -92,6 +92,10 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         ),
         "ANIME_POSTER_MAX_BYTES": env_int("ANIME_POSTER_MAX_BYTES", default=5 * 1024 * 1024, minimum=1),
         "ANIME_POSTER_REQUEST_TIMEOUT": env_float("ANIME_POSTER_REQUEST_TIMEOUT", default=5, minimum=0),
+        "TVTIME_IMPORT_REPORT_DIR": os.environ.get(
+            "TVTIME_IMPORT_REPORT_DIR",
+            str(Path(app.instance_path) / "tvtime_import_reports"),
+        ),
 
         # Celery runtime settings for background jobs.
         "CELERY_BROKER_URL": os.environ.get("CELERY_BROKER_URL", "memory://"),

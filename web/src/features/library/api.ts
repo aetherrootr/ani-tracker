@@ -154,6 +154,10 @@ export function syncAnime(animeId: number) {
   return apiFetch<AnimeSyncResponse>(`/api/anime/library/${animeId}/sync`, { method: "POST" });
 }
 
+export function syncAllLibraryAnime() {
+  return apiFetch<{ queued: boolean; taskId: string }>("/api/anime/library/sync-all", { method: "POST" });
+}
+
 export function resolveEpisodeConflicts(animeId: number, deleteEpisodeIds: number[]) {
   return apiFetch<ResolveEpisodeConflictsResponse>(`/api/anime/library/${animeId}/sync/episode-conflicts/resolve`, {
     method: "POST",

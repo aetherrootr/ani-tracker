@@ -7,12 +7,13 @@ import { useEffect, useState } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import { ConfirmDialog } from "@/components/library/ConfirmDialog";
+import { TvtimeImportCard } from "@/components/settings/TvtimeImportCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { getOidcConfig } from "@/features/auth/api";
 import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateWeekStartDay } from "@/features/auth/hooks";
-import { getImportProviders } from "@/features/library/api";
+import { getImportProviders, syncAllLibraryAnime } from "@/features/library/api";
 import type { ImportProvider } from "@/features/library/types";
 import { getApiUrl } from "@/lib/api-client";
 
@@ -33,6 +34,8 @@ export default function SettingsPage() {
   const [isSavingWeekStart, setIsSavingWeekStart] = useState(false);
   const [providers, setProviders] = useState<ImportProvider[]>([]);
   const [isSavingProvider, setIsSavingProvider] = useState(false);
+  const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
+  const [syncLibraryMessage, setSyncLibraryMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,6 +106,20 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSyncAllLibrary() {
+    setIsSyncingLibrary(true);
+    setSyncLibraryMessage(null);
+
+    try {
+      await syncAllLibraryAnime();
+      setSyncLibraryMessage(t("settings.librarySync.queued"));
+    } catch {
+      setSyncLibraryMessage(t("settings.librarySync.failed"));
+    } finally {
+      setIsSyncingLibrary(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -159,6 +176,21 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.librarySync.title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 text-sm leading-6 text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <p>{t("settings.librarySync.description")}</p>
+            {syncLibraryMessage ? <p className="font-medium text-foreground">{syncLibraryMessage}</p> : null}
+          </div>
+          <Button variant="outline" onClick={handleSyncAllLibrary} disabled={isSyncingLibrary}>
+            {isSyncingLibrary ? t("settings.librarySync.syncing") : t("settings.librarySync.button")}
+          </Button>
+        </CardContent>
+      </Card>
+      <TvtimeImportCard />
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.account.title")}</CardTitle>

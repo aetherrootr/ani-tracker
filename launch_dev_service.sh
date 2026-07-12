@@ -27,17 +27,17 @@ REDIS_DATA_DIR="${TMP_DIR}/redis"
 REDIS_HOST="127.0.0.1"
 REDIS_PORT="56379"
 CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/0"
-ANIME_POSTER_STORAGE_DIR="${TMP_DIR}/anime-posters"
 BACKEND_LOG="${TMP_DIR}/ani-tracker-backend.log"
 FRONTEND_LOG="${TMP_DIR}/ani-tracker-frontend.log"
 WORKER_LOG="${TMP_DIR}/ani-tracker-worker.log"
 ANIME_POSTER_STORAGE_DIR="${TMP_DIR}/anime_posters"
+TVTIME_IMPORT_REPORT_DIR="${TMP_DIR}/tvtime_import"
 
 mkdir -p "${TMP_DIR}"
 mkdir -p "${POSTGRES_DATA_DIR}"
 mkdir -p "${REDIS_DATA_DIR}"
 mkdir -p "${ANIME_POSTER_STORAGE_DIR}"
-mkdir -p "${ANIME_POSTER_STORAGE_DIR}"
+mkdir -p "${TVTIME_IMPORT_REPORT_DIR}"
 
 backend_pid=""
 frontend_pid=""
@@ -301,6 +301,7 @@ requeue_pending_posters() {
     export DATABASE_URL="${DATABASE_URL}"
     export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
     export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
+    export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
     uv run python - <<'PY'
 from sqlalchemy import select
 
@@ -343,6 +344,7 @@ echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
   export DATABASE_URL="${DATABASE_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
+  export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
   uv run python -m app.main worker --pool=solo
 ) >"${WORKER_LOG}" 2>&1 &
 worker_pid="$!"
@@ -357,6 +359,7 @@ echo "Starting backend on ${BACKEND_URL}"
   export CORS_ORIGIN="${FRONTEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
+  export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
   export SECRET_KEY="integration-test-secret"
   uv run python -m app.main server --dev
 ) >"${BACKEND_LOG}" 2>&1 &
@@ -383,6 +386,7 @@ Redis:    ${CELERY_BROKER_URL}
 Postgres data: ${POSTGRES_DATA_DIR}
 Redis data:    ${REDIS_DATA_DIR}
 Posters:       ${ANIME_POSTER_STORAGE_DIR}
+TV Time import: ${TVTIME_IMPORT_REPORT_DIR}
 
 Logs:
 Backend:  ${BACKEND_LOG}
