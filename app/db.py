@@ -66,7 +66,7 @@ def upgrade_database(database_url: str) -> None:
             if is_postgres:
                 connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": _MIGRATION_LOCK_KEY})
             try:
-                alembic_config = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
+                alembic_config = Config(str(alembic_config_path()))
                 alembic_config.attributes["connection"] = connection
                 command.upgrade(alembic_config, "head")
             finally:
@@ -74,3 +74,18 @@ def upgrade_database(database_url: str) -> None:
                     connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": _MIGRATION_LOCK_KEY})
     finally:
         engine.dispose()
+
+
+def alembic_config_path() -> Path:
+    configured_path = os.environ.get('ALEMBIC_CONFIG')
+    candidates = [
+        Path(configured_path) if configured_path else None,
+        Path.cwd() / 'alembic.ini',
+        Path(__file__).resolve().parent.parent / 'alembic.ini',
+    ]
+
+    for candidate in candidates:
+        if candidate is not None and candidate.is_file():
+            return candidate
+
+    return Path(__file__).resolve().parent.parent / 'alembic.ini'

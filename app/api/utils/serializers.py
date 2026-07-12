@@ -205,6 +205,8 @@ def serialize_anime(
     include_available_names: bool = False,
     include_available_posters: bool = False,
     include_related_anime: bool = False,
+    related_library_anime_ids: set[int] | None = None,
+    related_anime_overrides: dict[int, AnimeMetaInfo] | None = None,
 ) -> dict[str, Any]:
     summaries = sorted(anime.summaries, key=lambda item: item.id)
     names = sorted(anime.names, key=lambda item: item.id)
@@ -247,20 +249,42 @@ def serialize_anime(
             for poster in posters
         ]
     if include_related_anime:
-        data['relatedAnime'] = [serialize_related_anime(item) for item in sorted(anime.related_anime, key=lambda item: (item.season_number is None, item.season_number or 0, item.id))]
+        data['relatedAnime'] = [
+            serialize_related_anime(
+                item,
+                library_anime_ids=related_library_anime_ids,
+                override_anime=(related_anime_overrides or {}).get(item.id),
+            )
+            for item in sorted(anime.related_anime, key=lambda item: (item.season_number is None, item.season_number or 0, item.id))
+        ]
     return data
 
 
-def serialize_related_anime(relation: AnimeRelation) -> dict[str, Any]:
+def serialize_related_anime(
+    relation: AnimeRelation,
+    *,
+    library_anime_ids: set[int] | None = None,
+    override_anime: AnimeMetaInfo | None = None,
+) -> dict[str, Any]:
+    related_anime_id = relation.related_anime_id
     poster_url = relation.poster_source_url
-    if relation.poster is not None:
+    if override_anime is not None:
+        related_anime_id = override_anime.id
+        poster = min(override_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+        if poster is not None:
+            version = f'?v={poster.id}-{poster.status}'
+            poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}{version}'
+    elif relation.poster is not None:
         version = f'?v={relation.poster.id}-{relation.poster.status}'
         poster_url = f'/api/anime/{relation.poster.anime_id}/assets/posters/{relation.poster.id}{version}'
+    in_library = related_anime_id is not None
+    if library_anime_ids is not None:
+        in_library = related_anime_id in library_anime_ids
     return {
         'provider': relation.provider_type,
         'externalId': relation.external_id,
-        'animeId': relation.related_anime_id,
-        'inLibrary': relation.related_anime_id is not None,
+        'animeId': related_anime_id,
+        'inLibrary': in_library,
         'title': relation.title,
         'relationType': relation.relation_type,
         'seasonNumber': relation.season_number,

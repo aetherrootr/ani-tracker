@@ -6,6 +6,7 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const enableLanDev = process.env.ENABLE_LAN_DEV === "1";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   ...(enableLanDev
     ? {
         allowedDevOrigins: [

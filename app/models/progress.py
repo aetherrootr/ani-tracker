@@ -25,7 +25,7 @@ from app.models.user import User
 from app.models.validater import validate_pagination
 
 if TYPE_CHECKING:
-    from app.models.anime import AnimeName, AnimePoster, AnimeSummary, EpisodeName
+    from app.models.anime import AnimeName, AnimePoster, AnimeRelation, AnimeSummary, EpisodeName
 
 
 class UserAnimeStatus(enum.Enum):
@@ -104,6 +104,23 @@ class UserAnimeProgress(TimestampedBase):
     preferred_summary: Mapped[AnimeSummary | None] = relationship()
     preferred_poster: Mapped[AnimePoster | None] = relationship()
     preferred_name: Mapped[AnimeName | None] = relationship()
+
+
+class UserAnimeRelationOverride(TimestampedBase):
+    __tablename__ = "user_anime_relation_override"
+    __table_args__ = (
+        UniqueConstraint("user_id", "anime_relation_id", name="uq_user_anime_relation_override_user_relation"),
+        Index("ix_user_anime_relation_override_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    anime_relation_id: Mapped[int] = mapped_column(ForeignKey("anime_relation.id", ondelete="CASCADE"), nullable=False)
+    related_anime_id: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+
+    user: Mapped[User] = relationship()
+    anime_relation: Mapped[AnimeRelation] = relationship()
+    related_anime: Mapped[AnimeMetaInfo] = relationship()
 
 
 def get_user_watchlist(

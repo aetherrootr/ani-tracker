@@ -35,6 +35,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const { data, setData, isLoading, error, retry } = useAnimeDetail(animeId);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement | null>(null);
+  const posterPollingAnimeIdRef = useRef<number | null>(null);
   const [dropConfirm, setDropConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -96,6 +97,29 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [statusMenuOpen]);
+
+  useEffect(() => {
+    if (!data || data.anime.posterStatus !== "pending" || posterPollingAnimeIdRef.current === animeId) {
+      return;
+    }
+    let cancelled = false;
+    posterPollingAnimeIdRef.current = animeId;
+    waitForPosterRefresh(animeId)
+      .then((refreshed) => {
+        if (cancelled || refreshed === null) {
+          return;
+        }
+        setData((current) => current ? { ...current, anime: refreshed.anime, progress: refreshed.progress } : current);
+      })
+      .finally(() => {
+        if (posterPollingAnimeIdRef.current === animeId) {
+          posterPollingAnimeIdRef.current = null;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [animeId, data, setData]);
 
   async function setStatus(status: UserAnimeStatus) {
     if (!data || status === data.progress.status) {
@@ -611,7 +635,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
             </>
           );
           const className = "flex min-h-24 w-80 shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent sm:w-96";
-          if (item.animeId !== null) {
+          if (item.inLibrary && item.animeId !== null) {
             return <Link key={item.externalId} href={`/library/${item.animeId}`} className={className}>{content}</Link>;
           }
           return <button key={item.externalId} type="button" className={`${className} text-left`} onClick={() => setSelectedItem(item)}>{content}</button>;
