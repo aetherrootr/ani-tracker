@@ -60,11 +60,6 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "OIDC_CLIENT_ID": os.environ.get("OIDC_CLIENT_ID"),
         "OIDC_CLIENT_SECRET": os.environ.get("OIDC_CLIENT_SECRET"),
         "OIDC_SCOPE": os.environ.get("OIDC_SCOPE", "openid email profile"),
-        "OIDC_REDIRECT_URI": os.environ.get("OIDC_REDIRECT_URI"),
-        "OIDC_LOGIN_REDIRECT_URI": os.environ.get("OIDC_LOGIN_REDIRECT_URI"),
-        "OIDC_LINK_REDIRECT_URI": os.environ.get("OIDC_LINK_REDIRECT_URI"),
-        "OIDC_POST_LOGIN_REDIRECT": os.environ.get("OIDC_POST_LOGIN_REDIRECT"),
-        "OIDC_POST_LINK_REDIRECT": os.environ.get("OIDC_POST_LINK_REDIRECT"),
 
         # Upstream anime metadata provider settings.
         "BANGUMI_API_BASE_URL": os.environ.get("BANGUMI_API_BASE_URL", "https://api.bgm.tv"),
@@ -114,10 +109,8 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
 
     # OIDC redirects back to the frontend after the backend callback finishes.
     cors_origin = str(app_config.get("CORS_ORIGIN") or "").rstrip("/")
-    if not app_config.get("OIDC_POST_LOGIN_REDIRECT") and cors_origin:
-        app_config["OIDC_POST_LOGIN_REDIRECT"] = f"{cors_origin}/tracking-list"
-    if not app_config.get("OIDC_POST_LINK_REDIRECT") and cors_origin:
-        app_config["OIDC_POST_LINK_REDIRECT"] = f"{cors_origin}/settings"
+    app_config["OIDC_POST_LOGIN_REDIRECT"] = f"{cors_origin}/tracking-list"
+    app_config["OIDC_POST_LINK_REDIRECT"] = f"{cors_origin}/settings"
 
     # If OIDC_ENABLED is not explicit, enable it only when the required client settings exist.
     if app_config.get("OIDC_ENABLED") is None:

@@ -30,18 +30,6 @@ def get_oidc_issuer() -> str:
 
 
 def get_oidc_redirect_uri(endpoint: str) -> str:
-    endpoint_config = {
-        "auth.oidc_callback": "OIDC_LOGIN_REDIRECT_URI",
-        "auth.oidc_link_callback": "OIDC_LINK_REDIRECT_URI",
-    }.get(endpoint)
-    if endpoint_config:
-        configured = current_app.config.get(endpoint_config)
-        if configured:
-            return str(configured)
-
-    configured = current_app.config.get("OIDC_REDIRECT_URI")
-    if configured and endpoint == "auth.oidc_callback":
-        return str(configured)
     return url_for(endpoint, _external=True)
 
 
