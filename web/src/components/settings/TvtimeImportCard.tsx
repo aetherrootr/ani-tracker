@@ -18,6 +18,7 @@ export function TvtimeImportCard() {
   const [file, setFile] = useState<File | null>(null);
   const [dryRun, setDryRun] = useState<(typeof BOOLEAN_OPTIONS)[number]>("true");
   const [includeFollowed, setIncludeFollowed] = useState<(typeof BOOLEAN_OPTIONS)[number]>("true");
+  const [includeSpecials, setIncludeSpecials] = useState<(typeof BOOLEAN_OPTIONS)[number]>("true");
   const [tvdbWorkers, setTvdbWorkers] = useState<(typeof WORKER_OPTIONS)[number]>("2");
   const [job, setJob] = useState<TvtimeImportJob | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -73,7 +74,7 @@ export function TvtimeImportCard() {
       reportUrl: "",
     });
     try {
-      const nextJob = await uploadTvtimeImport({ file, dryRun: dryRun === "true", includeFollowed: includeFollowed === "true", tvdbWorkers: Number(tvdbWorkers) });
+      const nextJob = await uploadTvtimeImport({ file, dryRun: dryRun === "true", includeFollowed: includeFollowed === "true", includeSpecials: includeSpecials === "true", tvdbWorkers: Number(tvdbWorkers) });
       setJob(nextJob);
     } catch (exc) {
       if (exc instanceof TvtimeImportApiError && exc.job) {
@@ -118,6 +119,10 @@ export function TvtimeImportCard() {
           <div className="space-y-2">
             <Label>{t("settings.import.tvtime.includeFollowed")}</Label>
             <SlidingOptionGroup options={BOOLEAN_OPTIONS} value={includeFollowed} render={(value) => t(`settings.import.tvtime.boolean.${value}`)} onChange={setIncludeFollowed} />
+          </div>
+          <div className="space-y-2">
+            <Label>{t("settings.import.tvtime.includeSpecials")}</Label>
+            <SlidingOptionGroup options={BOOLEAN_OPTIONS} value={includeSpecials} render={(value) => t(`settings.import.tvtime.boolean.${value}`)} onChange={setIncludeSpecials} />
           </div>
           <div className="space-y-2">
             <Label>{t("settings.import.tvtime.workers")}</Label>

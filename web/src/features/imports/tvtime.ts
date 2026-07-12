@@ -54,6 +54,7 @@ export async function uploadTvtimeImport(params: {
   file: File;
   dryRun: boolean;
   includeFollowed: boolean;
+  includeSpecials: boolean;
   tvdbWorkers: number;
 }): Promise<TvtimeImportJob> {
   const form = new FormData();
@@ -61,6 +62,7 @@ export async function uploadTvtimeImport(params: {
   form.append("backend", "tvdb");
   form.append("dryRun", String(params.dryRun));
   form.append("includeFollowed", String(params.includeFollowed));
+  form.append("includeSpecials", String(params.includeSpecials));
   form.append("tvdbWorkers", String(params.tvdbWorkers));
 
   return fetchJson("/api/import/tvtime", { method: "POST", body: form });

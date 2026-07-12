@@ -116,6 +116,7 @@ export const en = {
         backend: "Backend",
         dryRun: "Dry-run",
         includeFollowed: "Import followed library entries",
+        includeSpecials: "Import specials / season 0",
         workers: "TVDB workers",
         start: "Start import",
         running: "Import running",

@@ -32,6 +32,7 @@ def run_tvtime_import_job(
         backend=str(options_data.get('backend') or 'tvdb'),
         dry_run=bool(options_data.get('dryRun', True)),
         include_followed=bool(options_data.get('includeFollowed', True)),
+        include_specials=bool(options_data.get('includeSpecials', True)),
         tvdb_workers=int(options_data.get('tvdbWorkers') or 2),
     )
     engine = None
@@ -82,6 +83,7 @@ def _failure_report(options: TvtimeImportOptions, exc: Exception) -> dict[str, A
         'backend': options.backend,
         'languagePreference': None,
         'dryRun': options.dry_run,
+        'includeSpecials': options.include_specials,
         'unresolved': [],
         'providerFailures': [{'errorType': type(exc).__name__, 'message': str(exc)}],
         'relatedAnimeWarnings': [],

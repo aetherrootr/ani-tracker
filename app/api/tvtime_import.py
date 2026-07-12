@@ -79,6 +79,7 @@ def upload_tvtime_import(_db: Session, user: User) -> ResponseReturnValue:
             'backend': options.backend,
             'dryRun': options.dry_run,
             'includeFollowed': options.include_followed,
+            'includeSpecials': options.include_specials,
             'tvdbWorkers': options.tvdb_workers,
         },
     )

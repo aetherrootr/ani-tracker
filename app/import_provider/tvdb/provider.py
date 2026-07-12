@@ -84,7 +84,7 @@ class TVDBImportProvider(ImportProvider):
                 except ImportProviderResponseError:
                     logger.warning('Skipping TVDB search result because series %s could not be expanded', series_id)
                     continue
-                for season in self._aired_seasons(series):
+                for season in self._importable_seasons(series, include_specials=True):
                     season_detail = self._season_detail_for_summary(season)
                     results.append(self._map_season_search(item, series, season, season_detail, language=request_language))
             if not self._has_next_page(page_body):
@@ -313,13 +313,23 @@ class TVDBImportProvider(ImportProvider):
         return None
 
     def _aired_seasons(self, series: dict[str, Any]) -> list[dict[str, Any]]:
+        return self._importable_seasons(series, include_specials=False)
+
+    def _importable_seasons(self, series: dict[str, Any], *, include_specials: bool) -> list[dict[str, Any]]:
         seasons = series.get('seasons')
         if not isinstance(seasons, list):
             return []
-        return [season for season in seasons if isinstance(season, dict) and is_aired_order_season(season) and coerce_int(season.get('number')) not in {None, 0}]
+        return [
+            season
+            for season in seasons
+            if isinstance(season, dict)
+            and is_aired_order_season(season)
+            and coerce_int(season.get('number')) is not None
+            and (include_specials or coerce_int(season.get('number')) != 0)
+        ]
 
     def _find_season(self, series: dict[str, Any], season_number: int) -> dict[str, Any]:
-        for season in self._aired_seasons(series):
+        for season in self._importable_seasons(series, include_specials=season_number == 0):
             if coerce_int(season.get('number')) == season_number:
                 return season
         message = 'TVDB season does not exist'
@@ -411,7 +421,7 @@ class TVDBImportProvider(ImportProvider):
         if not isinstance(series_id, int | str):
             return []
         related: list[ImportRelatedAnime] = []
-        for season in self._aired_seasons(series):
+        for season in self._importable_seasons(series, include_specials=True):
             season_number = coerce_int(season.get('number'))
             if season_number is None or season_number == current_season_number:
                 continue

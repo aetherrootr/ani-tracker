@@ -113,6 +113,7 @@ export const zhCN = {
         backend: "后端数据源",
         dryRun: "Dry-run",
         includeFollowed: "导入已关注资料库条目",
+        includeSpecials: "导入 Specials / Season 0",
         workers: "TVDB 并发数",
         start: "开始导入",
         running: "导入进行中",

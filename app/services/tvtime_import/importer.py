@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ EXPECTED_CSV_FILES = {
     'user_show_special_status.csv',
     'rewatched_episode.csv',
 }
+PROVIDER_DETAIL_MAX_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class TvtimeImportOptions:
     backend: str = 'tvdb'
     dry_run: bool = True
     include_followed: bool = True
+    include_specials: bool = True
     tvdb_workers: int = 2
 
 
@@ -67,12 +70,14 @@ def run_tvtime_import(
     _notify_progress(report, progress_callback)
     records, library_rows = _parse_files(files, report, include_followed=options.include_followed)
     deduped = _dedupe_watch_records(records, report)
+    if not options.include_specials:
+        deduped = _exclude_special_watch_records(deduped, report)
     seasons = {(record.series_id, record.season_number) for record in deduped.values()}
 
     if options.include_followed:
         for row in library_rows:
             series_id = row['seriesId']
-            season_numbers = _season_numbers_for_library_series(provider, series_id)
+            season_numbers = _season_numbers_for_library_series(provider, series_id, include_specials=options.include_specials)
             if not season_numbers:
                 _add_unresolved(
                     report,
@@ -256,6 +261,29 @@ def _dedupe_watch_records(records: list[WatchRecord], report: dict[str, Any]) ->
     return deduped
 
 
+def _exclude_special_watch_records(
+    records: dict[tuple[str, int, int], WatchRecord],
+    report: dict[str, Any],
+) -> dict[tuple[str, int, int], WatchRecord]:
+    filtered: dict[tuple[str, int, int], WatchRecord] = {}
+    for key, record in records.items():
+        if record.season_number != 0:
+            filtered[key] = record
+            continue
+        _add_unresolved(
+            report,
+            'unsupported_special_season',
+            record.source_file,
+            record.source_row,
+            series_id=record.series_id,
+            series_name=record.series_name,
+            season_number=record.season_number,
+            episode_number=record.episode_number,
+            raw=record.raw,
+        )
+    return filtered
+
+
 def _upsert_episode_progress(session: Session, *, user_id: int, episode_id: int, watched_at: datetime | None) -> str:
     progress = session.scalar(select(UserEpisodeProgress).where(UserEpisodeProgress.user_id == user_id, UserEpisodeProgress.episode_id == episode_id))
     if progress is None:
@@ -313,7 +341,7 @@ def _import_metadata_parallel(
         if workers <= 1:
             for series_id, season_number, external_id in missing:
                 try:
-                    details_by_season[series_id, season_number] = _fetch_detail(provider_factory or (lambda: provider), external_id, language)
+                    details_by_season[series_id, season_number] = _fetch_detail_with_retry(provider_factory or (lambda: provider), external_id, language)
                 except (ImportProviderResponseError, ImportProviderTimeoutError, RuntimeError, ValueError, KeyError, TypeError) as exc:
                     _record_provider_failure(report, records, series_id, season_number, external_id, exc)
                 processed += 1
@@ -322,7 +350,7 @@ def _import_metadata_parallel(
         else:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
-                    executor.submit(_fetch_detail, provider_factory or (lambda: provider), external_id, language): (series_id, season_number, external_id)
+                    executor.submit(_fetch_detail_with_retry, provider_factory or (lambda: provider), external_id, language): (series_id, season_number, external_id)
                     for series_id, season_number, external_id in missing
                 }
                 for future in as_completed(futures):
@@ -361,8 +389,30 @@ def _metadata_total(seasons: list[tuple[str, int]], missing: list[tuple[str, int
     return len(seasons) + len(missing)
 
 
+def _fetch_detail_with_retry(provider_factory: Callable[[], ImportProvider], external_id: str, language: str | None) -> ImportAnimeDetail:
+    last_error: Exception | None = None
+    for attempt in range(1, PROVIDER_DETAIL_MAX_ATTEMPTS + 1):
+        try:
+            return _fetch_detail(provider_factory, external_id, language)
+        except (ImportProviderResponseError, ImportProviderTimeoutError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+            last_error = exc
+            if attempt >= PROVIDER_DETAIL_MAX_ATTEMPTS:
+                raise ProviderDetailRetryError(external_id, attempt, exc) from exc
+            time.sleep(min(0.5 * attempt, 2.0))
+    msg = 'Provider detail retry failed without an error'
+    raise ProviderDetailRetryError(external_id, PROVIDER_DETAIL_MAX_ATTEMPTS, last_error or RuntimeError(msg))
+
+
 def _fetch_detail(provider_factory: Callable[[], ImportProvider], external_id: str, language: str | None) -> ImportAnimeDetail:
     return provider_factory().get_anime_detail(external_id, language=language)
+
+
+class ProviderDetailRetryError(RuntimeError):
+    def __init__(self, external_id: str, attempts: int, cause: Exception) -> None:
+        self.external_id = external_id
+        self.attempts = attempts
+        self.cause = cause
+        super().__init__(f'{cause} after {attempts} attempts')
 
 
 def _record_provider_failure(
@@ -373,29 +423,20 @@ def _record_provider_failure(
     external_id: str,
     exc: Exception,
 ) -> None:
-    if season_number == 0:
-        affected = [record for record in records if record.series_id == series_id and record.season_number == season_number]
-        for record in affected:
-            _add_unresolved(
-                report,
-                'unsupported_special_season',
-                record.source_file,
-                record.source_row,
-                series_id=record.series_id,
-                series_name=record.series_name,
-                season_number=record.season_number,
-                episode_number=record.episode_number,
-                raw=record.raw,
-            )
     report['providerFailures'].append(
         {
             'externalId': external_id,
-            'errorType': type(exc).__name__,
-            'message': str(exc),
+            'errorType': type(_provider_failure_cause(exc)).__name__,
+            'message': str(_provider_failure_cause(exc)),
+            'attempts': exc.attempts if isinstance(exc, ProviderDetailRetryError) else 1,
             'sourceRows': _source_rows_for_season(records, series_id, season_number),
         },
     )
     report['summary']['providerFailures'] += 1
+
+
+def _provider_failure_cause(exc: Exception) -> Exception:
+    return exc.cause if isinstance(exc, ProviderDetailRetryError) else exc
 
 
 def _get_or_create_anime_progress(session: Session, *, user_id: int, anime_id: int) -> UserAnimeProgress:
@@ -416,14 +457,14 @@ def _ensure_library_progress(session: Session, user_id: int, anime_items: Any, t
             report['summary']['libraryEntriesImported'] += 1
 
 
-def _season_numbers_for_library_series(provider: ImportProvider, series_id: str) -> list[int]:
+def _season_numbers_for_library_series(provider: ImportProvider, series_id: str, *, include_specials: bool) -> list[int]:
     provider_any: Any = provider
     if hasattr(provider, 'get_series_season_numbers'):
         values = provider_any.get_series_season_numbers(series_id)
         return sorted({value for value in values if isinstance(value, int) and value >= 0})
     try:
         series = provider_any._get_series_extended(series_id)  # noqa: SLF001 - TVDB provider has no public season-list API yet.
-        seasons = provider_any._aired_seasons(series)  # noqa: SLF001
+        seasons = provider_any._importable_seasons(series, include_specials=include_specials)  # noqa: SLF001
     except (AttributeError, ImportProviderResponseError, ImportProviderTimeoutError, RuntimeError, ValueError, KeyError, TypeError):
         return []
     numbers: set[int] = set()
@@ -541,6 +582,7 @@ def _new_report(user: User, options: TvtimeImportOptions) -> dict[str, Any]:
         'backend': options.backend,
         'languagePreference': user.language_preference,
         'dryRun': options.dry_run,
+        'includeSpecials': options.include_specials,
         'tvdbWorkers': options.tvdb_workers,
         'unresolved': [],
         'providerFailures': [],

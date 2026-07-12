@@ -22,12 +22,13 @@ def parse_tvtime_import_options() -> tuple[TvtimeImportOptions | None, str | Non
         return None, 'Unsupported TV Time import backend'
     dry_run = parse_bool(request.form.get('dryRun'), default=True)
     include_followed = parse_bool(request.form.get('includeFollowed'), default=True)
+    include_specials = parse_bool(request.form.get('includeSpecials'), default=True)
     try:
         workers = int(request.form.get('tvdbWorkers', '2'))
     except ValueError:
         return None, 'tvdbWorkers is invalid'
     workers = min(max(workers, 1), 5)
-    return TvtimeImportOptions(backend=backend, dry_run=dry_run, include_followed=include_followed, tvdb_workers=workers), None
+    return TvtimeImportOptions(backend=backend, dry_run=dry_run, include_followed=include_followed, include_specials=include_specials, tvdb_workers=workers), None
 
 
 def read_tvtime_upload_files(uploads: list[FileStorage]) -> tuple[dict[str, bytes], str | None]:
@@ -112,6 +113,7 @@ def queued_tvtime_report(options: TvtimeImportOptions, user: User) -> dict[str, 
         'backend': options.backend,
         'languagePreference': user.language_preference,
         'dryRun': options.dry_run,
+        'includeSpecials': options.include_specials,
         'unresolved': [],
         'providerFailures': [],
         'relatedAnimeWarnings': [],
