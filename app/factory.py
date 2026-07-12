@@ -18,7 +18,7 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(_build_app_config(app, config))
     if app.config["TRUST_PROXY"]:
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
     if app.config["MIGRATE_DATABASE"]:
         ensure_database_current(str(app.config["DATABASE_URL"]))

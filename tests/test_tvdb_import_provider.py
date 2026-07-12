@@ -340,6 +340,7 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert detail.episodes[1].status == 'upcoming'
     assert [item.external_id for item in detail.related_anime] == ['321:2']
     assert detail.related_anime[0].poster_source_url == 'https://artworks.thetvdb.com/s2-related.jpg'
+    assert detail.related_anime[0].air_date is not None
     assert detail.related_anime[0].air_date.isoformat() == '2021-07-01'
 
 
