@@ -66,7 +66,7 @@ cp env.example .env
 docker compose up --build
 ```
 
-The compose stack starts the application container together with PostgreSQL and
+The compose stack starts the web application, a Celery worker, PostgreSQL, and
 Redis. The app is exposed at `http://localhost:8080` by default. Change
 `APP_PORT` in `.env` if you want to use another port.
 
@@ -120,17 +120,26 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 Run the backend application:
 
 ```bash
-uv run python -m app.main
+uv run python -m app.main server
 ```
 
-The backend runs in production mode with Gunicorn by default. Use `--prod` to
-select production mode explicitly, or `--dev` to run the Flask development
-server:
+The backend server runs in production mode with Gunicorn by default. Use
+`--prod` to select production mode explicitly, or `--dev` to run the Flask
+development server:
 
 ```bash
-uv run python -m app.main --prod
-uv run python -m app.main --dev
+uv run python -m app.main server --prod
+uv run python -m app.main server --dev
 ```
+
+Run a Celery worker for background jobs:
+
+```bash
+uv run python -m app.main worker
+```
+
+Extra Celery worker arguments are passed through, for example
+`uv run python -m app.main worker --pool=solo`.
 
 Database schema is managed by Alembic. Application startup upgrades the database
 to the latest migration by default.
@@ -189,18 +198,19 @@ docker run --rm -p 8080:8080 \
 
 The container exposes nginx on `8080`, serves the Next frontend at `/`, and
 proxies `/api/` to the shiv/Gunicorn backend. Override `WEB_CONCURRENCY` to tune
-Gunicorn workers.
+Gunicorn workers. Run a separate container with `ani-tracker.pyz worker` for
+background jobs, or use Docker Compose to start both services.
 
 Run lint checks:
 
 ```bash
-uv run ruff check app tests migrations
+uv run ruff check .
 ```
 
 Run type checks:
 
 ```bash
-uv run mypy app
+uv run mypy .
 ```
 
 Run tests:

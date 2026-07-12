@@ -37,6 +37,9 @@ jobs:
 
       - name: Run mypy
         run: uv run mypy app
+      
+      - name: Run unit tests
+        run: uv run pytest -v --disable-warnings --maxfail=1
 
   frontend:
     name: Frontend lint

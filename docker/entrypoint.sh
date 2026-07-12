@@ -22,7 +22,7 @@ export HOSTNAME="${NEXT_HOST:-127.0.0.1}"
 export PORT="${NEXT_PORT:-3000}"
 
 echo "Starting backend shiv app on 0.0.0.0:3001"
-python /opt/ani-tracker/backend/ani-tracker.pyz --prod &
+python /opt/ani-tracker/backend/ani-tracker.pyz server --prod &
 backend_pid="$!"
 
 echo "Starting Next standalone server on ${HOSTNAME}:${PORT}"

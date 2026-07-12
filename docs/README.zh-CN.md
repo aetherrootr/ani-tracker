@@ -54,7 +54,7 @@ cp env.example .env
 docker compose up --build
 ```
 
-Compose 会启动应用容器、PostgreSQL 和 Redis。默认访问地址为 `http://localhost:8080`。如果需要使用其他端口，可以修改 `.env` 中的 `APP_PORT`。
+Compose 会启动 Web 应用、Celery worker、PostgreSQL 和 Redis。默认访问地址为 `http://localhost:8080`。如果需要使用其他端口，可以修改 `.env` 中的 `APP_PORT`。
 
 ## 元数据供应商
 
@@ -105,15 +105,23 @@ Compose 会启动应用容器、PostgreSQL 和 Redis。默认访问地址为 `ht
 运行后端应用：
 
 ```bash
-uv run python -m app.main
+uv run python -m app.main server
 ```
 
 后端默认以 Gunicorn 生产模式运行。可以使用 `--prod` 显式选择生产模式，或使用 `--dev` 启动 Flask 开发服务器：
 
 ```bash
-uv run python -m app.main --prod
-uv run python -m app.main --dev
+uv run python -m app.main server --prod
+uv run python -m app.main server --dev
 ```
+
+启动用于后台任务的 Celery worker：
+
+```bash
+uv run python -m app.main worker
+```
+
+额外的 Celery worker 参数会继续透传，例如 `uv run python -m app.main worker --pool=solo`。
 
 运行本地前后端集成开发环境：
 
@@ -124,8 +132,8 @@ uv run python -m app.main --dev
 运行检查和测试：
 
 ```bash
-uv run ruff check app tests migrations
-uv run mypy app
+uv run ruff check .
+uv run mypy .
 uv run pytest
 ```
 
