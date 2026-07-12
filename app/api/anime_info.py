@@ -11,6 +11,7 @@ from app.api.utils.library import (
     get_search_library_markers,
     library_search_condition,
     sort_library_progresses,
+    sort_library_search_progresses,
 )
 from app.api.utils.parsing import (
     parse_library_limit,
@@ -288,7 +289,12 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
     if keyword:
         stmt = stmt.where(library_search_condition(keyword))
 
-    all_matching_progresses = sort_library_progresses(db.scalars(stmt).all(), sort=sort, order=order, user=user)
+    loaded_progresses = db.scalars(stmt).all()
+    all_matching_progresses = (
+        sort_library_search_progresses(loaded_progresses, keyword=keyword, sort=sort, order=order, user=user)
+        if keyword
+        else sort_library_progresses(loaded_progresses, sort=sort, order=order, user=user)
+    )
     provider_options = sorted({progress.anime.provider_type for progress in all_matching_progresses})
     if provider:
         all_progresses = [

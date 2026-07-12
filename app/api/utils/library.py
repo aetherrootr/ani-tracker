@@ -26,7 +26,7 @@ from app.models.anime_utils import (
 )
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
-from app.services.name_keys import build_search_key, normalize_text
+from app.services.name_keys import build_search_variants, normalize_text
 
 TRACKING_LIST_RECENT_LIMIT = 15  # 15 Episodes in the tracking list are considered recent
 TRACKING_LIST_RECENT_DAYS = 30  # 30 Days in the tracking list are considered recent
@@ -70,8 +70,7 @@ def get_search_library_markers(
 
 
 def library_search_condition(keyword: str):  # type: ignore[no-untyped-def]
-    terms = {keyword.strip(), normalize_text(keyword)}
-    terms.update(build_search_key(keyword).split())
+    terms = library_search_terms(keyword)
     patterns = [f'%{escape_like(term)}%' for term in terms if term]
     name_conditions = []
     for pattern in patterns:
@@ -90,6 +89,71 @@ def library_search_condition(keyword: str):  # type: ignore[no-untyped-def]
         )
         .exists(),
     )
+
+
+def library_search_terms(keyword: str) -> list[str]:
+    return build_search_variants(keyword)
+
+
+def sort_library_search_progresses(
+    progresses: Sequence[UserAnimeProgress],
+    *,
+    keyword: str,
+    sort: LibrarySort,
+    order: LibraryOrder,
+    user: User,
+) -> list[UserAnimeProgress]:
+    fallback_order = {
+        progress.anime_id: index
+        for index, progress in enumerate(sort_library_progresses(progresses, sort=sort, order=order, user=user))
+    }
+    terms = library_search_terms(keyword)
+    return sorted(
+        progresses,
+        key=lambda progress: (library_search_rank(progress, terms, user), fallback_order[progress.anime_id]),
+    )
+
+
+def library_search_rank(progress: UserAnimeProgress, terms: Sequence[str], user: User) -> tuple[int, int, int]:
+    anime = progress.anime
+    display_name = select_anime_display_name(anime, progress, user)
+    candidates = [anime.original_name, display_name]
+    candidates.extend(name.name for name in anime.names)
+    normalized_candidates = [normalize_text(candidate) for candidate in candidates if candidate]
+    search_key_candidates = [name.search_key for name in anime.names if name.search_key]
+    normalized_terms = [normalize_text(term) for term in terms if term]
+
+    best = 99
+    for term in normalized_terms:
+        compact_term = term.replace(' ', '')
+        for candidate in normalized_candidates:
+            compact_candidate = candidate.replace(' ', '')
+            if candidate == term or compact_candidate == compact_term:
+                best = min(best, 0)
+            elif candidate.startswith(term) or compact_candidate.startswith(compact_term):
+                best = min(best, 1)
+            elif term in candidate or compact_term in compact_candidate:
+                best = min(best, 2)
+        for candidate in search_key_candidates:
+            if candidate == term:
+                best = min(best, 3)
+            elif candidate.startswith(term):
+                best = min(best, 4)
+            elif term in candidate:
+                best = min(best, 5)
+    return (best, len(display_name), anime.id)
+
+
+def select_anime_display_name(anime: AnimeMetaInfo, progress: UserAnimeProgress, user: User) -> str:
+    selected_name = next((name for name in anime.names if name.id == progress.preferred_name_id), None)
+    if selected_name is not None:
+        return selected_name.name
+    preferred_language = user.language_preference.split('-', 1)[0] if user.language_preference else None
+    if preferred_language:
+        selected_name = next((name for name in anime.names if name.language == preferred_language), None)
+        if selected_name is not None:
+            return selected_name.name
+    return anime.names[0].name if anime.names else anime.original_name
 
 
 def escape_like(value: str) -> str:

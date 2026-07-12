@@ -47,6 +47,27 @@ def build_search_key(value: str) -> str:
     return build_name_keys(value)[2]
 
 
+def build_search_variants(value: str) -> list[str]:
+    normalized = normalize_text(value)
+    variants = [value.strip(), normalized, normalized.replace(' ', '')]
+    if _contains_cjk(value):
+        pinyin_parts = _pinyin_parts(value)
+        variants.extend(
+            [
+                ' '.join(pinyin_parts),
+                ''.join(pinyin_parts),
+                ''.join(part[0] for part in pinyin_parts if part),
+            ],
+        )
+    return list(
+        dict.fromkeys(
+            item
+            for item in variants
+            if item
+        ),
+    )
+
+
 def _contains_cjk(value: str) -> bool:
     return _CJK_RE.search(value) is not None
 
