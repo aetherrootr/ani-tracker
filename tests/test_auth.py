@@ -94,6 +94,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "displayName": "Link",
             "email": "link@link.com",
             "languagePreference": "zh-CN",
+            "importProviderPreference": "bangumi",
             "weekStartDay": 0,
             "oidcLinked": False,
         },
@@ -106,6 +107,7 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
     assert user is not None
     assert user.password_hash != "password123"
     assert user.language_preference == "zh-CN"
+    assert user.import_provider_preference == "bangumi"
 
     me_response = client.get("/api/user/me")
     assert me_response.status_code == 200
@@ -202,6 +204,22 @@ def test_update_preferences_updates_week_start_day(client: FlaskClient, db_sessi
     user = db_session.scalar(select(User).where(User.username == "link"))
     assert user is not None
     assert user.week_start_day == 6
+
+
+def test_update_preferences_updates_import_provider_preference(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+
+    invalid_response = client.patch("/api/user/me/preferences", json={"importProviderPreference": "tvdb"})
+    assert invalid_response.status_code == 400
+    assert invalid_response.get_json() == {"message": "Import provider preference is invalid"}
+
+    update_response = client.patch("/api/user/me/preferences", json={"importProviderPreference": "bangumi"})
+
+    assert update_response.status_code == 200
+    assert update_response.get_json()["user"]["importProviderPreference"] == "bangumi"
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.import_provider_preference == "bangumi"
 
 
 def test_update_preferences_updates_language_and_week_start_day_together(client: FlaskClient) -> None:

@@ -88,6 +88,13 @@ export const zhCN = {
         "6": "周日",
       },
     },
+    provider: {
+      title: "偏好动画数据源",
+      description: "用于搜索和导入动画时的默认数据源。这里只显示当前可用的数据源。",
+      saving: "保存中",
+      saved: "已保存",
+      empty: "当前没有可用的导入数据源。",
+    },
     account: {
       title: "账号",
       description: "退出当前账号并返回登录页。",

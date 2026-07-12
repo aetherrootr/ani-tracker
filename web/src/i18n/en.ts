@@ -91,6 +91,13 @@ export const en = {
         "6": "Sun",
       },
     },
+    provider: {
+      title: "Preferred anime provider",
+      description: "Used as the default provider when searching and importing anime. Only currently available providers are shown.",
+      saving: "Saving",
+      saved: "Saved",
+      empty: "No import providers are currently available.",
+    },
     account: {
       title: "Account",
       description: "Sign out of the current account and return to the login page.",

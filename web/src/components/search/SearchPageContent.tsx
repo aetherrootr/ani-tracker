@@ -8,6 +8,7 @@ import { BackToTopButton } from "@/components/layout/BackToTopButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
+import { useCurrentUser } from "@/features/auth/hooks";
 import { getImportProviders } from "@/features/library/api";
 import { useAnimeSearch } from "@/features/search/hooks";
 
@@ -16,7 +17,8 @@ import { SearchState } from "./SearchState";
 
 export function SearchPageContent() {
   const t = useTranslations();
-  const [provider, setProvider] = useState("bangumi");
+  const { user } = useCurrentUser();
+  const [provider, setProvider] = useState(user?.importProviderPreference ?? "bangumi");
   const {
     keyword,
     hasKeyword,
@@ -47,11 +49,16 @@ export function SearchPageContent() {
       .then((response) => {
         if (response.providers.length > 0) {
           setProviders(response.providers);
+          const preferredProvider = user?.importProviderPreference;
+          const nextProvider = preferredProvider && response.providers.some((item) => item.name === preferredProvider)
+            ? preferredProvider
+            : response.providers[0].name;
+          setProvider(nextProvider);
         }
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, []);
+  }, [user?.importProviderPreference]);
 
   useEffect(() => {
     canAutoLoadRef.current = true;

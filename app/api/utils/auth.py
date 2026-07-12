@@ -57,6 +57,7 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'displayName': user.display_name,
         'email': user.email,
         'languagePreference': user.language_preference,
+        'importProviderPreference': user.import_provider_preference,
         'weekStartDay': user.week_start_day,
         'oidcLinked': bool(user.oidc_identities),
     }
@@ -147,3 +148,14 @@ def validate_week_start_day_payload(data: object) -> tuple[int | None, str | Non
         return None, 'Week start day is invalid'
 
     return week_start_day, None
+
+
+def validate_import_provider_preference_payload(data: object, available_providers: set[str]) -> tuple[str | None, str | None]:
+    if not isinstance(data, dict):
+        return None, 'Request body must be a JSON object'
+
+    provider = data.get('importProviderPreference')
+    if not isinstance(provider, str) or provider not in available_providers:
+        return None, 'Import provider preference is invalid'
+
+    return provider, None

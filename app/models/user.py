@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.progress import UserAnimeProgress, UserEpisodeProgress
 
 DEFAULT_LANGUAGE_PREFERENCE = "zh-CN"
+DEFAULT_IMPORT_PROVIDER_PREFERENCE = "bangumi"
 
 
 class User(TimestampedBase):
@@ -28,6 +29,12 @@ class User(TimestampedBase):
         default=DEFAULT_LANGUAGE_PREFERENCE,
     )
     week_start_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    import_provider_preference: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default=DEFAULT_IMPORT_PROVIDER_PREFERENCE,
+        server_default=DEFAULT_IMPORT_PROVIDER_PREFERENCE,
+    )
 
     episode_progresses: Mapped[list[UserEpisodeProgress]] = relationship(
         back_populates="user",
