@@ -35,6 +35,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const { data, setData, isLoading, error, retry } = useAnimeDetail(animeId);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement | null>(null);
+  const posterPollingAnimeIdRef = useRef<number | null>(null);
   const [dropConfirm, setDropConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -96,6 +97,29 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [statusMenuOpen]);
+
+  useEffect(() => {
+    if (!data || data.anime.posterStatus !== "pending" || posterPollingAnimeIdRef.current === animeId) {
+      return;
+    }
+    let cancelled = false;
+    posterPollingAnimeIdRef.current = animeId;
+    waitForPosterRefresh(animeId)
+      .then((refreshed) => {
+        if (cancelled || refreshed === null) {
+          return;
+        }
+        setData((current) => current ? { ...current, anime: refreshed.anime, progress: refreshed.progress } : current);
+      })
+      .finally(() => {
+        if (posterPollingAnimeIdRef.current === animeId) {
+          posterPollingAnimeIdRef.current = null;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [animeId, data, setData]);
 
   async function setStatus(status: UserAnimeStatus) {
     if (!data || status === data.progress.status) {

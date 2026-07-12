@@ -90,9 +90,9 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="provider-switch-title" onClick={onClose}>
-      <div className="glass-dialog flex max-h-[90svh] w-full max-w-3xl flex-col rounded-2xl border text-foreground" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3 border-b p-5">
+    <div className="fixed inset-0 z-[80] flex items-stretch justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="provider-switch-title" onClick={onClose}>
+      <div className="glass-dialog flex h-[100svh] w-full flex-col overflow-hidden border pt-[env(safe-area-inset-top)] text-foreground sm:h-auto sm:max-h-[90svh] sm:max-w-3xl sm:rounded-2xl sm:pt-0" onClick={(event) => event.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b bg-background/70 p-4 backdrop-blur sm:p-5">
           <div>
             <h2 id="provider-switch-title" className="text-lg font-semibold tracking-tight">{t("library.switchProvider")}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{t("library.currentProvider")}: {anime.provider} · {anime.originalName}</p>
