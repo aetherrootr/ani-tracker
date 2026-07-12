@@ -26,8 +26,8 @@ from app.api.utils.providers import get_import_provider_factory
 from app.api.utils.serializers import (
     select_anime_name_for_user,
     serialize_anime,
-    serialize_duplicate_anime_candidate,
     serialize_anime_name,
+    serialize_duplicate_anime_candidate,
     serialize_import_search_result,
     serialize_library_progress,
     serialize_progress,
@@ -116,7 +116,7 @@ def search_anime(db: Session, user: User) -> ResponseReturnValue:
 
 @anime_info_bp.get('/providers')
 @require_auth_user
-def list_import_providers(db: Session, user: User) -> ResponseReturnValue:
+def list_import_providers(_db: Session, _user: User) -> ResponseReturnValue:
     providers = get_import_provider_factory().list_providers()
     return jsonify(
         {

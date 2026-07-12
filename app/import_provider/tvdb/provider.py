@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -34,6 +35,8 @@ from app.import_provider.types import (
 
 logger = logging.getLogger(__name__)
 
+type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float] | None
+
 
 class TVDBImportProvider(ImportProvider):
     name = 'tvdb'
@@ -62,7 +65,7 @@ class TVDBImportProvider(ImportProvider):
 
     def search_anime(self, keyword: str, *, limit: int, offset: int, language: str | None = None) -> ImportSearchPage:
         request_language = tvdb_language(language)
-        request_params: dict[str, object] = {'query': keyword, 'type': 'series', 'limit': self._search_series_limit}
+        request_params: dict[str, QueryParam] = {'query': keyword, 'type': 'series', 'limit': self._search_series_limit}
         if request_language is not None:
             request_params['language'] = request_language
         results: list[ImportSearchResult] = []
@@ -109,7 +112,6 @@ class TVDBImportProvider(ImportProvider):
         episodes = [
             self._map_episode(
                 series_id,
-                season_number,
                 episode,
                 translations=episode_translations.get(self._episode_key(episode), {}),
                 language=request_language,
@@ -130,7 +132,7 @@ class TVDBImportProvider(ImportProvider):
             names=self._names(series, season_summary, season, language=request_language, title=title, allowed_languages=detail_languages, series_translations=series_translations, season_translations=season_translations),
             episodes=episodes,
             raw_data={'series': series, 'season': season, 'episodes': season.get('episodes')},
-            air_date=self._season_air_date(season, series, episodes),
+            air_date=self._season_air_date(season, episodes),
             related_anime=self._related_seasons(series, season_number, language=request_language),
         )
 
@@ -171,7 +173,7 @@ class TVDBImportProvider(ImportProvider):
         self,
         path: str,
         *,
-        params: dict[str, object] | None = None,
+        params: dict[str, QueryParam] | None = None,
         retry_auth: bool = True,
         suppress_not_found_log: bool = False,
     ) -> object:
@@ -343,6 +345,9 @@ class TVDBImportProvider(ImportProvider):
         language: str | None,
     ) -> ImportSearchResult:
         series_id = series.get('id') or self._series_id(search_result)
+        if not isinstance(series_id, int | str):
+            message = 'TVDB series id is missing'
+            raise ImportProviderResponseError(message)
         season_number = coerce_int(season.get('number'), 0) or 0
         detail = season_detail or {}
         return ImportSearchResult(
@@ -351,7 +356,7 @@ class TVDBImportProvider(ImportProvider):
             title=self._season_title(series, {**season, **{key: value for key, value in detail.items() if value is not None}}, language=language),
             original_title=first_non_empty(series.get('name'), search_result.get('name'), search_result.get('title')),
             summary=self._localized_summary(detail, language) or self._localized_summary(series, language) or first_non_empty(detail.get('overview'), season.get('overview'), series.get('overview'), search_result.get('overview')),
-            air_date=self._search_air_date(series, season, search_result, detail),
+            air_date=self._search_air_date(season, detail),
             platform='tv',
             episode_count=self._season_episode_count(detail) or self._season_episode_count(season),
             image_url=self._poster_url(season) or self._poster_url(search_result) or self._poster_url(series),
@@ -362,7 +367,6 @@ class TVDBImportProvider(ImportProvider):
     def _map_episode(
         self,
         series_id: int | str,
-        season_number: int,
         episode: dict[str, Any],
         *,
         translations: dict[str, dict[str, Any]],
@@ -409,7 +413,7 @@ class TVDBImportProvider(ImportProvider):
         related: list[ImportRelatedAnime] = []
         for season in self._aired_seasons(series):
             season_number = coerce_int(season.get('number'))
-            if season_number in {None, current_season_number}:
+            if season_number is None or season_number == current_season_number:
                 continue
             season_detail = self._season_detail_for_summary(season) or {}
             merged_season = {**season, **{key: value for key, value in season_detail.items() if value is not None}}
@@ -462,7 +466,7 @@ class TVDBImportProvider(ImportProvider):
         series_path = first_non_empty(series.get('slug')) or str(series.get('id'))
         return f'{self._web_base_url}/series/{series_path}/seasons/official/{season_number}'
 
-    def _search_air_date(self, series: dict[str, Any], season: dict[str, Any], search_result: dict[str, Any], season_detail: dict[str, Any]) -> str | None:
+    def _search_air_date(self, season: dict[str, Any], season_detail: dict[str, Any]) -> str | None:
         first_episode_date = self._first_episode_air_date(season_detail)
         if first_episode_date is not None:
             return first_episode_date.isoformat()
@@ -497,10 +501,11 @@ class TVDBImportProvider(ImportProvider):
             if summary is not None and (language, summary) not in seen:
                 summaries.append(ImportAnimeSummary(language=language, summary=summary))
                 seen.add((language, summary))
-        for language, summary in self._translation_values(season, 'overview', allowed_languages=allowed_languages) + self._translation_values(series, 'overview', allowed_languages=allowed_languages):
-            if (language, summary) not in seen:
-                summaries.append(ImportAnimeSummary(language=language, summary=summary))
-                seen.add((language, summary))
+        for item_language, summary in self._translation_values(season, 'overview', allowed_languages=allowed_languages) + self._translation_values(series, 'overview', allowed_languages=allowed_languages):
+            summary_language = item_language or 'und'
+            if (summary_language, summary) not in seen:
+                summaries.append(ImportAnimeSummary(language=summary_language, summary=summary))
+                seen.add((summary_language, summary))
         fallback = first_non_empty(season.get('overview'), series.get('overview'))
         if fallback is not None and ('und', fallback) not in seen:
             summaries.append(ImportAnimeSummary(language='und', summary=fallback))
@@ -594,9 +599,9 @@ class TVDBImportProvider(ImportProvider):
                 names.append(ImportEpisodeName(name=name, language=language))
                 seen.add(name)
         original = first_non_empty(episode.get('name'))
-        for name, language in ((title, None), (original, None)):
+        for name, name_language in ((title, None), (original, None)):
             if name is not None and name not in seen:
-                names.append(ImportEpisodeName(name=name, language=language))
+                names.append(ImportEpisodeName(name=name, language=name_language))
                 seen.add(name)
         return names
 
@@ -650,7 +655,7 @@ class TVDBImportProvider(ImportProvider):
     def _detail_languages(self, language: str | None) -> list[str]:
         return self._preferred_languages(tvdb_language(language))
 
-    def _season_air_date(self, season: dict[str, Any], series: dict[str, Any], episodes: list[ImportEpisodeInfo]) -> Any:
+    def _season_air_date(self, season: dict[str, Any], episodes: list[ImportEpisodeInfo]) -> Any:
         dates = [episode.air_at.date() for episode in episodes if episode.air_at is not None]
         season_year = coerce_int(season.get('year'))
         year_date = parse_date(f'{season_year:04d}-01-01') if season_year is not None and season_year > 0 else None

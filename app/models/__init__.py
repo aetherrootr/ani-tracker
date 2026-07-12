@@ -11,7 +11,12 @@ from app.models.anime import (
     EpisodeStatus,
 )
 from app.models.base import Base
-from app.models.progress import UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus, UserEpisodeProgress
+from app.models.progress import (
+    UserAnimeProgress,
+    UserAnimeRelationOverride,
+    UserAnimeStatus,
+    UserEpisodeProgress,
+)
 from app.models.user import User, UserOidcIdentity
 
 __all__ = [

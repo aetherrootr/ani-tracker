@@ -28,7 +28,12 @@ from app.models.anime import (
     EpisodeName,
     EpisodeStatus,
 )
-from app.models.progress import UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus, UserEpisodeProgress
+from app.models.progress import (
+    UserAnimeProgress,
+    UserAnimeRelationOverride,
+    UserAnimeStatus,
+    UserEpisodeProgress,
+)
 from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
 
