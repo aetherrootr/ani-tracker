@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -34,6 +35,8 @@ from app.import_provider.types import (
 
 logger = logging.getLogger(__name__)
 
+type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float] | None
+
 
 class TVDBImportProvider(ImportProvider):
     name = 'tvdb'
@@ -62,7 +65,7 @@ class TVDBImportProvider(ImportProvider):
 
     def search_anime(self, keyword: str, *, limit: int, offset: int, language: str | None = None) -> ImportSearchPage:
         request_language = tvdb_language(language)
-        request_params: dict[str, object] = {'query': keyword, 'type': 'series', 'limit': self._search_series_limit}
+        request_params: dict[str, QueryParam] = {'query': keyword, 'type': 'series', 'limit': self._search_series_limit}
         if request_language is not None:
             request_params['language'] = request_language
         results: list[ImportSearchResult] = []
@@ -170,7 +173,7 @@ class TVDBImportProvider(ImportProvider):
         self,
         path: str,
         *,
-        params: dict[str, object] | None = None,
+        params: dict[str, QueryParam] | None = None,
         retry_auth: bool = True,
         suppress_not_found_log: bool = False,
     ) -> object:
@@ -342,6 +345,9 @@ class TVDBImportProvider(ImportProvider):
         language: str | None,
     ) -> ImportSearchResult:
         series_id = series.get('id') or self._series_id(search_result)
+        if not isinstance(series_id, int | str):
+            message = 'TVDB series id is missing'
+            raise ImportProviderResponseError(message)
         season_number = coerce_int(season.get('number'), 0) or 0
         detail = season_detail or {}
         return ImportSearchResult(
@@ -407,7 +413,7 @@ class TVDBImportProvider(ImportProvider):
         related: list[ImportRelatedAnime] = []
         for season in self._aired_seasons(series):
             season_number = coerce_int(season.get('number'))
-            if season_number in {None, current_season_number}:
+            if season_number is None or season_number == current_season_number:
                 continue
             season_detail = self._season_detail_for_summary(season) or {}
             merged_season = {**season, **{key: value for key, value in season_detail.items() if value is not None}}
@@ -495,10 +501,11 @@ class TVDBImportProvider(ImportProvider):
             if summary is not None and (language, summary) not in seen:
                 summaries.append(ImportAnimeSummary(language=language, summary=summary))
                 seen.add((language, summary))
-        for language, summary in self._translation_values(season, 'overview', allowed_languages=allowed_languages) + self._translation_values(series, 'overview', allowed_languages=allowed_languages):
-            if (language, summary) not in seen:
-                summaries.append(ImportAnimeSummary(language=language, summary=summary))
-                seen.add((language, summary))
+        for item_language, summary in self._translation_values(season, 'overview', allowed_languages=allowed_languages) + self._translation_values(series, 'overview', allowed_languages=allowed_languages):
+            summary_language = item_language or 'und'
+            if (summary_language, summary) not in seen:
+                summaries.append(ImportAnimeSummary(language=summary_language, summary=summary))
+                seen.add((summary_language, summary))
         fallback = first_non_empty(season.get('overview'), series.get('overview'))
         if fallback is not None and ('und', fallback) not in seen:
             summaries.append(ImportAnimeSummary(language='und', summary=fallback))
@@ -592,9 +599,9 @@ class TVDBImportProvider(ImportProvider):
                 names.append(ImportEpisodeName(name=name, language=language))
                 seen.add(name)
         original = first_non_empty(episode.get('name'))
-        for name, language in ((title, None), (original, None)):
+        for name, name_language in ((title, None), (original, None)):
             if name is not None and name not in seen:
-                names.append(ImportEpisodeName(name=name, language=language))
+                names.append(ImportEpisodeName(name=name, language=name_language))
                 seen.add(name)
         return names
 

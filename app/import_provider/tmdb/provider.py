@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 import requests
@@ -29,6 +30,8 @@ from app.import_provider.types import (
 from app.import_provider.utils import coerce_int, non_empty_str
 
 logger = logging.getLogger(__name__)
+
+type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float] | None
 
 
 class TmdbImportProvider(ImportProvider):
@@ -135,7 +138,7 @@ class TmdbImportProvider(ImportProvider):
             details[language] = body
         return details
 
-    def _request_json(self, path: str, *, params: dict[str, object] | None = None, language: str | None = None) -> object:
+    def _request_json(self, path: str, *, params: dict[str, QueryParam] | None = None, language: str | None = None) -> object:
         if self._access_token is None and self._api_key is None:
             message = 'TMDB credentials are not configured'
             raise ImportProviderResponseError(message)
@@ -230,7 +233,8 @@ class TmdbImportProvider(ImportProvider):
         original_title = non_empty_str(movie.get('original_title'))
         air_at = parse_air_at(movie.get('release_date'))
         name_items = [(non_empty_str(item.get('title')), item_language) for item_language, item in localized_movies.items()]
-        name_items.append((original_title, non_empty_str(movie.get('original_language'))))
+        original_language = non_empty_str(movie.get('original_language')) or 'und'
+        name_items.append((original_title, original_language))
         names = self._names(*name_items)
         external_id = build_movie_external_id(movie_id)
         return ImportAnimeDetail(
@@ -325,7 +329,7 @@ class TmdbImportProvider(ImportProvider):
             if not isinstance(season, dict):
                 continue
             season_number = coerce_int(season.get('season_number'))
-            if season_number in {None, 0, current_season_number}:
+            if season_number is None or season_number == 0 or season_number == current_season_number:
                 continue
             related.append(
                 ImportRelatedAnime(
