@@ -33,6 +33,7 @@ export function LibraryPageContent() {
   const { data, isLoading, error, retry } = useLibraryData({
     q: query.q,
     status: query.status,
+    provider: query.provider,
     sort: query.sort,
     order: query.order,
     page: query.page,
@@ -252,6 +253,8 @@ export function LibraryPageContent() {
       <LibraryToolbar
         q={searchDraft}
         status={query.status}
+        provider={query.provider}
+        providers={data?.providers ?? []}
         sort={query.sort}
         order={query.order}
         onSearchChange={setSearchDraft}

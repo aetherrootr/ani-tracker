@@ -48,6 +48,7 @@ function backendSort(sort: LibrarySort) {
 export function getLibrary(input: {
   q: string;
   status: LibraryStatusFilter;
+  provider: string;
   sort: LibrarySort;
   order: SortOrder;
   pageSize: number;
@@ -66,6 +67,9 @@ export function getLibrary(input: {
   }
   if (input.status !== "all") {
     params.set("status", input.status);
+  }
+  if (input.provider !== "all") {
+    params.set("provider", input.provider);
   }
 
   return apiFetch<LibraryResponse>(`/api/anime/library?${params.toString()}`, {

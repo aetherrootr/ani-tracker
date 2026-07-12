@@ -84,6 +84,7 @@ export function useLibraryQueryState() {
   const [isPending, startTransition] = useTransition();
   const q = searchParams.get("q") ?? "";
   const status = validStatus(searchParams.get("status"));
+  const provider = searchParams.get("provider") || "all";
   const sort = validSort(searchParams.get("sort"));
   const order = validOrder(searchParams.get("order"));
   const page = parsePositiveInt(searchParams.get("page"), 1);
@@ -93,16 +94,18 @@ export function useLibraryQueryState() {
   function update(next: Partial<{
     q: string;
     status: LibraryStatusFilter;
+    provider: string;
     sort: LibrarySort;
     order: SortOrder;
     page: number;
     pageSize: number;
   }>) {
     const params = new URLSearchParams(searchParams.toString());
-    const merged = { q, status, sort, order, page, pageSize, ...next };
+    const merged = { q, status, provider, sort, order, page, pageSize, ...next };
 
     setParam(params, "q", merged.q, "");
     setParam(params, "status", merged.status, "all");
+    setParam(params, "provider", merged.provider, "all");
     setParam(params, "sort", merged.sort, "updatedAt");
     setParam(params, "order", merged.order, "desc");
     setParam(params, "page", String(merged.page), "1");
@@ -113,7 +116,7 @@ export function useLibraryQueryState() {
     });
   }
 
-  return { q, status, sort, order, page, pageSize, hasPageSize, update, isPending };
+  return { q, status, provider, sort, order, page, pageSize, hasPageSize, update, isPending };
 }
 
 function setParam(params: URLSearchParams, key: string, value: string, defaultValue: string) {
@@ -127,12 +130,13 @@ function setParam(params: URLSearchParams, key: string, value: string, defaultVa
 export function useLibraryData(query: {
   q: string;
   status: LibraryStatusFilter;
+  provider: string;
   sort: LibrarySort;
   order: SortOrder;
   page: number;
   pageSize: number;
 }) {
-  const { q, status, sort, order, page, pageSize } = query;
+  const { q, status, provider, sort, order, page, pageSize } = query;
   const [data, setData] = useState<LibraryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +148,7 @@ export function useLibraryData(query: {
     setIsLoading(true);
     setError(null);
 
-    getLibrary({ q, status, sort, order, page, pageSize, signal: controller.signal })
+    getLibrary({ q, status, provider, sort, order, page, pageSize, signal: controller.signal })
       .then(setData)
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -159,7 +163,7 @@ export function useLibraryData(query: {
       });
 
     return () => controller.abort();
-  }, [q, status, sort, order, page, pageSize, retryKey]);
+  }, [q, status, provider, sort, order, page, pageSize, retryKey]);
 
   return { data, isLoading, error, retry: () => setRetryKey((current) => current + 1) };
 }

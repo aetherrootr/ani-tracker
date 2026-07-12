@@ -1,24 +1,26 @@
 "use client";
 
-import { SlidersHorizontal, X } from "lucide-react";
+import { Check, ChevronDown, SlidersHorizontal, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
-import type { LibrarySort, LibraryStatusFilter, SortOrder } from "@/features/library/types";
+import type { ImportProvider, LibrarySort, LibraryStatusFilter, SortOrder } from "@/features/library/types";
 
 type Props = {
   q: string;
   status: LibraryStatusFilter;
+  provider: string;
+  providers: ImportProvider[];
   sort: LibrarySort;
   order: SortOrder;
   onSearchChange: (value: string) => void;
-  onOptionsChange: (value: { status?: LibraryStatusFilter; sort?: LibrarySort; order?: SortOrder }) => void;
+  onOptionsChange: (value: { status?: LibraryStatusFilter; provider?: string; sort?: LibrarySort; order?: SortOrder }) => void;
 };
 
-export function LibraryToolbar({ q, status, sort, order, onSearchChange, onOptionsChange }: Props) {
+export function LibraryToolbar({ q, status, provider, providers, sort, order, onSearchChange, onOptionsChange }: Props) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
 
@@ -70,6 +72,13 @@ export function LibraryToolbar({ q, status, sort, order, onSearchChange, onOptio
             render={(item) => t(item === "all" ? "library.allStatuses" : `library.status.${item}`)}
             onChange={(next) => onOptionsChange({ status: next as LibraryStatusFilter })}
           />
+          <ProviderSelect
+            label={t("library.providerFilter")}
+            value={provider}
+            providers={providers}
+            allLabel={t("library.allProviders")}
+            onChange={(next) => onOptionsChange({ provider: next })}
+          />
           <OptionGroup
             label={t("library.sortField")}
             options={["updatedAt", "name", "airDate"]}
@@ -87,6 +96,97 @@ export function LibraryToolbar({ q, status, sort, order, onSearchChange, onOptio
         </div>
       ) : null}
     </FloatingSearchInput>
+  );
+}
+
+function ProviderSelect({
+  label,
+  value,
+  providers,
+  allLabel,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  providers: ImportProvider[];
+  allLabel: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const options = [{ name: "all", label: allLabel }, ...providers];
+  const activeLabel = options.find((item) => item.name === value)?.label ?? value;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (dropdownRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  function selectProvider(nextProvider: string) {
+    onChange(nextProvider);
+    setOpen(false);
+  }
+
+  return (
+    <div className="space-y-2 py-2">
+      <div className="text-xs font-semibold uppercase tracking-wide text-foreground">{label}</div>
+      <div ref={dropdownRef} className="relative flex h-10 items-center gap-2 rounded-full px-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-8 gap-2 rounded-full px-3 text-xs"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={providers.length === 0 && value === "all"}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {activeLabel}
+          <ChevronDown className="h-3.5 w-3.5" />
+        </Button>
+        {open ? (
+          <div className="glass-dialog absolute left-3 top-full z-40 mt-2 w-44 overflow-hidden rounded-2xl border p-1 text-foreground shadow-lg" role="menu">
+            {options.map((item) => {
+              const active = value === item.name;
+              return (
+                <button
+                  key={item.name}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active}
+                  className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
+                  onClick={() => selectProvider(item.name)}
+                >
+                  <span>{item.label}</span>
+                  {active ? <Check className="h-4 w-4 text-primary" /> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
