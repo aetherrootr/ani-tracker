@@ -196,7 +196,7 @@ def _provider_config() -> dict[str, object]:
 def _enqueue_poster_download(database_url: str, poster_id: int) -> None:
     storage_dir = str(
         celery_app.conf.get('anime_poster_storage_dir')
-        # TODO: Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.
+        # TODO(aetherrootr): Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.
         or os.environ.get('ANIME_POSTER_STORAGE_DIR')
         or configured_instance_path() / 'anime_posters',
     )

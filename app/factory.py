@@ -87,14 +87,14 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "IMPORT_PROVIDER_TIMEOUT": env_float("IMPORT_PROVIDER_TIMEOUT", default=5, minimum=0),
 
         # Poster download and local file storage limits.
-        # TODO: Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.
+        # TODO(aetherrootr): Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.
         "ANIME_POSTER_STORAGE_DIR": os.environ.get(
             "ANIME_POSTER_STORAGE_DIR",
             str(Path(app.instance_path) / "anime_posters"),
         ),
         "ANIME_POSTER_MAX_BYTES": env_int("ANIME_POSTER_MAX_BYTES", default=5 * 1024 * 1024, minimum=1),
         "ANIME_POSTER_REQUEST_TIMEOUT": env_float("ANIME_POSTER_REQUEST_TIMEOUT", default=5, minimum=0),
-        # TODO: Deprecate TVTIME_IMPORT_REPORT_DIR and use ANIME_TRACKER_INSTANCE_PATH/tvtime_import_reports only.
+        # TODO(aetherrootr): Deprecate TVTIME_IMPORT_REPORT_DIR and use ANIME_TRACKER_INSTANCE_PATH/tvtime_import_reports only.
         "TVTIME_IMPORT_REPORT_DIR": os.environ.get(
             "TVTIME_IMPORT_REPORT_DIR",
             str(Path(app.instance_path) / "tvtime_import_reports"),
