@@ -49,9 +49,10 @@ handled by a human maintainer.
   Current providers include [Bangumi](https://bangumi.tv/),
   [TheTVDB](https://www.thetvdb.com/), and
   [TMDB](https://www.themoviedb.org/).
-- Supply-chain attack mitigation: to keep the design simple and predictable,
-  ani-tracker only allows one upstream metadata provider per title. It also
-  provides a way to help migrate your watch history to another metadata provider.
+- Metadata provenance control: to keep the design simple and predictable,
+  each title is linked to one upstream metadata provider at a time. This avoids
+  silently mixing data from different providers, and ani-tracker provides a way
+  to migrate your watch history when switching providers.
 - Desktop and mobile experiences: ani-tracker implements separate frontend
   interactions for desktop and mobile devices.
 - OIDC support.
