@@ -358,8 +358,6 @@ echo "Starting backend on ${BACKEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
   export SECRET_KEY="integration-test-secret"
-  export OIDC_LOGIN_REDIRECT_URI="${OIDC_LOGIN_REDIRECT_URI:-${BACKEND_URL}/api/oidc/callback}"
-  export OIDC_LINK_REDIRECT_URI="${OIDC_LINK_REDIRECT_URI:-${BACKEND_URL}/api/oidc/link/callback}"
   uv run python -m app.main --dev
 ) >"${BACKEND_LOG}" 2>&1 &
 backend_pid="$!"

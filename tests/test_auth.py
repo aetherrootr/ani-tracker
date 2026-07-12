@@ -73,8 +73,6 @@ def configure_oidc(app: Flask, claims: dict[str, object]) -> None:
         OIDC_ISSUER="https://sso.example.test/application/o/ani-tracker/",
         OIDC_CLIENT_ID="ani-tracker",
         OIDC_CLIENT_SECRET="secret",
-        OIDC_POST_LOGIN_REDIRECT="http://localhost:3000/tracking-list",
-        OIDC_POST_LINK_REDIRECT="http://localhost:3000/settings",
     )
     app.extensions["oidc_client"] = FakeOidcClient(claims)
 
@@ -272,6 +270,15 @@ def test_oidc_config_and_unconfigured_endpoints_do_not_fail(client: FlaskClient)
     link_response = client.get("/api/oidc/link")
     assert link_response.status_code == 404
     assert link_response.get_json() == {"message": "OIDC is not configured"}
+
+
+def test_oidc_login_uses_default_callback_redirect(app: Flask, client: FlaskClient) -> None:
+    configure_oidc(app, {"sub": "redirect-sub"})
+
+    response = client.get("/api/oidc/login", base_url="https://anime.example.test")
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "https://anime.example.test/api/oidc/callback"
 
 
 def test_oidc_callback_auto_registers_user_and_identity(
