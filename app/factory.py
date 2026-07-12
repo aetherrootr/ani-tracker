@@ -96,6 +96,10 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
             "TVTIME_IMPORT_REPORT_DIR",
             str(Path(app.instance_path) / "tvtime_import_reports"),
         ),
+        "LIBRARY_REFRESH_JOB_LOCK_DIR": os.environ.get(
+            "LIBRARY_REFRESH_JOB_LOCK_DIR",
+            str(Path(app.instance_path) / "library_refresh_jobs"),
+        ),
 
         # Celery runtime settings for background jobs.
         "CELERY_BROKER_URL": os.environ.get("CELERY_BROKER_URL", "memory://"),
@@ -110,6 +114,10 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "UNTRACKED_ANIME_CLEANUP_CRON_DAY": env_int('UNTRACKED_ANIME_CLEANUP_CRON_DAY', default=0, minimum=1, maximum=28),
         "UNTRACKED_ANIME_CLEANUP_CRON_HOUR": env_int('UNTRACKED_ANIME_CLEANUP_CRON_HOUR', default=-1, minimum=0, maximum=23),
         "UNTRACKED_ANIME_CLEANUP_CRON_MINUTE": env_int('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE', default=-1, minimum=0, maximum=59),
+        "AUTO_IMPORT_TVDB_SEASONS_ENABLED": env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'),
+        "AUTO_IMPORT_TVDB_SEASONS_CRON_DAY": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY', default=0, minimum=1, maximum=28),
+        "AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR', default=-1, minimum=0, maximum=23),
+        "AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE', default=-1, minimum=0, maximum=59),
     }
     if config is not None:
         # Test and local callers can override any environment-derived setting.

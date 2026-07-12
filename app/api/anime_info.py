@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+from uuid import uuid4
+
+from flask import Blueprint, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -67,7 +69,15 @@ from app.services.anime_sync import (
     serialize_episode_conflict,
     sync_anime_from_provider,
 )
-from app.tasks.anime_sync import sync_user_library_anime
+from app.services.library_refresh_jobs import (
+    acquire_library_refresh_lock,
+    current_library_refresh_job,
+    load_library_refresh_job,
+    release_library_refresh_lock,
+    store_library_refresh_job,
+)
+from app.services.tvdb_season_discovery import discover_tvdb_seasons_for_user_anime
+from app.tasks.anime_sync import refresh_user_library
 
 anime_info_bp = Blueprint("anime_info", __name__)
 
@@ -391,11 +401,101 @@ def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturn
     )
 
 
+@anime_info_bp.post('/library/<int:anime_id>/discover-tvdb-seasons')
+@require_auth_user
+def discover_library_tvdb_seasons(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    if not current_app.config.get('AUTO_IMPORT_TVDB_SEASONS_ENABLED'):
+        return jsonify({'message': 'TVDB season auto import is disabled'}), 403
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    anime = db.get(AnimeMetaInfo, anime_id)
+    if anime is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    if anime.provider_type != 'tvdb':
+        return jsonify({'message': 'TVDB season discovery only supports TVDB anime'}), 400
+
+    try:
+        provider = get_import_provider_factory().get_provider('tvdb')
+        result = discover_tvdb_seasons_for_user_anime(db, provider, user_id=user.id, anime_id=anime_id)
+    except ImportProviderTimeoutError:
+        db.rollback()
+        return jsonify({'message': 'Import provider request timed out'}), 504
+    except ImportProviderResponseError:
+        db.rollback()
+        return jsonify({'message': 'Import provider response error'}), 502
+    except Exception:
+        db.rollback()
+        raise
+
+    return jsonify(
+        {
+            'checked': result.checked,
+            'skippedReason': result.skipped_reason,
+            'importedAnimeIds': result.imported_anime_ids,
+            'existingAnimeIds': result.existing_anime_ids,
+            'postersQueued': len(set(result.poster_ids_to_enqueue)),
+        },
+    )
+
+
 @anime_info_bp.post('/library/sync-all')
 @require_auth_user
 def sync_all_library_anime(_db: Session, user: User) -> ResponseReturnValue:
-    task = sync_user_library_anime.delay(user.id)
-    return jsonify({'queued': True, 'taskId': task.id}), 202
+    task_id = uuid4().hex
+    job_dir = str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'])
+    lock = acquire_library_refresh_lock(
+        user_id=user.id,
+        task_id=task_id,
+        lock_dir=job_dir,
+    )
+    if not lock.acquired:
+        job = load_library_refresh_job(job_dir, lock.task_id)
+        return jsonify({'queued': False, 'taskId': lock.task_id, 'job': _library_refresh_job_response(job)}), 202
+    progress = _library_refresh_progress('queued', 0, 1, 'Library refresh queued')
+    store_library_refresh_job(
+        job_dir,
+        task_id,
+        {'jobId': task_id, 'userId': user.id, 'status': 'queued', 'progress': progress, 'summary': None},
+    )
+    try:
+        task = refresh_user_library.apply_async(args=(user.id, lock.lock_path, job_dir, task_id), task_id=task_id)
+    except Exception:
+        release_library_refresh_lock(lock.lock_path)
+        raise
+    return jsonify({'queued': True, 'taskId': task.id, 'job': _library_refresh_job_response(load_library_refresh_job(job_dir, task.id))}), 202
+
+
+@anime_info_bp.get('/library/sync-all')
+@require_auth_user
+def get_current_library_refresh(_db: Session, user: User) -> ResponseReturnValue:
+    job = current_library_refresh_job(str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']), user.id)
+    return jsonify({'job': _library_refresh_job_response(job)})
+
+
+@anime_info_bp.get('/library/sync-all/<job_id>')
+@require_auth_user
+def get_library_refresh(_db: Session, user: User, job_id: str) -> ResponseReturnValue:
+    job = load_library_refresh_job(str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']), job_id)
+    if job is None or job.get('userId') != user.id:
+        return jsonify({'message': 'Library refresh job not found'}), 404
+    return jsonify(_library_refresh_job_response(job))
+
+
+def _library_refresh_progress(stage: str, processed: int, total: int, message: str) -> dict[str, object]:
+    percent = round(processed / total * 100) if total > 0 else 0
+    return {'stage': stage, 'processed': processed, 'total': total, 'percent': percent, 'message': message}
+
+
+def _library_refresh_job_response(job: dict[str, object] | None) -> dict[str, object] | None:
+    if job is None:
+        return None
+    return {
+        'jobId': job.get('jobId'),
+        'status': job.get('status'),
+        'progress': job.get('progress'),
+        'summary': job.get('summary'),
+    }
 
 
 @anime_info_bp.get('/<int:anime_id>')
@@ -455,6 +555,9 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
                 related_anime_overrides=related_anime_overrides,
             ),
             'progress': serialize_progress(progress),
+            'features': {
+                'tvdbSeasonDiscovery': bool(current_app.config.get('AUTO_IMPORT_TVDB_SEASONS_ENABLED')),
+            },
         },
     )
 
