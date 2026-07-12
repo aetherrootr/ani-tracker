@@ -31,4 +31,4 @@ def test_import_provider_timeout_reads_environment(monkeypatch: pytest.MonkeyPat
         },
     )
 
-    assert app.config['IMPORT_PROVIDER_TIMEOUT'] == 10.5
+    assert app.config['IMPORT_PROVIDER_TIMEOUT'] == pytest.approx(10.5)

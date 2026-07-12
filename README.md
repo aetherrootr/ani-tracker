@@ -194,7 +194,7 @@ Gunicorn workers.
 Run lint checks:
 
 ```bash
-uv run ruff check app tests migrations
+uv run ruff check app tests app/migrations
 ```
 
 Run type checks:

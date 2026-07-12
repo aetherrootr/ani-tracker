@@ -124,7 +124,7 @@ uv run python -m app.main --dev
 运行检查和测试：
 
 ```bash
-uv run ruff check app tests migrations
+uv run ruff check app tests app/migrations
 uv run mypy app
 uv run pytest
 ```
