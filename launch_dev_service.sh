@@ -343,7 +343,7 @@ echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
   export DATABASE_URL="${DATABASE_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
-  uv run celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
+  uv run python -m app.main worker --pool=solo
 ) >"${WORKER_LOG}" 2>&1 &
 worker_pid="$!"
 sleep 1
@@ -358,7 +358,7 @@ echo "Starting backend on ${BACKEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
   export SECRET_KEY="integration-test-secret"
-  uv run python -m app.main --dev
+  uv run python -m app.main server --dev
 ) >"${BACKEND_LOG}" 2>&1 &
 backend_pid="$!"
 

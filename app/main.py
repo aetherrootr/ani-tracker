@@ -9,6 +9,7 @@ from flask import Flask
 from gunicorn.app.base import BaseApplication
 
 from app import create_app
+from app.celery_app import celery_app
 from app.utils import env_int
 
 BIND = '0.0.0.0:3001'
@@ -41,10 +42,7 @@ def gunicorn_timeout() -> int:
     return env_int('GUNICORN_TIMEOUT', default=120, minimum=1)
 
 
-@click.command()
-@click.option('--dev', 'mode', flag_value='dev', help='Run the Flask development server.')
-@click.option('--prod', 'mode', flag_value='prod', default='prod', help='Run with Gunicorn.')
-def main(mode: Literal['dev', 'prod']) -> None:
+def run_server(mode: Literal['dev', 'prod']) -> None:
     app = create_app()
     if mode == 'dev':
         app.run(host='0.0.0.0', port=3001)
@@ -58,6 +56,33 @@ def main(mode: Literal['dev', 'prod']) -> None:
             'timeout': gunicorn_timeout(),
         },
     ).run()
+
+
+def run_worker(loglevel: str, celery_args: tuple[str, ...]) -> None:
+    celery_app.worker_main(['worker', '--loglevel', loglevel, *celery_args])
+
+
+@click.group(invoke_without_command=True)
+@click.option('--dev', 'mode', flag_value='dev', help='Run the Flask development server.')
+@click.option('--prod', 'mode', flag_value='prod', default='prod', help='Run with Gunicorn.')
+@click.pass_context
+def main(ctx: click.Context, mode: Literal['dev', 'prod']) -> None:
+    if ctx.invoked_subcommand is None:
+        run_server(mode)
+
+
+@main.command()
+@click.option('--dev', 'mode', flag_value='dev', help='Run the Flask development server.')
+@click.option('--prod', 'mode', flag_value='prod', default='prod', help='Run with Gunicorn.')
+def server(mode: Literal['dev', 'prod']) -> None:
+    run_server(mode)
+
+
+@main.command(context_settings={'ignore_unknown_options': True, 'allow_extra_args': True})
+@click.option('--loglevel', default='info', show_default=True, help='Celery worker log level.')
+@click.pass_context
+def worker(ctx: click.Context, loglevel: str) -> None:
+    run_worker(loglevel, tuple(ctx.args))
 
 
 if __name__ == "__main__":
