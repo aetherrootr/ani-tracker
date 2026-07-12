@@ -133,6 +133,9 @@ export type EpisodeListResponse = {
 export type AnimeDetailResponse = {
   anime: Anime;
   progress: AnimeProgress;
+  features?: {
+    tvdbSeasonDiscovery: boolean;
+  };
 };
 
 export type EpisodeConflict = {
@@ -151,6 +154,35 @@ export type AnimeSyncResponse = {
   progress: AnimeProgress;
   synced: boolean;
   episodeConflicts: EpisodeConflict[];
+};
+
+export type TvdbSeasonDiscoveryResponse = {
+  checked: boolean;
+  skippedReason: string | null;
+  importedAnimeIds: number[];
+  existingAnimeIds: number[];
+  postersQueued: number;
+};
+
+export type LibraryRefreshProgress = {
+  stage: string;
+  processed: number;
+  total: number;
+  percent: number;
+  message: string;
+};
+
+export type LibraryRefreshJob = {
+  jobId: string;
+  status: "completed" | "failed" | "running" | "queued";
+  progress: LibraryRefreshProgress | null;
+  summary: Record<string, unknown> | null;
+};
+
+export type LibraryRefreshResponse = {
+  queued: boolean;
+  taskId: string;
+  job: LibraryRefreshJob | null;
 };
 
 export type ResolveEpisodeConflictsResponse = {

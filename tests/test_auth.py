@@ -163,6 +163,28 @@ def test_login_success_and_wrong_password_failure(client: FlaskClient) -> None:
     assert bad_response.get_json() == {"message": "Invalid username or password"}
 
 
+def test_update_password_resets_login_password(client: FlaskClient) -> None:
+    response = client.patch("/api/user/me/password", json={"password": "newpassword123"})
+    assert response.status_code == 401
+
+    assert register_user(client).status_code == 201
+
+    invalid_response = client.patch("/api/user/me/password", json={"password": "short"})
+    assert invalid_response.status_code == 400
+    assert invalid_response.get_json() == {"message": "Password must be at least 8 characters"}
+
+    update_response = client.patch("/api/user/me/password", json={"password": "newpassword123"})
+    assert update_response.status_code == 200
+    assert update_response.get_json() == {"success": True}
+
+    client.post("/api/auth/logout")
+    old_password_response = client.post("/api/auth/login", json={"username": "link", "password": "password123"})
+    assert old_password_response.status_code == 401
+
+    new_password_response = client.post("/api/auth/login", json={"username": "link", "password": "newpassword123"})
+    assert new_password_response.status_code == 200
+
+
 def test_update_language_preference_requires_login_and_valid_language(client: FlaskClient) -> None:
     response = client.patch("/api/user/me/preferences", json={"languagePreference": "en"})
     assert response.status_code == 401

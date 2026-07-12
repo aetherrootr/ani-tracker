@@ -59,7 +59,8 @@ COPY app/migrations /opt/ani-tracker/app/migrations
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/entrypoint.sh /usr/local/bin/ani-tracker-entrypoint
 
-RUN chmod +x /usr/local/bin/ani-tracker-entrypoint \
+RUN printf '%s\n' '#!/usr/bin/env sh' 'exec python /opt/ani-tracker/backend/ani-tracker.pyz "$@"' > /usr/local/bin/ani-tracker \
+  && chmod +x /usr/local/bin/ani-tracker /usr/local/bin/ani-tracker-entrypoint \
   && mkdir -p /run/nginx /var/cache/nginx /opt/ani-tracker/instance
 
 EXPOSE 8080

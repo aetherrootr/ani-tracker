@@ -3,13 +3,13 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Repeat2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Repeat2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { assetUrl, getAnimeDetail, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
+import { assetUrl, discoverTvdbSeasons, getAnimeDetail, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
 import { useAnimeDetail } from "@/features/library/hooks";
 import type { Anime, AnimeProgress, EpisodeConflict, RelatedAnime, UserAnimeStatus } from "@/features/library/types";
 import { addSearchResultToLibrary } from "@/features/search/api";
@@ -38,7 +38,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const posterPollingAnimeIdRef = useRef<number | null>(null);
   const [dropConfirm, setDropConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDiscoveringSeasons, setIsDiscoveringSeasons] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [seasonDiscoveryMessage, setSeasonDiscoveryMessage] = useState<string | null>(null);
   const [episodeRefreshKey, setEpisodeRefreshKey] = useState(0);
   const [episodeConflicts, setEpisodeConflicts] = useState<EpisodeConflict[]>([]);
   const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
@@ -172,6 +174,32 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
     }
   }
 
+  async function discoverSeasons() {
+    if (isDiscoveringSeasons) {
+      return;
+    }
+    setIsDiscoveringSeasons(true);
+    setSyncError(null);
+    setSeasonDiscoveryMessage(null);
+    try {
+      const result = await discoverTvdbSeasons(animeId);
+      const refreshed = await getAnimeDetail(animeId);
+      setData(refreshed);
+      setEpisodeRefreshKey((current) => current + 1);
+      if (result.skippedReason === "related_status_not_eligible") {
+        setSeasonDiscoveryMessage(t("library.tvdbSeasonDiscoverySkippedByStatus"));
+      } else if (result.importedAnimeIds.length > 0) {
+        setSeasonDiscoveryMessage(t("library.tvdbSeasonDiscoveryImported", { count: result.importedAnimeIds.length }));
+      } else {
+        setSeasonDiscoveryMessage(t("library.tvdbSeasonDiscoveryNoNew"));
+      }
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : t("library.tvdbSeasonDiscoveryFailed"));
+    } finally {
+      setIsDiscoveringSeasons(false);
+    }
+  }
+
   async function resolveConflicts(deleteEpisodeIds: number[]) {
     setIsResolvingConflicts(true);
     setSyncError(null);
@@ -232,6 +260,12 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         </div>
       ) : null}
 
+      {seasonDiscoveryMessage ? (
+        <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm font-medium text-primary">
+          {seasonDiscoveryMessage}
+        </div>
+      ) : null}
+
       <section className="relative rounded-3xl border bg-card shadow-sm">
         <div className="absolute inset-0 overflow-hidden rounded-3xl">
           {poster ? (
@@ -280,6 +314,19 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                       <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
                       {isSyncing ? t("library.syncing") : t("library.syncAnime")}
                     </Button>
+                    {data.anime.provider === "tvdb" && data.features?.tvdbSeasonDiscovery ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 rounded-full px-3 text-xs"
+                        disabled={isDiscoveringSeasons}
+                        onClick={() => void discoverSeasons()}
+                      >
+                        {isDiscoveringSeasons ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                        {isDiscoveringSeasons ? t("library.tvdbSeasonDiscovering") : t("library.tvdbSeasonDiscovery")}
+                      </Button>
+                    ) : null}
                     <span>{t("library.lastSynced", { time: formatLastSynced(data.anime.lastSyncedAt, t("library.neverSynced")) })}</span>
                     {isPosterRefreshing ? <span>{t("library.posterRefreshing")}</span> : null}
                   </div>

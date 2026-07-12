@@ -37,6 +37,10 @@ export type UpdatePreferencesInput = {
   importProviderPreference?: string;
 };
 
+export type UpdatePasswordInput = {
+  password: string;
+};
+
 export type AuthResponse = {
   user: AuthUser;
 };
@@ -46,5 +50,9 @@ export type CurrentUserResponse = {
 };
 
 export type LogoutResponse = {
+  success: boolean;
+};
+
+export type UpdatePasswordResponse = {
   success: boolean;
 };

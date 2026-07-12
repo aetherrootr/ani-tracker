@@ -137,6 +137,16 @@ uv run mypy .
 uv run pytest
 ```
 
+## 重设密码
+
+进入容器后，可以使用 CLI 按用户名重设密码：
+
+```bash
+ani-tracker reset-password <用户名>
+```
+
+默认会生成一个随机的 12 位密码并输出到标准输出。
+
 ## 贡献
 
 欢迎提交 issue 和参与讨论。项目仍在快速演进，如果准备进行较大的改动，请先打开 issue 进行讨论。

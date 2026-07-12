@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -1475,6 +1475,54 @@ def test_sync_library_anime_maps_provider_errors(app: Flask, client: FlaskClient
     assert response_error_response.get_json() == {'message': 'Import provider response error'}
 
 
+def test_sync_all_library_reuses_active_refresh_job(
+    app: Flask,
+    client: FlaskClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import anime_info
+
+    assert register_user(client).status_code == 201
+    app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'] = str(tmp_path / 'library-refresh-locks')
+    queued_task_ids: list[str] = []
+
+    @dataclass(frozen=True)
+    class Result:
+        id: str
+
+    def apply_async(*, args, task_id):  # type: ignore[no-untyped-def]
+        assert args[0] == 1
+        queued_task_ids.append(task_id)
+        return Result(id=task_id)
+
+    monkeypatch.setattr(anime_info.refresh_user_library, 'apply_async', apply_async)
+
+    first = client.post('/api/anime/library/sync-all')
+    second = client.post('/api/anime/library/sync-all')
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    first_body = first.get_json()
+    second_body = second.get_json()
+    assert first_body['queued'] is True
+    assert first_body['job']['jobId'] == first_body['taskId']
+    assert first_body['job']['status'] == 'queued'
+    assert first_body['job']['progress']['stage'] == 'queued'
+    assert second_body['queued'] is False
+    assert second_body['taskId'] == first_body['taskId']
+    assert second_body['job']['jobId'] == first_body['taskId']
+    assert queued_task_ids == [first_body['taskId']]
+
+    current = client.get('/api/anime/library/sync-all')
+    by_id = client.get(f"/api/anime/library/sync-all/{first_body['taskId']}")
+
+    assert current.status_code == 200
+    assert by_id.status_code == 200
+    assert current.get_json()['job']['jobId'] == first_body['taskId']
+    assert by_id.get_json()['jobId'] == first_body['taskId']
+
+
 def test_sync_airing_anime_task_selects_airing_and_continues_after_failure(
     app: Flask,
     db_session: Session,
@@ -1531,14 +1579,20 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     )
     default_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
     cleanup_schedule = celery_app.conf.beat_schedule['delete-untracked-anime']['schedule']
+    assert 'discover-tvdb-seasons' not in celery_app.conf.beat_schedule
     configure_celery(
         {
             'CELERY_BROKER_URL': 'memory://',
             'ANIME_SYNC_CRON_HOUR': 6,
             'ANIME_SYNC_CRON_MINUTE': 30,
+            'AUTO_IMPORT_TVDB_SEASONS_ENABLED': True,
+            'AUTO_IMPORT_TVDB_SEASONS_CRON_DAY': 11,
+            'AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR': 12,
+            'AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE': 13,
         },
     )
     override_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
+    tvdb_season_schedule = celery_app.conf.beat_schedule['discover-tvdb-seasons']['schedule']
 
     assert default_schedule.hour == {4}
     assert default_schedule.minute == {0}
@@ -1548,6 +1602,9 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     assert cleanup_schedule.minute == {9}
     assert override_schedule.hour == {6}
     assert override_schedule.minute == {30}
+    assert tvdb_season_schedule.day_of_month == {11}
+    assert tvdb_season_schedule.hour == {12}
+    assert tvdb_season_schedule.minute == {13}
 
 
 def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
@@ -1569,8 +1626,9 @@ def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
 def test_scheduled_tasks_retry_three_times_after_five_minutes() -> None:
     from app.tasks.anime_cleanup import delete_untracked_anime_task
     from app.tasks.anime_sync import sync_airing_anime
+    from app.tasks.tvdb_season_discovery import discover_tvdb_seasons_for_all_users
 
-    for task in (delete_untracked_anime_task, sync_airing_anime):
+    for task in (delete_untracked_anime_task, sync_airing_anime, discover_tvdb_seasons_for_all_users):
         assert task.autoretry_for == (Exception,)
         assert task.retry_kwargs == {'countdown': 5 * 60, 'max_retries': 3}
         assert task.max_retries == 3
