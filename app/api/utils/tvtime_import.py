@@ -93,7 +93,8 @@ def tvtime_report_dir() -> Path:
 
 
 def tvtime_job_response(job_id: str, user_id: int, status: str, report: dict[str, Any]) -> dict[str, Any]:
-    report_data = report.get('report') if isinstance(report.get('report'), dict) else report
+    nested_report = report.get('report')
+    report_data: dict[str, Any] = nested_report if isinstance(nested_report, dict) else report
     return {
         'jobId': job_id,
         'userId': user_id,

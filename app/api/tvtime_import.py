@@ -46,6 +46,8 @@ def upload_tvtime_import(_db: Session, user: User) -> ResponseReturnValue:
     options, error = parse_tvtime_import_options()
     if error is not None:
         return jsonify({'message': error}), 400
+    if options is None:
+        return jsonify({'message': 'TV Time import options are invalid'}), 400
     try:
         get_import_provider_factory().get_provider(options.backend)
     except ImportProviderResponseError:
