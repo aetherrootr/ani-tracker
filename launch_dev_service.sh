@@ -32,6 +32,7 @@ FRONTEND_LOG="${TMP_DIR}/ani-tracker-frontend.log"
 WORKER_LOG="${TMP_DIR}/ani-tracker-worker.log"
 ANIME_POSTER_STORAGE_DIR="${TMP_DIR}/anime_posters"
 TVTIME_IMPORT_REPORT_DIR="${TMP_DIR}/tvtime_import"
+AUTO_IMPORT_TVDB_SEASONS_ENABLED="true"
 
 mkdir -p "${TMP_DIR}"
 mkdir -p "${POSTGRES_DATA_DIR}"
@@ -345,6 +346,7 @@ echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
   export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
+  export AUTO_IMPORT_TVDB_SEASONS_ENABLED="${AUTO_IMPORT_TVDB_SEASONS_ENABLED}"
   uv run python -m app.main worker --pool=solo
 ) >"${WORKER_LOG}" 2>&1 &
 worker_pid="$!"
@@ -360,6 +362,7 @@ echo "Starting backend on ${BACKEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
   export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
   export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
+  export AUTO_IMPORT_TVDB_SEASONS_ENABLED="${AUTO_IMPORT_TVDB_SEASONS_ENABLED}"
   export SECRET_KEY="integration-test-secret"
   uv run python -m app.main server --dev
 ) >"${BACKEND_LOG}" 2>&1 &

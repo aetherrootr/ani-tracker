@@ -12,6 +12,10 @@ from app.import_provider import ImportProviderFactory
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
 from app.models.progress import UserAnimeProgress
 from app.services.anime_sync import sync_anime_from_provider
+from app.services.library_refresh_jobs import (
+    release_library_refresh_lock,
+    update_library_refresh_job,
+)
 from app.tasks.anime_poster import download_anime_poster
 from app.utils import env_bool, env_float, safe_float, safe_int
 
@@ -100,6 +104,52 @@ def sync_user_library_anime(user_id: int) -> dict[str, int]:
     finally:
         engine.dispose()
     return summary
+
+
+@celery_app.task(name='app.tasks.anime_sync.refresh_user_library')
+def refresh_user_library(user_id: int, lock_path: str | None = None, job_dir: str | None = None, job_id: str | None = None) -> dict[str, object]:
+    try:
+        _update_refresh_job(job_dir, job_id, status='running', progress=_refresh_progress('syncing', 0, 2, 'Refreshing library metadata'))
+        sync_summary = sync_user_library_anime(user_id)
+        discovery_summary = None
+        if env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'):
+            from app.tasks.tvdb_season_discovery import discover_tvdb_seasons_for_user
+
+            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', 1, 2, 'Checking TVDB seasons'))
+            discovery_summary = discover_tvdb_seasons_for_user(user_id)
+        else:
+            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', 1, 2, 'TVDB season discovery is disabled'))
+        summary = {'sync': sync_summary, 'tvdbSeasonDiscovery': discovery_summary}
+        _update_refresh_job(
+            job_dir,
+            job_id,
+            status='completed',
+            progress=_refresh_progress('completed', 2, 2, 'Library refresh completed'),
+            summary=summary,
+        )
+        return summary
+    except Exception as exc:
+        _update_refresh_job(
+            job_dir,
+            job_id,
+            status='failed',
+            progress=_refresh_progress('failed', 0, 1, str(exc)),
+            summary={'error': type(exc).__name__, 'message': str(exc)},
+        )
+        raise
+    finally:
+        release_library_refresh_lock(lock_path)
+
+
+def _refresh_progress(stage: str, processed: int, total: int, message: str) -> dict[str, object]:
+    percent = round(processed / total * 100) if total > 0 else 0
+    return {'stage': stage, 'processed': processed, 'total': total, 'percent': percent, 'message': message}
+
+
+def _update_refresh_job(job_dir: str | None, job_id: str | None, **fields: object) -> None:
+    if not job_dir or not job_id:
+        return
+    update_library_refresh_job(job_dir, job_id, **fields)
 
 
 def _airing_anime_ids(session) -> list[int]:  # type: ignore[no-untyped-def]
