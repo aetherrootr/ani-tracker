@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { addSearchResultToLibrary } from "@/features/search/api";
-import type { AnimeSearchResult } from "@/features/search/types";
+import type { AnimeSearchResult, DuplicateAnimeConflict, DuplicateResolution } from "@/features/search/types";
+import { ApiError } from "@/lib/api-client";
 
 type SearchResultCardProps = {
   result: AnimeSearchResult;
@@ -24,14 +25,20 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
   const [showDetails, setShowDetails] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [duplicateConflict, setDuplicateConflict] = useState<DuplicateAnimeConflict | null>(null);
 
-  async function addToLibrary() {
+  async function addToLibrary(duplicateResolution?: DuplicateResolution) {
     setIsAdding(true);
     setAddError(null);
     try {
-      const response = await addSearchResultToLibrary(result.provider, result.externalId);
+      const response = await addSearchResultToLibrary(result.provider, result.externalId, duplicateResolution);
+      setDuplicateConflict(null);
       onLibraryAdded(result.provider, result.externalId, response.anime.id, response.progress.status);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && isDuplicateConflictBody(err.body)) {
+        setDuplicateConflict(err.body.conflict);
+        return;
+      }
       setAddError(err instanceof Error ? err.message : t("search.addToLibraryFailed"));
     } finally {
       setIsAdding(false);
@@ -39,6 +46,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
   }
 
   return (
+    <>
     <Card className="overflow-hidden">
       <CardContent className="grid grid-cols-[72px_1fr_auto] gap-3 p-3 sm:grid-cols-[128px_1fr_auto] sm:gap-4 sm:p-4 md:grid-cols-[128px_1fr_180px] md:p-5">
         <div className="relative flex h-24 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground sm:h-44 sm:rounded-xl">
@@ -164,7 +172,54 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
         </div>
       </CardContent>
     </Card>
+    {duplicateConflict ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="duplicate-anime-title">
+        <div className="glass-dialog flex max-h-[90svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
+          <div className="border-b p-5">
+            <h2 id="duplicate-anime-title" className="text-lg font-semibold tracking-tight">{t("search.duplicateAnimeTitle")}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{t("search.duplicateAnimeDescription")}</p>
+            <p className="mt-3 rounded-xl bg-muted/40 p-3 text-sm">
+              {duplicateConflict.provider} · {duplicateConflict.externalId} · {duplicateConflict.title}
+            </p>
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            {duplicateConflict.candidates.map((candidate) => (
+              <div key={candidate.animeId} className="rounded-2xl border bg-card p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{candidate.provider}</Badge>
+                      {candidate.airDate ? <Badge variant="secondary">{candidate.airDate}</Badge> : null}
+                      {candidate.episodeCount !== null ? <Badge variant="secondary">{t("anime.episodeCount", { count: candidate.episodeCount })}</Badge> : null}
+                    </div>
+                    <p className="font-medium">{candidate.displayName}</p>
+                    <p className="text-sm text-muted-foreground">{candidate.originalName}</p>
+                    {candidate.url ? <a className="text-sm font-medium text-primary hover:underline" href={candidate.url} target="_blank" rel="noreferrer">{t("anime.viewOnProvider", { provider: candidate.provider })}</a> : null}
+                  </div>
+                  <Button type="button" disabled={isAdding} onClick={() => void addToLibrary({ useExistingAnimeId: candidate.animeId })}>
+                    {t("search.useExistingProvider")}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" disabled={isAdding} onClick={() => setDuplicateConflict(null)}>{t("library.cancel")}</Button>
+            <Button type="button" disabled={isAdding} onClick={() => void addToLibrary({ useCurrentProvider: true })}>{t("search.useCurrentProvider")}</Button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
+}
+
+function isDuplicateConflictBody(body: unknown): body is { conflict: DuplicateAnimeConflict } {
+  if (!body || typeof body !== "object") {
+    return false;
+  }
+  const conflict = (body as { conflict?: unknown }).conflict;
+  return Boolean(conflict && typeof conflict === "object" && Array.isArray((conflict as { candidates?: unknown }).candidates));
 }
 
 function SearchResultDetail({ label, value }: { label: string; value: string | null }) {

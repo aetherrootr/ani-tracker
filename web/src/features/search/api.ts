@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api-client";
 
-import type { AnimeSearchResponse, SearchAnimeInput } from "./types";
+import type { AnimeSearchResponse, DuplicateResolution, SearchAnimeInput } from "./types";
 
 type AddToLibraryResponse = {
   anime: { id: number };
@@ -26,9 +26,9 @@ export function searchAnime({
   });
 }
 
-export function addSearchResultToLibrary(provider: string, externalId: string) {
+export function addSearchResultToLibrary(provider: string, externalId: string, duplicateResolution?: DuplicateResolution) {
   return apiFetch<AddToLibraryResponse>("/api/anime/library", {
     method: "POST",
-    body: JSON.stringify({ provider, externalId }),
+    body: JSON.stringify({ provider, externalId, duplicateResolution }),
   });
 }

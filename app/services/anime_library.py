@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
 from app.import_provider.types import (
+    ImportAnimeDetail,
     ImportAnimeName,
     ImportAnimeSummary,
     ImportEpisodeInfo,
@@ -29,6 +31,27 @@ from app.models.anime import (
 from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
 from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
+
+
+@dataclass(frozen=True)
+class DuplicateAnimeCandidate:
+    anime: AnimeMetaInfo
+
+
+@dataclass(frozen=True)
+class DuplicateAnimeConflict(Exception):
+    provider: str
+    external_id: str
+    title: str
+    candidates: list[DuplicateAnimeCandidate]
+
+
+@dataclass(frozen=True)
+class ProviderSwitchResult:
+    anime: AnimeMetaInfo
+    progress: UserAnimeProgress
+    previous_anime_id: int
+    episode_conflicts: list[Any]
 
 
 def import_anime_from_provider(
@@ -60,6 +83,59 @@ def import_anime_from_provider(
     return anime, True
 
 
+def _get_or_import_anime_from_detail(
+    session: Session,
+    detail: ImportAnimeDetail,
+) -> tuple[AnimeMetaInfo, bool]:
+    anime = session.scalar(
+        select(AnimeMetaInfo).where(
+            AnimeMetaInfo.provider_type == detail.provider,
+            AnimeMetaInfo.external_id == detail.external_id,
+        ),
+    )
+    if anime is not None:
+        return anime, False
+
+    anime = AnimeMetaInfo(
+        provider_type=detail.provider,
+        external_id=detail.external_id,
+        original_name=detail.title,
+    )
+    session.add(anime)
+    session.flush()
+    populate_anime_from_detail(session, anime, detail)
+    return anime, True
+
+
+def find_cross_provider_name_conflicts(
+    session: Session,
+    provider_name: str,
+    detail: ImportAnimeDetail,
+) -> list[DuplicateAnimeCandidate]:
+    names = {_normalize_duplicate_name(name) for name in _detail_duplicate_names(detail)}
+    names.discard('')
+    if not names:
+        return []
+    candidate_anime = session.scalars(
+        select(AnimeMetaInfo)
+        .where(AnimeMetaInfo.provider_type != provider_name)
+        .order_by(AnimeMetaInfo.id),
+    ).all()
+    candidate_ids = [anime.id for anime in candidate_anime]
+    aliases_by_anime_id: dict[int, set[str]] = {anime.id: set() for anime in candidate_anime}
+    if candidate_ids:
+        for anime_id, name in session.execute(
+            select(AnimeName.anime_id, AnimeName.name).where(AnimeName.anime_id.in_(candidate_ids)),
+        ).all():
+            aliases_by_anime_id.setdefault(anime_id, set()).add(_normalize_duplicate_name(name))
+    return [
+        DuplicateAnimeCandidate(anime=anime)
+        for anime in candidate_anime
+        if _normalize_duplicate_name(anime.original_name) in names
+        or bool(aliases_by_anime_id.get(anime.id, set()) & names)
+    ]
+
+
 def populate_anime_from_detail(session: Session, anime: AnimeMetaInfo, detail: Any) -> AnimePoster | None:
     now = datetime.now(UTC)
     anime.url = detail.url
@@ -89,37 +165,56 @@ def add_anime_to_user_library(
     *,
     user_id: int,
     external_id: str,
+    duplicate_resolution: dict[str, Any] | None = None,
 ) -> tuple[AnimeMetaInfo, UserAnimeProgress, bool, bool, bool]:
     poster_to_enqueue: AnimePoster | None = None
     try:
         user = session.get(User, user_id)
-        anime, anime_created = import_anime_from_provider(
-            session,
-            provider,
-            external_id=external_id,
-            language=user.language_preference if user is not None else None,
-        )
-        progress = session.scalar(
-            select(UserAnimeProgress).where(
-                UserAnimeProgress.user_id == user_id,
-                UserAnimeProgress.anime_id == anime.id,
+        existing_anime = session.scalar(
+            select(AnimeMetaInfo).where(
+                AnimeMetaInfo.provider_type == provider.name,
+                AnimeMetaInfo.external_id == external_id,
             ),
         )
-        library_changed = False
-        progress_created = False
-        if progress is None:
-            progress = UserAnimeProgress(
-                user_id=user_id,
-                anime_id=anime.id,
-                status=UserAnimeStatus.PLAN_TO_WATCH,
-                last_watched_episode_number=0,
-            )
-            session.add(progress)
-            library_changed = True
-            progress_created = True
-        elif progress.status == UserAnimeStatus.DROPPED:
-            progress.status = UserAnimeStatus.PLAN_TO_WATCH
-            library_changed = True
+        if existing_anime is not None:
+            existing_progress = get_user_progress(session, user_id=user_id, anime_id=existing_anime.id)
+            if existing_progress is not None:
+                anime = existing_anime
+                anime_created = False
+                progress, library_changed, progress_created = _add_anime_progress(
+                    session,
+                    user_id=user_id,
+                    anime_id=anime.id,
+                )
+                session.flush()
+                poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == anime.id))
+                session.commit()
+                if anime_created and poster_to_enqueue is not None and poster_to_enqueue.status == 'pending':
+                    enqueue_poster_download(poster_to_enqueue.id)
+                return anime, progress, anime_created, library_changed, progress_created
+
+        detail = provider.get_anime_detail(external_id, language=user.language_preference if user is not None else None)
+        conflicts = find_cross_provider_name_conflicts(session, provider.name, detail)
+        if conflicts and not (duplicate_resolution or {}).get('useCurrentProvider'):
+            use_existing_anime_id = (duplicate_resolution or {}).get('useExistingAnimeId')
+            if use_existing_anime_id is None:
+                raise DuplicateAnimeConflict(provider.name, external_id, detail.title, conflicts)
+            matching_candidate = next((candidate for candidate in conflicts if candidate.anime.id == use_existing_anime_id), None)
+            if matching_candidate is None:
+                message = 'duplicateResolution.useExistingAnimeId is not a valid conflict candidate'
+                raise ValueError(message)
+            anime = matching_candidate.anime
+            anime_created = False
+        elif existing_anime is not None:
+            anime = existing_anime
+            anime_created = False
+        else:
+            anime, anime_created = _get_or_import_anime_from_detail(session, detail)
+        progress, library_changed, progress_created = _add_anime_progress(
+            session,
+            user_id=user_id,
+            anime_id=anime.id,
+        )
 
         session.flush()
         poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == anime.id))
@@ -131,6 +226,192 @@ def add_anime_to_user_library(
     if anime_created and poster_to_enqueue is not None and poster_to_enqueue.status == 'pending':
         enqueue_poster_download(poster_to_enqueue.id)
     return anime, progress, anime_created, library_changed, progress_created
+
+
+def switch_user_anime_provider(
+    session: Session,
+    provider: ImportProvider,
+    *,
+    user_id: int,
+    anime_id: int,
+    external_id: str,
+) -> ProviderSwitchResult | None:
+    poster_to_enqueue: AnimePoster | None = None
+    try:
+        user = session.get(User, user_id)
+        source_progress = get_user_progress(session, user_id=user_id, anime_id=anime_id)
+        if source_progress is None:
+            return None
+        target_anime, target_created = import_anime_from_provider(
+            session,
+            provider,
+            external_id=external_id,
+            language=user.language_preference if user is not None else None,
+        )
+        target_progress = get_user_progress(session, user_id=user_id, anime_id=target_anime.id)
+        source_watched = _watched_episode_numbers(session, user_id=user_id, anime_id=anime_id)
+        conflicts = _migrate_watched_episodes(
+            session,
+            user_id=user_id,
+            source_anime_id=anime_id,
+            target_anime_id=target_anime.id,
+            source_watched=source_watched,
+        )
+        if target_progress is None:
+            source_progress.anime_id = target_anime.id
+            source_progress.preferred_name_id = None
+            source_progress.preferred_summary_id = None
+            source_progress.preferred_poster_id = None
+            target_progress = source_progress
+        elif target_progress.id != source_progress.id:
+            _merge_anime_progress(source_progress, target_progress)
+            session.delete(source_progress)
+        recalculate_user_anime_progress(session, progress=target_progress)
+        if source_watched and target_progress.status == UserAnimeStatus.PLAN_TO_WATCH:
+            target_progress.status = UserAnimeStatus.WATCHING
+        session.flush()
+        poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == target_anime.id))
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    if target_created and poster_to_enqueue is not None and poster_to_enqueue.status == 'pending':
+        enqueue_poster_download(poster_to_enqueue.id)
+    return ProviderSwitchResult(
+        anime=target_anime,
+        progress=target_progress,
+        previous_anime_id=anime_id,
+        episode_conflicts=conflicts,
+    )
+
+
+def _add_anime_progress(
+    session: Session,
+    *,
+    user_id: int,
+    anime_id: int,
+) -> tuple[UserAnimeProgress, bool, bool]:
+    progress = session.scalar(
+        select(UserAnimeProgress).where(
+            UserAnimeProgress.user_id == user_id,
+            UserAnimeProgress.anime_id == anime_id,
+        ),
+    )
+    library_changed = False
+    progress_created = False
+    if progress is None:
+        progress = UserAnimeProgress(
+            user_id=user_id,
+            anime_id=anime_id,
+            status=UserAnimeStatus.PLAN_TO_WATCH,
+            last_watched_episode_number=0,
+        )
+        session.add(progress)
+        library_changed = True
+        progress_created = True
+    elif progress.status == UserAnimeStatus.DROPPED:
+        progress.status = UserAnimeStatus.PLAN_TO_WATCH
+        library_changed = True
+    return progress, library_changed, progress_created
+
+
+def _detail_duplicate_names(detail: ImportAnimeDetail) -> list[str]:
+    names = [detail.title]
+    if detail.original_title:
+        names.append(detail.original_title)
+    names.extend(item.name for item in detail.names)
+    return names
+
+
+def _normalize_duplicate_name(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _status_priority(status: UserAnimeStatus) -> int:
+    priorities = {
+        UserAnimeStatus.PLAN_TO_WATCH: 0,
+        UserAnimeStatus.DROPPED: 1,
+        UserAnimeStatus.ON_HOLD: 2,
+        UserAnimeStatus.WATCHING: 3,
+        UserAnimeStatus.COMPLETED: 4,
+    }
+    return priorities[status]
+
+
+def _merge_anime_progress(source: UserAnimeProgress, target: UserAnimeProgress) -> None:
+    if _status_priority(source.status) > _status_priority(target.status):
+        target.status = source.status
+    if source.last_watched_episode_number > target.last_watched_episode_number:
+        target.last_watched_episode_number = source.last_watched_episode_number
+        target.last_watched_at = source.last_watched_at
+    elif target.last_watched_at is None and source.last_watched_at is not None:
+        target.last_watched_at = source.last_watched_at
+
+
+def _watched_episode_numbers(
+    session: Session,
+    *,
+    user_id: int,
+    anime_id: int,
+) -> dict[int, tuple[Episode, UserEpisodeProgress]]:
+    rows = session.execute(
+        select(Episode, UserEpisodeProgress)
+        .join(UserEpisodeProgress, UserEpisodeProgress.episode_id == Episode.id)
+        .where(
+            Episode.anime_id == anime_id,
+            UserEpisodeProgress.user_id == user_id,
+            UserEpisodeProgress.watched.is_(True),
+        ),
+    ).all()
+    return {episode.episode_number: (episode, progress) for episode, progress in rows}
+
+
+def _migrate_watched_episodes(
+    session: Session,
+    *,
+    user_id: int,
+    source_anime_id: int,
+    target_anime_id: int,
+    source_watched: dict[int, tuple[Episode, UserEpisodeProgress]],
+) -> list[Any]:
+    from app.services.anime_sync import EpisodeConflict
+
+    target_episodes = {
+        episode.episode_number: episode
+        for episode in session.scalars(select(Episode).where(Episode.anime_id == target_anime_id)).all()
+    }
+    conflicts: list[Any] = []
+    for episode_number, (source_episode, source_progress) in source_watched.items():
+        target_episode = target_episodes.get(episode_number)
+        if target_episode is None:
+            selected_name = session.scalar(select(EpisodeName).where(EpisodeName.episode_id == source_episode.id).order_by(EpisodeName.id))
+            conflicts.append(
+                EpisodeConflict(
+                    anime_id=source_anime_id,
+                    episode_id=source_episode.id,
+                    episode_number=episode_number,
+                    display_name=selected_name.name if selected_name is not None else source_episode.original_title,
+                    watched_user_count=1,
+                    watched=True,
+                    watched_at=source_progress.watched_at.isoformat() if source_progress.watched_at else None,
+                    reason='missing_target_episode',
+                ),
+            )
+            continue
+        target_progress = session.scalar(
+            select(UserEpisodeProgress).where(
+                UserEpisodeProgress.user_id == user_id,
+                UserEpisodeProgress.episode_id == target_episode.id,
+            ),
+        )
+        if target_progress is None:
+            target_progress = UserEpisodeProgress(user_id=user_id, episode_id=target_episode.id)
+            session.add(target_progress)
+        target_progress.watched = True
+        if target_progress.watched_at is None:
+            target_progress.watched_at = source_progress.watched_at
+    return conflicts
 
 
 def get_user_progress(session: Session, *, user_id: int, anime_id: int) -> UserAnimeProgress | None:

@@ -26,6 +26,7 @@ from app.api.utils.providers import get_import_provider_factory
 from app.api.utils.serializers import (
     select_anime_name_for_user,
     serialize_anime,
+    serialize_duplicate_anime_candidate,
     serialize_anime_name,
     serialize_import_search_result,
     serialize_library_progress,
@@ -51,10 +52,12 @@ from app.models.progress import (
 )
 from app.models.user import User
 from app.services.anime_library import (
+    DuplicateAnimeConflict,
     add_anime_to_user_library,
     get_user_progress,
     set_anime_name_preference,
     set_summary_preference,
+    switch_user_anime_provider,
     update_user_anime_status,
 )
 from app.services.anime_poster import enqueue_poster_download
@@ -110,6 +113,20 @@ def search_anime(db: Session, user: User) -> ResponseReturnValue:
     )
 
 
+@anime_info_bp.get('/providers')
+@require_auth_user
+def list_import_providers(db: Session, user: User) -> ResponseReturnValue:
+    providers = get_import_provider_factory().list_providers()
+    return jsonify(
+        {
+            'providers': [
+                {'name': provider.name, 'label': _provider_label(provider.name)}
+                for provider in providers
+            ],
+        },
+    )
+
+
 @anime_info_bp.post('/library')
 @require_auth_user
 def add_to_library(db: Session, user: User) -> ResponseReturnValue:
@@ -124,6 +141,9 @@ def add_to_library(db: Session, user: User) -> ResponseReturnValue:
         return jsonify({'message': 'Anime externalId is required'}), 400
     provider_name = provider_name.strip()
     external_id = external_id.strip()
+    duplicate_resolution = payload.get('duplicateResolution')
+    if duplicate_resolution is not None and not isinstance(duplicate_resolution, dict):
+        return jsonify({'message': 'duplicateResolution must be an object'}), 400
     try:
         provider_type = ProviderType(provider_name)
     except ValueError:
@@ -137,7 +157,24 @@ def add_to_library(db: Session, user: User) -> ResponseReturnValue:
             provider,
             user_id=user.id,
             external_id=external_id,
+            duplicate_resolution=duplicate_resolution,
         )
+    except DuplicateAnimeConflict as conflict:
+        db.rollback()
+        return jsonify(
+            {
+                'message': 'Potential duplicate anime found',
+                'conflict': {
+                    'provider': conflict.provider,
+                    'externalId': conflict.external_id,
+                    'title': conflict.title,
+                    'candidates': [serialize_duplicate_anime_candidate(candidate) for candidate in conflict.candidates],
+                },
+            },
+        ), 409
+    except ValueError as exc:
+        db.rollback()
+        return jsonify({'message': str(exc)}), 400
     except ImportProviderTimeoutError:
         db.rollback()
         return jsonify({'message': 'Import provider request timed out'}), 504
@@ -154,6 +191,57 @@ def add_to_library(db: Session, user: User) -> ResponseReturnValue:
             'libraryEntryCreatedOrRestored': library_changed,
         },
     ), status_code
+
+
+@anime_info_bp.post('/library/<int:anime_id>/provider-switch')
+@require_auth_user
+def switch_library_anime_provider(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'message': 'Request body must be a JSON object'}), 400
+    provider_name = payload.get('provider')
+    external_id = payload.get('externalId')
+    if not isinstance(provider_name, str) or not provider_name.strip():
+        return jsonify({'message': 'Anime provider is required'}), 400
+    if not isinstance(external_id, str) or not external_id.strip():
+        return jsonify({'message': 'Anime externalId is required'}), 400
+    try:
+        provider_type = ProviderType(provider_name.strip())
+    except ValueError:
+        return jsonify({'message': 'Unknown import provider'}), 400
+
+    try:
+        provider = get_import_provider_factory().get_provider(provider_type.value)
+        result = switch_user_anime_provider(
+            db,
+            provider,
+            user_id=user.id,
+            anime_id=anime_id,
+            external_id=external_id.strip(),
+        )
+        if result is None:
+            db.rollback()
+            return jsonify({'message': 'Anime not found'}), 404
+    except ImportProviderTimeoutError:
+        db.rollback()
+        return jsonify({'message': 'Import provider request timed out'}), 504
+    except ImportProviderResponseError:
+        db.rollback()
+        return jsonify({'message': 'Import provider response error'}), 502
+
+    return jsonify(
+        {
+            'anime': serialize_anime(result.anime, result.progress, user),
+            'progress': serialize_progress(result.progress, include_anime_id=True),
+            'previousAnimeId': result.previous_anime_id,
+            'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
+        },
+    )
+
+
+def _provider_label(name: str) -> str:
+    labels = {'bangumi': 'Bangumi', 'tmdb': 'TMDB', 'tvdb': 'The TVDB'}
+    return labels.get(name, name)
 
 
 @anime_info_bp.get('/library')

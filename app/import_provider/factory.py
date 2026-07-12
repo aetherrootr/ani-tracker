@@ -60,3 +60,6 @@ class ImportProviderFactory:
             message = 'Unknown import provider'
             raise ImportProviderResponseError(message)
         return provider
+
+    def list_providers(self) -> list[ImportProvider]:
+        return list(self._providers.values())

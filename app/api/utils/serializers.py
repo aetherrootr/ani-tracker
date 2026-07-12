@@ -15,6 +15,7 @@ from app.models.anime import (
 )
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
+from app.services.anime_library import DuplicateAnimeCandidate
 from app.services.name_keys import build_name_keys
 
 
@@ -40,6 +41,20 @@ def serialize_import_search_result(
         'inLibrary': library_status is not None,
         'animeId': anime_id,
         'libraryStatus': library_status.value if library_status is not None else None,
+    }
+
+
+def serialize_duplicate_anime_candidate(candidate: DuplicateAnimeCandidate) -> dict[str, Any]:
+    anime = candidate.anime
+    return {
+        'animeId': anime.id,
+        'provider': anime.provider_type,
+        'externalId': anime.external_id,
+        'displayName': anime.original_name,
+        'originalName': anime.original_name,
+        'airDate': anime.air_date.isoformat() if anime.air_date is not None else None,
+        'episodeCount': anime.total_episodes,
+        'url': anime.url,
     }
 
 

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Repeat2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
@@ -18,6 +19,7 @@ import { EpisodeConflictDialog } from "./EpisodeConflictDialog";
 import { EpisodeList } from "./EpisodeList";
 import { SkeletonBlock } from "./LibraryPagination";
 import { NoPoster } from "./NoPoster";
+import { ProviderSwitchDialog } from "./ProviderSwitchDialog";
 
 const STATUS_OPTIONS: UserAnimeStatus[] = ["plan_to_watch", "watching", "completed", "on_hold", "dropped"];
 const POSTER_POLL_INTERVAL_MS = 1200;
@@ -25,6 +27,7 @@ const POSTER_POLL_ATTEMPTS = 10;
 
 export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const t = useTranslations();
+  const router = useRouter();
   const { data, setData, isLoading, error, retry } = useAnimeDetail(animeId);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement | null>(null);
@@ -36,6 +39,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
   const [isPosterRefreshing, setIsPosterRefreshing] = useState(false);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+  const [providerSwitchOpen, setProviderSwitchOpen] = useState(false);
+  const [providerSwitchTargetAnimeId, setProviderSwitchTargetAnimeId] = useState<number | null>(null);
+  const [providerSwitchConflicts, setProviderSwitchConflicts] = useState<EpisodeConflict[]>([]);
 
   useEffect(() => {
     if (!summaryDialogOpen) {
@@ -150,6 +156,15 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       setSyncError(err instanceof Error ? err.message : t("library.resolveConflictsFailed"));
     } finally {
       setIsResolvingConflicts(false);
+    }
+  }
+
+  function finishProviderSwitch() {
+    const targetAnimeId = providerSwitchTargetAnimeId;
+    setProviderSwitchConflicts([]);
+    setProviderSwitchTargetAnimeId(null);
+    if (targetAnimeId !== null) {
+      router.push(`/library/${targetAnimeId}`);
     }
   }
 
@@ -313,7 +328,22 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               <InfoCard label={t("anime.platform")} value={data.anime.type} />
               <InfoCard label={t("anime.episodes")} value={String(data.anime.totalEpisodes ?? data.anime.episodeCount)} />
               <InfoCard label={t("anime.airDate")} value={data.anime.airDate ?? t("anime.unknown")} />
-              <InfoCard label="Provider" value={data.anime.provider} />
+              <button type="button" className="group relative rounded-2xl border bg-background/35 p-3 text-left backdrop-blur transition-colors hover:bg-background/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setProviderSwitchOpen(true)}>
+                <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</span>
+                <span className="mt-1 flex items-center justify-between gap-3 font-semibold">
+                  <span>{data.anime.provider}</span>
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/60 text-muted-foreground transition-colors group-hover:border-primary/40 group-hover:text-primary" aria-hidden="true">
+                    <Repeat2 className="h-4 w-4" />
+                  </span>
+                </span>
+                <span className="glass-dialog pointer-events-none absolute left-3 top-full z-30 mt-2 hidden w-52 rounded-2xl border p-3 text-foreground shadow-lg group-hover:block group-focus-visible:block">
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <Repeat2 className="h-4 w-4 text-primary" />
+                    {t("library.switchProvider")}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t("library.switchProviderHint")}</span>
+                </span>
+              </button>
               {data.anime.url ? (
                 <a className="rounded-2xl border bg-background/35 p-3 backdrop-blur transition-colors hover:bg-background/55" href={data.anime.url} target="_blank" rel="noreferrer">
                   <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("anime.viewOnProvider", { provider: data.anime.provider })}</span>
@@ -350,6 +380,29 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         isResolving={isResolvingConflicts}
         onCancel={() => setEpisodeConflicts([])}
         onConfirm={(deleteEpisodeIds) => void resolveConflicts(deleteEpisodeIds)}
+      />
+      <ProviderSwitchDialog
+        open={providerSwitchOpen}
+        anime={data.anime}
+        onClose={() => setProviderSwitchOpen(false)}
+        onSwitched={(targetAnimeId, _previousAnimeId, conflicts) => {
+          setProviderSwitchOpen(false);
+          if (conflicts.length === 0) {
+            router.push(`/library/${targetAnimeId}`);
+            return;
+          }
+          setProviderSwitchTargetAnimeId(targetAnimeId);
+          setProviderSwitchConflicts(conflicts);
+        }}
+      />
+      <EpisodeConflictDialog
+        key={`provider-switch-${providerSwitchConflicts.map((conflict) => conflict.episodeId).join("-")}`}
+        open={providerSwitchConflicts.length > 0}
+        conflicts={providerSwitchConflicts}
+        title={t("library.switchProviderEpisodeConflictsTitle")}
+        description={t("library.switchProviderEpisodeConflictsDescription")}
+        onCancel={finishProviderSwitch}
+        onConfirm={finishProviderSwitch}
       />
       {summaryDialogOpen ? (
         <div
