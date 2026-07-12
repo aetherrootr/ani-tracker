@@ -34,7 +34,12 @@ from app.models.anime import (
     EpisodeName,
     EpisodeStatus,
 )
-from app.models.progress import UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus, UserEpisodeProgress
+from app.models.progress import (
+    UserAnimeProgress,
+    UserAnimeRelationOverride,
+    UserAnimeStatus,
+    UserEpisodeProgress,
+)
 from app.tasks.celery_config import configure_celery
 from tests.test_auth import register_user
 
