@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -33,7 +34,7 @@ from app.models.anime import (
     EpisodeName,
     EpisodeStatus,
 )
-from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
+from app.models.progress import UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus, UserEpisodeProgress
 from app.tasks.celery_config import configure_celery
 from tests.test_auth import register_user
 
@@ -132,6 +133,12 @@ class MutableDetailProvider(FakeProvider):
             message = 'missing fake detail'
             raise ImportProviderResponseError(message)
         return detail
+
+
+class NamedMutableDetailProvider(MutableDetailProvider):
+    def __init__(self, name: str, details: dict[str, ImportAnimeDetail]) -> None:
+        super().__init__(details)
+        self.name = name
 
 
 def anime_detail(
@@ -353,6 +360,61 @@ def test_add_to_library_detects_duplicate_against_existing_anime_alias(
     assert conflict['candidates'][0]['animeId'] == existing.id
     assert conflict['candidates'][0]['provider'] == 'tvdb'
     assert db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.external_id == '277554')) is None
+
+
+def test_provider_switch_retargets_existing_related_anime_links(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    source = AnimeMetaInfo(provider_type='bangumi', external_id='old-related', original_name='Related Anime')
+    db_session.add_all([current, source])
+    db_session.flush()
+    source_poster = AnimePoster(anime_id=source.id, storage_path='old-related.jpg', status='ready')
+    db_session.add(source_poster)
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='old-related',
+        relation_type='same_series_season',
+        title='Related Anime',
+        related_anime_id=source.id,
+        poster_id=source_poster.id,
+    )
+    db_session.add(relation)
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=source.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+    target_detail = replace(
+        anime_detail('new-related', title='Related Anime TVDB'),
+        provider='tvdb',
+        url='https://thetvdb.com/series/related/seasons/official/1',
+        poster_source_url='https://example.test/new-related.jpg',
+    )
+    provider = NamedMutableDetailProvider('tvdb', {'new-related': target_detail})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': FakeProvider(), 'tvdb': provider})
+
+    switch_response = client.post(
+        f'/api/anime/library/{source.id}/provider-switch',
+        json={'provider': 'tvdb', 'externalId': 'new-related'},
+    )
+
+    assert switch_response.status_code == 200
+    target_id = switch_response.get_json()['anime']['id']
+    detail_response = client.get(f'/api/anime/{current.id}')
+    related = detail_response.get_json()['anime']['relatedAnime'][0]
+    assert related['animeId'] == target_id
+    assert related['inLibrary'] is True
+    assert related['posterUrl'] == f'/api/anime/{target_id}/assets/posters/2?v=2-pending'
+    db_session.refresh(relation)
+    assert relation.related_anime_id == source.id
+    override = db_session.scalar(select(UserAnimeRelationOverride).where(UserAnimeRelationOverride.anime_relation_id == relation.id))
+    assert override is not None
+    assert override.user_id == 1
+    assert override.related_anime_id == target_id
 
 
 def test_add_to_library_restores_dropped_progress(

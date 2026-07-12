@@ -635,7 +635,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
             </>
           );
           const className = "flex min-h-24 w-80 shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent sm:w-96";
-          if (item.animeId !== null) {
+          if (item.inLibrary && item.animeId !== null) {
             return <Link key={item.externalId} href={`/library/${item.animeId}`} className={className}>{content}</Link>;
           }
           return <button key={item.externalId} type="button" className={`${className} text-left`} onClick={() => setSelectedItem(item)}>{content}</button>;

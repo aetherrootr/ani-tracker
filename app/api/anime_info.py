@@ -47,6 +47,7 @@ from app.models.anime import (
 )
 from app.models.progress import (
     UserAnimeProgress,
+    UserAnimeRelationOverride,
     UserAnimeStatus,
     UserEpisodeProgress,
 )
@@ -388,6 +389,30 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
     )
     if anime is None:
         return jsonify({'message': 'Anime not found'}), 404
+    related_anime_ids = [relation.related_anime_id for relation in anime.related_anime if relation.related_anime_id is not None]
+    relation_ids = [relation.id for relation in anime.related_anime]
+    related_anime_overrides = {}
+    if relation_ids:
+        overrides = db.scalars(
+            select(UserAnimeRelationOverride)
+            .options(selectinload(UserAnimeRelationOverride.related_anime).selectinload(AnimeMetaInfo.posters))
+            .where(
+                UserAnimeRelationOverride.user_id == user.id,
+                UserAnimeRelationOverride.anime_relation_id.in_(relation_ids),
+            ),
+        ).all()
+        related_anime_overrides = {override.anime_relation_id: override.related_anime for override in overrides}
+        related_anime_ids.extend(override.related_anime_id for override in overrides)
+    related_library_anime_ids = set()
+    if related_anime_ids:
+        related_library_anime_ids = set(
+            db.scalars(
+                select(UserAnimeProgress.anime_id).where(
+                    UserAnimeProgress.user_id == user.id,
+                    UserAnimeProgress.anime_id.in_(related_anime_ids),
+                ),
+            ).all(),
+        )
     return jsonify(
         {
             'anime': serialize_anime(
@@ -398,6 +423,8 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
                 include_available_names=True,
                 include_available_posters=True,
                 include_related_anime=True,
+                related_library_anime_ids=related_library_anime_ids,
+                related_anime_overrides=related_anime_overrides,
             ),
             'progress': serialize_progress(progress),
         },

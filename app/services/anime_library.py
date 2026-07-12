@@ -28,7 +28,7 @@ from app.models.anime import (
     EpisodeName,
     EpisodeStatus,
 )
-from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
+from app.models.progress import UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus, UserEpisodeProgress
 from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
 
@@ -269,6 +269,12 @@ def switch_user_anime_provider(
         recalculate_user_anime_progress(session, progress=target_progress)
         if source_watched and target_progress.status == UserAnimeStatus.PLAN_TO_WATCH:
             target_progress.status = UserAnimeStatus.WATCHING
+        _retarget_user_related_anime_links(
+            session,
+            user_id=user_id,
+            previous_anime_id=anime_id,
+            target_anime_id=target_anime.id,
+        )
         session.flush()
         poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == target_anime.id))
         session.commit()
@@ -412,6 +418,38 @@ def _migrate_watched_episodes(
         if target_progress.watched_at is None:
             target_progress.watched_at = source_progress.watched_at
     return conflicts
+
+
+def _retarget_user_related_anime_links(
+    session: Session,
+    *,
+    user_id: int,
+    previous_anime_id: int,
+    target_anime_id: int,
+) -> None:
+    relation_ids = set(
+        session.scalars(select(AnimeRelation.id).where(AnimeRelation.related_anime_id == previous_anime_id)).all(),
+    )
+    relation_ids.update(
+        session.scalars(
+            select(UserAnimeRelationOverride.anime_relation_id).where(
+                UserAnimeRelationOverride.user_id == user_id,
+                UserAnimeRelationOverride.related_anime_id == previous_anime_id,
+            ),
+        ).all(),
+    )
+    for relation_id in relation_ids:
+        override = session.scalar(
+            select(UserAnimeRelationOverride).where(
+                UserAnimeRelationOverride.user_id == user_id,
+                UserAnimeRelationOverride.anime_relation_id == relation_id,
+            ),
+        )
+        if override is None:
+            override = UserAnimeRelationOverride(user_id=user_id, anime_relation_id=relation_id, related_anime_id=target_anime_id)
+            session.add(override)
+        else:
+            override.related_anime_id = target_anime_id
 
 
 def get_user_progress(session: Session, *, user_id: int, anime_id: int) -> UserAnimeProgress | None:
