@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { getOidcConfig } from "@/features/auth/api";
-import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateWeekStartDay } from "@/features/auth/hooks";
+import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateWeekStartDay } from "@/features/auth/hooks";
+import { getImportProviders } from "@/features/library/api";
+import type { ImportProvider } from "@/features/library/types";
 import { getApiUrl } from "@/lib/api-client";
 
 const WEEK_START_OPTIONS = ["0", "1", "2", "3", "4", "5", "6"] as const;
@@ -22,12 +24,15 @@ export default function SettingsPage() {
   const logout = useLogout();
   const unlinkOidc = useUnlinkOidc();
   const updateWeekStartDay = useUpdateWeekStartDay();
+  const updateImportProviderPreference = useUpdateImportProviderPreference();
   const { user } = useCurrentUser();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isUnlinkingOidc, setIsUnlinkingOidc] = useState(false);
   const [isUnlinkConfirmOpen, setIsUnlinkConfirmOpen] = useState(false);
   const [isOidcEnabled, setIsOidcEnabled] = useState(false);
   const [isSavingWeekStart, setIsSavingWeekStart] = useState(false);
+  const [providers, setProviders] = useState<ImportProvider[]>([]);
+  const [isSavingProvider, setIsSavingProvider] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -47,6 +52,14 @@ export default function SettingsPage() {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getImportProviders(controller.signal)
+      .then((response) => setProviders(response.providers))
+      .catch(() => setProviders([]));
+    return () => controller.abort();
   }, []);
 
   async function handleLogout() {
@@ -77,6 +90,16 @@ export default function SettingsPage() {
       await updateWeekStartDay(Number(value));
     } finally {
       setIsSavingWeekStart(false);
+    }
+  }
+
+  async function handleProviderPreferenceChange(value: string) {
+    setIsSavingProvider(true);
+
+    try {
+      await updateImportProviderPreference(value);
+    } finally {
+      setIsSavingProvider(false);
     }
   }
 
@@ -111,6 +134,29 @@ export default function SettingsPage() {
             className="max-w-3xl"
             buttonClassName="text-xs sm:text-sm"
           />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.provider.title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t("settings.provider.description")}</span>
+            <BadgeLikeStatus>{isSavingProvider ? t("settings.provider.saving") : t("settings.provider.saved")}</BadgeLikeStatus>
+          </div>
+          {providers.length > 0 ? (
+            <SlidingOptionGroup
+              options={providers.map((provider) => provider.name)}
+              value={user?.importProviderPreference && providers.some((provider) => provider.name === user.importProviderPreference) ? user.importProviderPreference : providers[0].name}
+              render={(value) => providers.find((provider) => provider.name === value)?.label ?? value}
+              onChange={handleProviderPreferenceChange}
+              className="max-w-3xl"
+              buttonClassName="text-xs sm:text-sm"
+            />
+          ) : (
+            <p>{t("settings.provider.empty")}</p>
+          )}
         </CardContent>
       </Card>
       <Card>

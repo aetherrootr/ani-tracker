@@ -1,6 +1,19 @@
 type ApiErrorResponse = {
   message?: string;
+  [key: string]: unknown;
 };
+
+export class ApiError extends Error {
+  status: number;
+  body: ApiErrorResponse | null;
+
+  constructor(message: string, status: number, body: ApiErrorResponse | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
 
 const API_TIMEOUT_MS = 8000;
 
@@ -32,9 +45,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
+    let errorBody: ApiErrorResponse | null = null;
 
     try {
-      const errorBody = (await response.json()) as ApiErrorResponse;
+      errorBody = (await response.json()) as ApiErrorResponse;
       if (errorBody.message) {
         message = errorBody.message;
       }
@@ -42,7 +56,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
       // Keep the status-based message when the response is not JSON.
     }
 
-    throw new Error(message);
+    throw new ApiError(message, response.status, errorBody);
   }
 
   if (response.status === 204) {

@@ -8,7 +8,9 @@ import type {
   AnimeProgress,
   AnimeSummary,
   EpisodeListResponse,
+  ImportProvidersResponse,
   LibraryResponse,
+  ProviderSwitchResponse,
   ResolveEpisodeConflictsResponse,
   LibrarySort,
   LibraryStatusFilter,
@@ -73,6 +75,17 @@ export function getLibrary(input: {
 
 export function getAnimeDetail(animeId: number, signal?: AbortSignal) {
   return apiFetch<AnimeDetailResponse>(`/api/anime/${animeId}`, { signal });
+}
+
+export function getImportProviders(signal?: AbortSignal) {
+  return apiFetch<ImportProvidersResponse>("/api/anime/providers", { signal });
+}
+
+export function switchAnimeProvider(animeId: number, provider: string, externalId: string) {
+  return apiFetch<ProviderSwitchResponse>(`/api/anime/library/${animeId}/provider-switch`, {
+    method: "POST",
+    body: JSON.stringify({ provider, externalId }),
+  });
 }
 
 export function getEpisodes(input: {

@@ -17,6 +17,7 @@ type AuthContextValue = {
   unlinkOidc: () => Promise<AuthUser>;
   updateLanguagePreference: (input: AuthUser["languagePreference"]) => Promise<AuthUser>;
   updateWeekStartDay: (input: number) => Promise<AuthUser>;
+  updateImportProviderPreference: (input: string) => Promise<AuthUser>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -105,6 +106,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return response.user;
   }
 
+  async function handleUpdateImportProviderPreference(importProviderPreference: string) {
+    const response = await updatePreferences({ importProviderPreference });
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -117,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         unlinkOidc: handleUnlinkOidc,
         updateLanguagePreference: handleUpdateLanguagePreference,
         updateWeekStartDay: handleUpdateWeekStartDay,
+        updateImportProviderPreference: handleUpdateImportProviderPreference,
       }}
     >
       {children}

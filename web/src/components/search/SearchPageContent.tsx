@@ -8,16 +8,17 @@ import { BackToTopButton } from "@/components/layout/BackToTopButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
+import { useCurrentUser } from "@/features/auth/hooks";
+import { getImportProviders } from "@/features/library/api";
 import { useAnimeSearch } from "@/features/search/hooks";
 
 import { SearchResultCard } from "./SearchResultCard";
 import { SearchState } from "./SearchState";
 
-const PROVIDERS = ["bangumi", "tmdb", "tvdb"];
-
 export function SearchPageContent() {
   const t = useTranslations();
-  const [provider, setProvider] = useState("bangumi");
+  const { user } = useCurrentUser();
+  const [provider, setProvider] = useState(user?.importProviderPreference ?? "bangumi");
   const {
     keyword,
     hasKeyword,
@@ -36,10 +37,28 @@ export function SearchPageContent() {
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [isProviderDialogOpen, setIsProviderDialogOpen] = useState(false);
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
+  const [providers, setProviders] = useState([{ name: "bangumi", label: "Bangumi" }]);
   const providerDropdownRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const canAutoLoadRef = useRef(true);
   const restoreScrollYRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getImportProviders(controller.signal)
+      .then((response) => {
+        if (response.providers.length > 0) {
+          setProviders(response.providers);
+          const preferredProvider = user?.importProviderPreference;
+          const nextProvider = preferredProvider && response.providers.some((item) => item.name === preferredProvider)
+            ? preferredProvider
+            : response.providers[0].name;
+          setProvider(nextProvider);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [user?.importProviderPreference]);
 
   useEffect(() => {
     canAutoLoadRef.current = true;
@@ -202,18 +221,18 @@ export function SearchPageContent() {
               </Button>
               {isProviderDropdownOpen ? (
                 <div className="glass-dialog absolute left-3 top-full z-40 mt-2 w-44 overflow-hidden rounded-2xl border p-1 text-foreground shadow-lg" role="menu">
-                  {PROVIDERS.map((item) => {
-                    const active = provider === item;
+                  {providers.map((item) => {
+                    const active = provider === item.name;
                     return (
                       <button
-                        key={item}
+                        key={item.name}
                         type="button"
                         role="menuitemradio"
                         aria-checked={active}
                         className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
-                        onClick={() => selectProvider(item)}
+                        onClick={() => selectProvider(item.name)}
                       >
-                        <span>{item}</span>
+                        <span>{item.label}</span>
                         {active ? <Check className="h-4 w-4 text-primary" /> : null}
                       </button>
                     );
@@ -255,15 +274,15 @@ export function SearchPageContent() {
             </div>
 
             <div className="mt-4 space-y-2">
-              {PROVIDERS.map((item) => (
+              {providers.map((item) => (
                 <button
-                  key={item}
+                  key={item.name}
                   type="button"
                   className="flex w-full items-center justify-between rounded-xl border bg-muted/40 px-4 py-3 text-left"
-                  onClick={() => selectProvider(item)}
+                  onClick={() => selectProvider(item.name)}
                 >
-                  <span className="font-medium">{item}</span>
-                  {provider === item ? <Badge variant="secondary">{t("search.currentProvider")}</Badge> : null}
+                  <span className="font-medium">{item.label}</span>
+                  {provider === item.name ? <Badge variant="secondary">{t("search.currentProvider")}</Badge> : null}
                 </button>
               ))}
             </div>

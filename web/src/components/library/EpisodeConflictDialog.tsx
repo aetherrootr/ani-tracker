@@ -10,11 +10,13 @@ type Props = {
   open: boolean;
   conflicts: EpisodeConflict[];
   isResolving?: boolean;
+  title?: string;
+  description?: string;
   onCancel: () => void;
   onConfirm: (deleteEpisodeIds: number[]) => void;
 };
 
-export function EpisodeConflictDialog({ open, conflicts, isResolving, onCancel, onConfirm }: Props) {
+export function EpisodeConflictDialog({ open, conflicts, isResolving, title, description, onCancel, onConfirm }: Props) {
   const t = useTranslations();
   const [deleteIds, setDeleteIds] = useState<Set<number>>(new Set());
 
@@ -43,8 +45,8 @@ export function EpisodeConflictDialog({ open, conflicts, isResolving, onCancel, 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="episode-conflict-title">
       <div className="glass-dialog flex max-h-[90svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
         <div className="border-b p-5">
-          <h2 id="episode-conflict-title" className="text-lg font-semibold tracking-tight">{t("library.episodeConflictsTitle")}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{t("library.episodeConflictsDescription")}</p>
+          <h2 id="episode-conflict-title" className="text-lg font-semibold tracking-tight">{title ?? t("library.episodeConflictsTitle")}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{description ?? t("library.episodeConflictsDescription")}</p>
         </div>
 
         <div className="flex flex-wrap gap-2 border-b p-3">

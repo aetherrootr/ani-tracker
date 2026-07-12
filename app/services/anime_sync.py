@@ -35,6 +35,7 @@ class EpisodeConflict:
     watched_user_count: int
     watched: bool | None = None
     watched_at: str | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,8 @@ def serialize_episode_conflict(conflict: EpisodeConflict) -> dict[str, Any]:
     if conflict.watched is not None:
         data['watched'] = conflict.watched
         data['watchedAt'] = conflict.watched_at
+    if conflict.reason is not None:
+        data['reason'] = conflict.reason
     return data
 
 

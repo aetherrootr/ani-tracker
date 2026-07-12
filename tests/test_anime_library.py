@@ -316,6 +316,45 @@ def test_add_to_library_is_idempotent_for_same_user(
     assert len(db_session.scalars(select(UserAnimeProgress)).all()) == 1
 
 
+def test_add_to_library_detects_duplicate_against_existing_anime_alias(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    existing = AnimeMetaInfo(
+        provider_type='tvdb',
+        external_id='371310:1',
+        original_name='无职转生～到了异世界就拿出真本事～ Season 1',
+        total_episodes=23,
+    )
+    db_session.add(existing)
+    db_session.flush()
+    db_session.add(AnimeName(anime_id=existing.id, name='无职转生～到了异世界就拿出真本事～', language='zho'))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=existing.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+    provider = MutableDetailProvider(
+        {
+            '277554': anime_detail(
+                '277554',
+                title='無職転生 ～異世界行ったら本気だす～',
+                names=[ImportAnimeName(name='无职转生～到了异世界就拿出真本事～', language='zh')],
+            ),
+        },
+    )
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+
+    response = client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '277554'})
+
+    assert response.status_code == 409
+    conflict = response.get_json()['conflict']
+    assert conflict['provider'] == 'bangumi'
+    assert conflict['externalId'] == '277554'
+    assert conflict['candidates'][0]['animeId'] == existing.id
+    assert conflict['candidates'][0]['provider'] == 'tvdb'
+    assert db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.external_id == '277554')) is None
+
+
 def test_add_to_library_restores_dropped_progress(
     app: Flask,
     client: FlaskClient,

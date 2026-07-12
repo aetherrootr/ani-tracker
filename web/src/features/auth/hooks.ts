@@ -43,3 +43,9 @@ export function useUpdateWeekStartDay() {
 
   return updateWeekStartDay;
 }
+
+export function useUpdateImportProviderPreference() {
+  const { updateImportProviderPreference } = useAuth();
+
+  return updateImportProviderPreference;
+}

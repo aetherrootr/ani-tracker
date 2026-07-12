@@ -6,6 +6,7 @@ export type AuthUser = {
   displayName?: string | null;
   email: string;
   languagePreference: Locale;
+  importProviderPreference: string;
   weekStartDay: number;
   oidcLinked: boolean;
 };
@@ -32,7 +33,8 @@ export type UpdateLanguagePreferenceInput = {
 };
 
 export type UpdatePreferencesInput = {
-  weekStartDay: number;
+  weekStartDay?: number;
+  importProviderPreference?: string;
 };
 
 export type AuthResponse = {

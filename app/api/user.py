@@ -5,9 +5,11 @@ from flask.typing import ResponseReturnValue
 
 from app.api.utils.auth import (
     user_to_auth_dict,
+    validate_import_provider_preference_payload,
     validate_language_preference_payload,
     validate_week_start_day_payload,
 )
+from app.api.utils.providers import get_import_provider_factory
 from app.db import get_db
 from app.models.user import User
 
@@ -37,7 +39,7 @@ def update_preferences() -> ResponseReturnValue:
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"message": "Request body must be a JSON object"}), 400
-    if "languagePreference" not in payload and "weekStartDay" not in payload:
+    if "languagePreference" not in payload and "weekStartDay" not in payload and "importProviderPreference" not in payload:
         return jsonify({"message": "User preference is required"}), 400
 
     language_preference = None
@@ -52,6 +54,13 @@ def update_preferences() -> ResponseReturnValue:
         if error is not None or week_start_day is None:
             return jsonify({"message": error}), 400
 
+    import_provider_preference = None
+    if "importProviderPreference" in payload:
+        available_providers = {provider.name for provider in get_import_provider_factory().list_providers()}
+        import_provider_preference, error = validate_import_provider_preference_payload(payload, available_providers)
+        if error is not None or import_provider_preference is None:
+            return jsonify({"message": error}), 400
+
     db = get_db()
     user = db.get(User, user_id)
     if user is None:
@@ -62,6 +71,8 @@ def update_preferences() -> ResponseReturnValue:
         user.language_preference = language_preference
     if week_start_day is not None:
         user.week_start_day = week_start_day
+    if import_provider_preference is not None:
+        user.import_provider_preference = import_provider_preference
     db.commit()
 
     return jsonify({"user": user_to_auth_dict(user)}), 200

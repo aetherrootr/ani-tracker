@@ -29,3 +29,26 @@ export type SearchAnimeInput = {
   offset?: number;
   signal?: AbortSignal;
 };
+
+export type DuplicateAnimeCandidate = {
+  animeId: number;
+  provider: string;
+  externalId: string;
+  displayName: string;
+  originalName: string;
+  airDate: string | null;
+  episodeCount: number | null;
+  url: string | null;
+};
+
+export type DuplicateAnimeConflict = {
+  provider: string;
+  externalId: string;
+  title: string;
+  candidates: DuplicateAnimeCandidate[];
+};
+
+export type DuplicateResolution = {
+  useExistingAnimeId?: number;
+  useCurrentProvider?: boolean;
+};

@@ -142,6 +142,7 @@ export type EpisodeConflict = {
   watchedUserCount?: number;
   watched?: boolean;
   watchedAt?: string | null;
+  reason?: string | null;
 };
 
 export type AnimeSyncResponse = {
@@ -182,4 +183,20 @@ export type TrackingListResponse = {
   tracking: TrackingListPage<TrackingListItem>;
   backlog: TrackingListPage<TrackingListItem>;
   recentlyWatched: TrackingListPage<TrackingListItem>;
+};
+
+export type ImportProvider = {
+  name: string;
+  label: string;
+};
+
+export type ImportProvidersResponse = {
+  providers: ImportProvider[];
+};
+
+export type ProviderSwitchResponse = {
+  anime: Anime;
+  progress: AnimeProgress;
+  previousAnimeId: number;
+  episodeConflicts: EpisodeConflict[];
 };
