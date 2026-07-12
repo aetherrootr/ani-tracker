@@ -109,7 +109,6 @@ class TVDBImportProvider(ImportProvider):
         episodes = [
             self._map_episode(
                 series_id,
-                season_number,
                 episode,
                 translations=episode_translations.get(self._episode_key(episode), {}),
                 language=request_language,
@@ -130,7 +129,7 @@ class TVDBImportProvider(ImportProvider):
             names=self._names(series, season_summary, season, language=request_language, title=title, allowed_languages=detail_languages, series_translations=series_translations, season_translations=season_translations),
             episodes=episodes,
             raw_data={'series': series, 'season': season, 'episodes': season.get('episodes')},
-            air_date=self._season_air_date(season, series, episodes),
+            air_date=self._season_air_date(season, episodes),
             related_anime=self._related_seasons(series, season_number, language=request_language),
         )
 
@@ -351,7 +350,7 @@ class TVDBImportProvider(ImportProvider):
             title=self._season_title(series, {**season, **{key: value for key, value in detail.items() if value is not None}}, language=language),
             original_title=first_non_empty(series.get('name'), search_result.get('name'), search_result.get('title')),
             summary=self._localized_summary(detail, language) or self._localized_summary(series, language) or first_non_empty(detail.get('overview'), season.get('overview'), series.get('overview'), search_result.get('overview')),
-            air_date=self._search_air_date(series, season, search_result, detail),
+            air_date=self._search_air_date(season, detail),
             platform='tv',
             episode_count=self._season_episode_count(detail) or self._season_episode_count(season),
             image_url=self._poster_url(season) or self._poster_url(search_result) or self._poster_url(series),
@@ -362,7 +361,6 @@ class TVDBImportProvider(ImportProvider):
     def _map_episode(
         self,
         series_id: int | str,
-        season_number: int,
         episode: dict[str, Any],
         *,
         translations: dict[str, dict[str, Any]],
@@ -462,7 +460,7 @@ class TVDBImportProvider(ImportProvider):
         series_path = first_non_empty(series.get('slug')) or str(series.get('id'))
         return f'{self._web_base_url}/series/{series_path}/seasons/official/{season_number}'
 
-    def _search_air_date(self, series: dict[str, Any], season: dict[str, Any], search_result: dict[str, Any], season_detail: dict[str, Any]) -> str | None:
+    def _search_air_date(self, season: dict[str, Any], season_detail: dict[str, Any]) -> str | None:
         first_episode_date = self._first_episode_air_date(season_detail)
         if first_episode_date is not None:
             return first_episode_date.isoformat()
@@ -650,7 +648,7 @@ class TVDBImportProvider(ImportProvider):
     def _detail_languages(self, language: str | None) -> list[str]:
         return self._preferred_languages(tvdb_language(language))
 
-    def _season_air_date(self, season: dict[str, Any], series: dict[str, Any], episodes: list[ImportEpisodeInfo]) -> Any:
+    def _season_air_date(self, season: dict[str, Any], episodes: list[ImportEpisodeInfo]) -> Any:
         dates = [episode.air_at.date() for episode in episodes if episode.air_at is not None]
         season_year = coerce_int(season.get('year'))
         year_date = parse_date(f'{season_year:04d}-01-01') if season_year is not None and season_year > 0 else None

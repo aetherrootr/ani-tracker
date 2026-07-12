@@ -33,7 +33,7 @@ jobs:
           enable-cache: true
 
       - name: Run ruff
-        run: uv run ruff check app tests migrations
+        run: uv run ruff check app tests app/migrations
 
       - name: Run mypy
         run: uv run mypy app

@@ -116,7 +116,7 @@ def search_anime(db: Session, user: User) -> ResponseReturnValue:
 
 @anime_info_bp.get('/providers')
 @require_auth_user
-def list_import_providers(db: Session, user: User) -> ResponseReturnValue:
+def list_import_providers(_db: Session, _user: User) -> ResponseReturnValue:
     providers = get_import_provider_factory().list_providers()
     return jsonify(
         {

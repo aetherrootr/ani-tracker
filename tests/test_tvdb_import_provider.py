@@ -1,3 +1,5 @@
+# ruff: noqa: SLF001
+
 from __future__ import annotations
 
 from typing import Any
@@ -63,7 +65,8 @@ def provider(session: FakeSession, *, api_key: str | None = 'test-key', pin: str
     )
 
 
-def login_response(token: str = 'token-1') -> FakeResponse:
+def login_response(token: str | None = None) -> FakeResponse:
+    token = token or 'token-1'
     return FakeResponse(200, {'status': 'success', 'data': {'token': token}})
 
 

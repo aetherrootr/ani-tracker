@@ -337,20 +337,20 @@ def test_add_to_library_detects_duplicate_against_existing_anime_alias(
     existing = AnimeMetaInfo(
         provider_type='tvdb',
         external_id='371310:1',
-        original_name='无职转生～到了异世界就拿出真本事～ Season 1',
+        original_name='无职转生～到了异世界就拿出真本事～ Season 1',  # noqa: RUF001
         total_episodes=23,
     )
     db_session.add(existing)
     db_session.flush()
-    db_session.add(AnimeName(anime_id=existing.id, name='无职转生～到了异世界就拿出真本事～', language='zho'))
+    db_session.add(AnimeName(anime_id=existing.id, name='无职转生～到了异世界就拿出真本事～', language='zho'))  # noqa: RUF001
     db_session.add(UserAnimeProgress(user_id=1, anime_id=existing.id, status=UserAnimeStatus.PLAN_TO_WATCH))
     db_session.commit()
     provider = MutableDetailProvider(
         {
             '277554': anime_detail(
                 '277554',
-                title='無職転生 ～異世界行ったら本気だす～',
-                names=[ImportAnimeName(name='无职转生～到了异世界就拿出真本事～', language='zh')],
+                title='無職転生 ～異世界行ったら本気だす～',  # noqa: RUF001
+                names=[ImportAnimeName(name='无职转生～到了异世界就拿出真本事～', language='zh')],  # noqa: RUF001
             ),
         },
     )
