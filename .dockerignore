@@ -1,0 +1,12 @@
+.build
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+dist
+secrets.env
+**/__pycache__
+**/*.pyc
+web/.next
+web/node_modules
