@@ -257,6 +257,7 @@ export const zhCN = {
     relatedAnimeTitle: "同系列条目",
     relatedAnimeDescription: "来自 {provider} 的同系列其它条目。",
     relatedAnimeEpisodeCount: "{count} 集",
+    relatedAnimeTba: "TBA",
     episodes: "剧集",
     episodeSearchSettings: "打开剧集搜索和筛选菜单",
     episodeSearchMenuTitle: "搜索与筛选",

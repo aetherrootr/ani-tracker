@@ -260,6 +260,7 @@ export const en = {
     relatedAnimeTitle: "Related entries",
     relatedAnimeDescription: "Other entries in the same series from {provider}.",
     relatedAnimeEpisodeCount: "{count} episodes",
+    relatedAnimeTba: "TBA",
     episodes: "Episodes",
     episodeSearchSettings: "Open episode search and filters",
     episodeSearchMenuTitle: "Search and filters",

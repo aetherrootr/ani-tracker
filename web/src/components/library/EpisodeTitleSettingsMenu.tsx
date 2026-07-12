@@ -45,11 +45,13 @@ export function EpisodeTitleSettingsMenu({
 
   async function chooseName(episode: Episode, nameId: number | null) {
     setSavingId(episode.id);
+    const selectedName = nameId === null ? null : episode.availableNames.find((name) => name.id === nameId) ?? null;
     const result = await updateEpisodeNamePreference(animeId, episode.id, nameId);
+    const nextName = selectedName ?? result.name;
     onEpisodeChange({
       ...episode,
-      name: result.name,
-      displayName: result.name?.name ?? episode.originalTitle,
+      name: nextName,
+      displayName: nextName?.name ?? episode.originalTitle,
       preferredNameId: result.episode.preferredNameId,
     });
     setSavingId(null);

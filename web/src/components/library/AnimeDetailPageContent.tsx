@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Check, ChevronDown, ExternalLink, RefreshCw, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
@@ -431,6 +431,46 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 
 function RelatedAnimeSection({ provider, items }: { provider: string; items: RelatedAnime[] }) {
   const t = useTranslations();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  function updateScrollHints() {
+    const element = scrollRef.current;
+    if (!element) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+
+    const maxScrollLeft = element.scrollWidth - element.clientWidth;
+    setCanScrollLeft(element.scrollLeft > 1);
+    setCanScrollRight(element.scrollLeft < maxScrollLeft - 1);
+  }
+
+  function scrollList(direction: "left" | "right") {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+    element.scrollBy({
+      left: (direction === "left" ? -1 : 1) * Math.max(element.clientWidth * 0.42, 180),
+      behavior: "smooth",
+    });
+  }
+
+  useEffect(() => {
+    updateScrollHints();
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    const observer = new ResizeObserver(updateScrollHints);
+    observer.observe(element);
+    Array.from(element.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [items.length]);
 
   if (items.length === 0) {
     return null;
@@ -442,7 +482,28 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
         <h2 className="text-xl font-semibold tracking-tight">{t("library.relatedAnimeTitle")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeDescription", { provider })}</p>
       </div>
-      <div className="scrollbar-none flex gap-3 overflow-x-auto overscroll-x-contain pb-1">
+      <div className="relative">
+        {canScrollLeft ? (
+          <button
+            type="button"
+            className="absolute inset-y-0 left-0 z-20 flex items-center bg-gradient-to-r from-card/90 to-transparent pl-1 pr-5 sm:pl-2 sm:pr-8"
+            aria-label="Scroll related anime left"
+            onClick={() => scrollList("left")}
+          >
+            <ChevronLeft className="h-6 w-6 text-foreground/45 sm:h-7 sm:w-7" />
+          </button>
+        ) : null}
+        {canScrollRight ? (
+          <button
+            type="button"
+            className="absolute inset-y-0 right-0 z-20 flex items-center bg-gradient-to-l from-card/90 to-transparent pl-5 pr-1 sm:pl-8 sm:pr-2"
+            aria-label="Scroll related anime right"
+            onClick={() => scrollList("right")}
+          >
+            <ChevronRight className="h-6 w-6 text-foreground/45 sm:h-7 sm:w-7" />
+          </button>
+        ) : null}
+      <div ref={scrollRef} className="scrollbar-none flex gap-3 overflow-x-auto overscroll-x-contain pb-1" onScroll={updateScrollHints}>
         {items.map((item) => {
           const poster = assetUrl(item.posterUrl);
           const content = (
@@ -455,7 +516,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
               <span className="min-w-0">
                 <span className="line-clamp-2 block font-medium leading-snug text-foreground">{item.title}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">
-                  {item.airDate ?? t("anime.unknown")}
+                  {item.airDate ?? t("library.relatedAnimeTba")}
                   {item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}
                 </span>
               </span>
@@ -470,6 +531,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
           }
           return <div key={item.externalId} className={className}>{content}</div>;
         })}
+      </div>
       </div>
     </section>
   );

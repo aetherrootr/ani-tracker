@@ -146,7 +146,9 @@ def update_episode_name_preference(db: Session, user: User, anime_id: int, episo
     if episode_progress is None:
         return jsonify({'message': 'nameId is invalid'}), 400
     names = db.scalars(select(EpisodeName).where(EpisodeName.episode_id == episode_id).order_by(EpisodeName.id)).all()
-    selected = select_episode_name_for_user(names, user, preferred_name_id=episode_progress.preferred_name_id)
+    selected = next((name for name in names if name.id == episode_progress.preferred_name_id), None)
+    if selected is None:
+        selected = select_episode_name_for_user(names, user, preferred_name_id=episode_progress.preferred_name_id)
     return jsonify(
         {
             'name': serialize_episode_name(selected),
