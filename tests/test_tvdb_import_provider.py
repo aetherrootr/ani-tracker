@@ -195,29 +195,30 @@ def test_timeout_and_invalid_responses_are_mapped() -> None:
         provider(FakeSession({'https://api4.thetvdb.com/v4/login': login_response(), 'https://api4.thetvdb.com/v4/search': FakeResponse(200, ValueError('bad json'))})).search_anime('anime', limit=10, offset=0)
 
 
-def test_search_expands_series_to_aired_non_special_seasons_and_slices_locally() -> None:
+def test_search_expands_series_to_importable_seasons_including_specials_and_slices_locally() -> None:
     session = FakeSession(
         {
             'https://api4.thetvdb.com/v4/login': login_response(),
             'https://api4.thetvdb.com/v4/search': FakeResponse(200, {'status': 'success', 'data': [{'id': '321', 'name': 'Example Anime', 'type': 'series'}]}),
             'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
+            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'number': 0, 'overview': 'special overview', 'episodes': [{'id': 901, 'seasonNumber': 0, 'number': 1, 'aired': '2020-02-01'}]}}),
             'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 11, 'number': 1, 'episodes': [{'id': 101, 'seasonNumber': 1, 'number': 1, 'aired': '2020-04-01'}]}}),
             'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 12, 'number': 2, 'episodes': [{'id': 201, 'seasonNumber': 2, 'number': 1, 'aired': '2021-07-01'}]}}),
         },
     )
 
-    page = provider(session).search_anime('example', limit=1, offset=1, language='zh-CN')
+    page = provider(session).search_anime('example', limit=1, offset=0, language='zh-CN')
 
     assert session.calls[1]['params']['query'] == 'example'
     assert session.calls[1]['params']['type'] == 'series'
     assert session.calls[1]['params']['language'] == 'zho'
-    assert page.total == 2
-    assert [item.external_id for item in page.results] == ['321:2']
-    assert page.results[0].title == '示例动画: Second Season'
+    assert page.total == 3
+    assert [item.external_id for item in page.results] == ['321:0']
+    assert page.results[0].title == '示例动画: Specials'
     assert page.results[0].summary == '中文简介'
-    assert page.results[0].air_date == '2021-07-01'
-    assert page.results[0].image_url == 'https://artworks.thetvdb.com/s2-related.jpg'
-    assert page.results[0].url == 'https://thetvdb.com/series/example-anime/seasons/official/2'
+    assert page.results[0].air_date == '2020-02-01'
+    assert page.results[0].image_url == 'https://artworks.thetvdb.com/specials.jpg'
+    assert page.results[0].url == 'https://thetvdb.com/series/example-anime/seasons/official/0'
 
 
 def test_search_accepts_prefixed_series_id_and_skips_unexpandable_series() -> None:
@@ -238,6 +239,7 @@ def test_search_accepts_prefixed_series_id_and_skips_unexpandable_series() -> No
             ),
             'https://api4.thetvdb.com/v4/series/999/extended': FakeResponse(404, {'status': 'failure'}),
             'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
+            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'number': 0, 'episodes': []}}),
             'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 11, 'number': 1, 'episodes': []}}),
             'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 12, 'number': 2, 'episodes': []}}),
         },
@@ -245,7 +247,7 @@ def test_search_accepts_prefixed_series_id_and_skips_unexpandable_series() -> No
 
     page = provider(session).search_anime('example', limit=10, offset=0)
 
-    assert [item.external_id for item in page.results] == ['321:1', '321:2']
+    assert [item.external_id for item in page.results] == ['321:0', '321:1', '321:2']
 
 
 def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster() -> None:
@@ -286,6 +288,7 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
             'https://api4.thetvdb.com/v4/episodes/101/translations/jpn': tvdb_translation('第1話', '第1話概要', 'jpn'),
             'https://api4.thetvdb.com/v4/episodes/102/translations/eng': tvdb_translation('Episode Two', None, 'eng'),
             'https://api4.thetvdb.com/v4/episodes/102/translations/jpn': tvdb_translation('第2話', None, 'jpn'),
+            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'seriesId': 321, 'number': 0, 'image': 'https://artworks.thetvdb.com/specials.jpg', 'episodes': []}}),
             'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(
                 200,
                 {
@@ -338,10 +341,58 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zhtw' not in [call['url'] for call in session.calls]
     assert detail.episodes[0].duration == '00:24:00'
     assert detail.episodes[1].status == 'upcoming'
-    assert [item.external_id for item in detail.related_anime] == ['321:2']
-    assert detail.related_anime[0].poster_source_url == 'https://artworks.thetvdb.com/s2-related.jpg'
-    assert detail.related_anime[0].air_date is not None
-    assert detail.related_anime[0].air_date.isoformat() == '2021-07-01'
+    assert [item.external_id for item in detail.related_anime] == ['321:0', '321:2']
+    assert detail.related_anime[0].poster_source_url == 'https://artworks.thetvdb.com/specials.jpg'
+    assert detail.related_anime[1].poster_source_url == 'https://artworks.thetvdb.com/s2-related.jpg'
+    assert detail.related_anime[1].air_date is not None
+    assert detail.related_anime[1].air_date.isoformat() == '2021-07-01'
+
+
+def test_detail_imports_special_season_zero() -> None:
+    session = FakeSession(
+        {
+            'https://api4.thetvdb.com/v4/login': login_response(),
+            'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
+            'https://api4.thetvdb.com/v4/series/321/translations/eng': tvdb_translation('Example Anime', 'series English overview', 'eng'),
+            'https://api4.thetvdb.com/v4/series/321/translations/jpn': tvdb_translation('サンプルアニメ', 'series Japanese overview', 'jpn'),
+            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(
+                200,
+                {
+                    'status': 'success',
+                    'data': {
+                        'id': 1,
+                        'seriesId': 321,
+                        'number': 0,
+                        'name': 'Specials',
+                        'overview': 'special overview',
+                        'image': 'https://artworks.thetvdb.com/specials.jpg',
+                        'episodes': [
+                            {'id': 901, 'seasonNumber': 0, 'number': 1, 'name': 'OVA 1', 'aired': '2020-02-01', 'runtime': 25},
+                            {'id': 101, 'seasonNumber': 1, 'number': 1, 'name': 'Regular Episode', 'aired': '2020-04-01'},
+                        ],
+                    },
+                },
+            ),
+            'https://api4.thetvdb.com/v4/seasons/1/translations/eng': tvdb_translation(overview='special English overview', language='eng'),
+            'https://api4.thetvdb.com/v4/seasons/1/translations/jpn': tvdb_translation(overview='special Japanese overview', language='jpn'),
+            'https://api4.thetvdb.com/v4/episodes/901/translations/eng': tvdb_translation('OVA One', None, 'eng'),
+            'https://api4.thetvdb.com/v4/episodes/901/translations/jpn': tvdb_translation('OVA 1 JP', None, 'jpn'),
+            'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 11, 'seriesId': 321, 'number': 1, 'episodes': []}}),
+            'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 12, 'seriesId': 321, 'number': 2, 'episodes': []}}),
+        },
+    )
+
+    detail = provider(session).get_anime_detail('321:0', language='en')
+
+    assert detail.external_id == '321:0'
+    assert detail.anime_type == 'special'
+    assert detail.title == 'Example Anime: Specials'
+    assert detail.poster_source_url == 'https://artworks.thetvdb.com/specials.jpg'
+    assert [episode.external_id for episode in detail.episodes] == ['901']
+    assert detail.episodes[0].episode_number == 1
+    assert detail.episodes[0].title == 'OVA One'
+    assert detail.episodes[0].duration == '00:25:00'
+    assert [item.external_id for item in detail.related_anime] == ['321:1', '321:2']
 
 
 def test_related_season_without_own_air_date_does_not_fallback_to_series_date() -> None:
@@ -351,6 +402,7 @@ def test_related_season_without_own_air_date_does_not_fallback_to_series_date() 
             'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
             'https://api4.thetvdb.com/v4/series/321/translations/eng': tvdb_translation('Example Anime', 'series overview', 'eng'),
             'https://api4.thetvdb.com/v4/series/321/translations/jpn': tvdb_translation('サンプルアニメ', 'series overview', 'jpn'),
+            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'seriesId': 321, 'number': 0, 'episodes': []}}),
             'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 11, 'seriesId': 321, 'number': 1, 'episodes': []}}),
             'https://api4.thetvdb.com/v4/seasons/11/translations/eng': tvdb_translation(overview='season overview', language='eng'),
             'https://api4.thetvdb.com/v4/seasons/11/translations/jpn': tvdb_translation(overview='season overview', language='jpn'),
@@ -360,8 +412,8 @@ def test_related_season_without_own_air_date_does_not_fallback_to_series_date() 
 
     detail = provider(session).get_anime_detail('321:1', language='en')
 
-    assert detail.related_anime[0].external_id == '321:2'
-    assert detail.related_anime[0].air_date is None
+    assert [item.external_id for item in detail.related_anime] == ['321:0', '321:2']
+    assert detail.related_anime[1].air_date is None
 
 
 def test_search_and_detail_do_not_fallback_to_series_air_date_for_season_air_date() -> None:
@@ -425,6 +477,7 @@ def test_detail_only_fetches_user_language_english_and_japanese_for_non_chinese_
             'https://api4.thetvdb.com/v4/episodes/101/translations/kor': tvdb_translation('첫 번째 에피소드', None, 'kor'),
             'https://api4.thetvdb.com/v4/episodes/101/translations/eng': tvdb_translation('Episode One', None, 'eng'),
             'https://api4.thetvdb.com/v4/episodes/101/translations/jpn': tvdb_translation('第1話', None, 'jpn'),
+            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'seriesId': 321, 'number': 0, 'episodes': []}}),
             'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 12, 'seriesId': 321, 'number': 2, 'episodes': []}}),
         },
     )

@@ -66,6 +66,7 @@ from app.services.anime_sync import (
     serialize_episode_conflict,
     sync_anime_from_provider,
 )
+from app.tasks.anime_sync import sync_user_library_anime
 
 anime_info_bp = Blueprint("anime_info", __name__)
 
@@ -368,6 +369,13 @@ def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturn
             'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
         },
     )
+
+
+@anime_info_bp.post('/library/sync-all')
+@require_auth_user
+def sync_all_library_anime(_db: Session, user: User) -> ResponseReturnValue:
+    task = sync_user_library_anime.delay(user.id)
+    return jsonify({'queued': True, 'taskId': task.id}), 202
 
 
 @anime_info_bp.get('/<int:anime_id>')

@@ -10,6 +10,7 @@ from app.celery_app import celery_app
 from app.db import default_database_url, ensure_database_current
 from app.import_provider import ImportProviderFactory
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
+from app.models.progress import UserAnimeProgress
 from app.services.anime_sync import sync_anime_from_provider
 from app.tasks.anime_poster import download_anime_poster
 from app.utils import env_bool, env_float, safe_float, safe_int
@@ -56,6 +57,48 @@ def sync_airing_anime() -> dict[str, int]:
                 logger.info('Anime %s sync found %s episode conflicts', anime_id, conflict_count)
             summary['synced'] += 1
             summary['episodeConflicts'] += conflict_count
+    return summary
+
+
+@celery_app.task(name='app.tasks.anime_sync.sync_user_library_anime')
+def sync_user_library_anime(user_id: int) -> dict[str, int]:
+    database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
+    ensure_database_current(database_url)
+    connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
+    engine = create_engine(database_url, connect_args=connect_args)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    provider_factory = ImportProviderFactory.from_config(_provider_config())
+    summary = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0}
+    try:
+        with session_factory() as session:
+            anime_ids = session.scalars(
+                select(UserAnimeProgress.anime_id).where(UserAnimeProgress.user_id == user_id).order_by(UserAnimeProgress.anime_id),
+            ).all()
+            summary['checked'] = len(anime_ids)
+            for anime_id in anime_ids:
+                try:
+                    anime = session.get(AnimeMetaInfo, anime_id)
+                    if anime is None:
+                        continue
+                    provider = provider_factory.get_provider(anime.provider_type)
+                    result = sync_anime_from_provider(session, provider, anime_id=anime_id, user_id=user_id)
+                    if result is None:
+                        continue
+                    poster_ids = result.poster_ids_to_enqueue
+                    conflict_count = len(result.episode_conflicts)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    summary['failed'] += 1
+                    logger.warning('Failed to sync user %s anime %s', user_id, anime_id, exc_info=True)
+                    continue
+                for poster_id in poster_ids:
+                    _enqueue_poster_download(database_url, poster_id)
+                summary['synced'] += 1
+                summary['episodeConflicts'] += conflict_count
+                summary['postersQueued'] += len(poster_ids)
+    finally:
+        engine.dispose()
     return summary
 
 
