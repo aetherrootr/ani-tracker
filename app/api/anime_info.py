@@ -265,6 +265,7 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
     if error is not None:
         return jsonify({'message': error}), 400
     keyword = request.args.get('q', '').strip()
+    provider = request.args.get('provider', '').strip()
 
     stmt = (
         select(UserAnimeProgress)
@@ -287,7 +288,16 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
     if keyword:
         stmt = stmt.where(library_search_condition(keyword))
 
-    all_progresses = sort_library_progresses(db.scalars(stmt).all(), sort=sort, order=order, user=user)
+    all_matching_progresses = sort_library_progresses(db.scalars(stmt).all(), sort=sort, order=order, user=user)
+    provider_options = sorted({progress.anime.provider_type for progress in all_matching_progresses})
+    if provider:
+        all_progresses = [
+            progress
+            for progress in all_matching_progresses
+            if progress.anime.provider_type == provider
+        ]
+    else:
+        all_progresses = all_matching_progresses
     total = len(all_progresses)
     progresses = all_progresses[offset : offset + limit]
     anime_ids = [progress.anime_id for progress in progresses]
@@ -314,6 +324,10 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
             'totalPages': total_pages(total, limit),
             'sort': sort,
             'order': order,
+            'providers': [
+                {'name': item, 'label': _provider_label(item)}
+                for item in provider_options
+            ],
             'navigationAnchors': build_navigation_anchors(all_progresses, sort=sort, limit=limit, user=user),
             'items': [
                 {

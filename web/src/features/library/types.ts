@@ -100,6 +100,7 @@ export type LibraryResponse = {
   totalPages: number;
   sort: string;
   order: SortOrder;
+  providers: ImportProvider[];
   navigationAnchors: NavigationAnchor[];
   items: LibraryItem[];
 };

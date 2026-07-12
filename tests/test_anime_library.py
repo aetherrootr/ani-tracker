@@ -203,6 +203,7 @@ def add_library_anime(
     session: Session,
     *,
     user_id: int = 1,
+    provider_type: str = 'bangumi',
     external_id: str,
     original_name: str,
     names: list[tuple[str, str | None]],
@@ -212,7 +213,7 @@ def add_library_anime(
     updated_at: datetime | None = None,
 ) -> AnimeMetaInfo:
     anime = AnimeMetaInfo(
-        provider_type='bangumi',
+        provider_type=provider_type,
         external_id=external_id,
         original_name=original_name,
         total_episodes=12,
@@ -640,6 +641,48 @@ def test_library_list_filters_status_and_rejects_dropped(
     assert watching_response.status_code == 200
     assert watching_response.get_json()['items'][0]['anime']['displayName'] == 'Visible'
     assert dropped_response.status_code == 400
+
+
+def test_library_list_filters_provider_and_returns_available_providers(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        provider_type='bangumi',
+        external_id='1',
+        original_name='Bangumi Anime',
+        names=[('Bangumi Anime', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    add_library_anime(
+        db_session,
+        provider_type='tmdb',
+        external_id='2',
+        original_name='TMDB Anime',
+        names=[('TMDB Anime', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='3',
+        original_name='Dropped Anime',
+        names=[('Dropped Anime', 'en')],
+        status=UserAnimeStatus.DROPPED,
+    )
+
+    response = client.get('/api/anime/library?provider=tmdb')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['total'] == 1
+    assert body['items'][0]['anime']['provider'] == 'tmdb'
+    assert body['providers'] == [
+        {'name': 'bangumi', 'label': 'Bangumi'},
+        {'name': 'tmdb', 'label': 'TMDB'},
+    ]
 
 
 def test_library_list_updated_at_sort_uses_added_time(
