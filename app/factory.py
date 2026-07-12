@@ -83,7 +83,7 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "TVDB_WEB_BASE_URL": os.environ.get("TVDB_WEB_BASE_URL", "https://thetvdb.com"),
         "TVDB_API_KEY": os.environ.get("TVDB_API_KEY"),
         "TVDB_PIN": os.environ.get("TVDB_PIN"),
-        "IMPORT_PROVIDER_TIMEOUT": 5.0,
+        "IMPORT_PROVIDER_TIMEOUT": env_float("IMPORT_PROVIDER_TIMEOUT", default=5, minimum=0),
 
         # Poster download and local file storage limits.
         "ANIME_POSTER_STORAGE_DIR": os.environ.get(

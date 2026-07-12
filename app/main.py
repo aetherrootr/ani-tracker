@@ -9,6 +9,7 @@ from flask import Flask
 from gunicorn.app.base import BaseApplication
 
 from app import create_app
+from app.utils import env_int
 
 BIND = '0.0.0.0:3001'
 
@@ -36,6 +37,10 @@ def gunicorn_workers() -> int:
     return multiprocessing.cpu_count() * 2 + 1
 
 
+def gunicorn_timeout() -> int:
+    return env_int('GUNICORN_TIMEOUT', default=120, minimum=1)
+
+
 @click.command()
 @click.option('--dev', 'mode', flag_value='dev', help='Run the Flask development server.')
 @click.option('--prod', 'mode', flag_value='prod', default='prod', help='Run with Gunicorn.')
@@ -50,6 +55,7 @@ def main(mode: Literal['dev', 'prod']) -> None:
         {
             'bind': BIND,
             'workers': gunicorn_workers(),
+            'timeout': gunicorn_timeout(),
         },
     ).run()
 
