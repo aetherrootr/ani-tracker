@@ -220,7 +220,7 @@ export const en = {
       watchedEpisodes: "Watched episodes",
       watchedEpisodesHint: "Only watched episodes from non-dropped anime.",
       unwatchedAired: "Aired backlog",
-      unwatchedAiredHint: "Aired episodes in your library that are not watched yet.",
+      unwatchedAiredHint: "Aired, unwatched episodes in your library, excluding on-hold or dropped anime.",
       totalWatchTime: "Total watch time",
       totalWatchTimeHint: "Only episodes with parseable duration are included.",
       libraryAnime: "Library anime",

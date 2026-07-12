@@ -4,7 +4,7 @@ x-app-environment: &app-environment
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:${APP_PORT:-8080}}
   CELERY_BROKER_URL: redis://redis:6379/0
   CELERY_RESULT_BACKEND: redis://redis:6379/1
-  ANIME_POSTER_STORAGE_DIR: /var/lib/ani-tracker/posters
+  ANIME_TRACKER_INSTANCE_PATH: /var/lib/ani-tracker
   WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
   SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-Lax}
   OIDC_ENABLED: ${OIDC_ENABLED:-false}
@@ -34,7 +34,7 @@ services:
       - "${APP_PORT:-8080}:8080"
     environment: *app-environment
     volumes:
-      - anime_posters:/var/lib/ani-tracker/posters
+      - ani_tracker_data:/var/lib/ani-tracker
 
   worker:
     image: ani-tracker:local
@@ -49,7 +49,7 @@ services:
         condition: service_started
     environment: *app-environment
     volumes:
-      - anime_posters:/var/lib/ani-tracker/posters
+      - ani_tracker_data:/var/lib/ani-tracker
 
   postgres:
     image: postgres:17-alpine
@@ -80,6 +80,6 @@ services:
       retries: 10
 
 volumes:
-  anime_posters:
+  ani_tracker_data:
   postgres_data:
   redis_data:

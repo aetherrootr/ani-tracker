@@ -47,6 +47,10 @@ def env_float(name: str, *, default: float, minimum: float | None = None, maximu
     return safe_float(os.environ.get(name, str(default)), default=default, minimum=minimum, maximum=maximum)
 
 
+def configured_instance_path(*, default: str | Path = 'instance') -> Path:
+    return Path(os.environ.get('ANIME_TRACKER_INSTANCE_PATH') or default)
+
+
 def safe_cron_months(value: object, *, default: str = '2,5,8,11') -> str:
     months = str(value or default)
     try:

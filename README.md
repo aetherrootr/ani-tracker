@@ -89,6 +89,7 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `POSTGRES_DB` | PostgreSQL database name. |
 | `POSTGRES_USER` | PostgreSQL username. |
 | `POSTGRES_PASSWORD` | PostgreSQL password. Change this before deployment. |
+| `ANIME_TRACKER_INSTANCE_PATH` | Persistent app instance directory. Defaults to `/var/lib/ani-tracker` in production containers. |
 | `TMDB_API_KEY` | Optional TMDB API key. |
 | `TMDB_ACCESS_TOKEN` | Optional TMDB access token. |
 | `TVDB_API_KEY` | Optional TheTVDB API key. |
@@ -193,6 +194,8 @@ docker build -t ani-tracker:local .
 docker run --rm -p 8080:8080 \
   -e SECRET_KEY=change-me \
   -e DATABASE_URL=postgresql+psycopg://user:password@host:5432/ani_tracker \
+  -e ANIME_TRACKER_INSTANCE_PATH=/var/lib/ani-tracker \
+  -v ani_tracker_data:/var/lib/ani-tracker \
   ani-tracker:local
 ```
 

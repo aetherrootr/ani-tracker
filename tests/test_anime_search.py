@@ -21,10 +21,10 @@ from tests.test_auth import register_user
 
 
 @pytest.fixture()
-def app(tmp_path) -> Flask:  # type: ignore[no-untyped-def]
+def app(test_instance_path) -> Flask:  # type: ignore[no-untyped-def]
     return create_app(
         {
-            'DATABASE_URL': f"sqlite:///{tmp_path / 'test.db'}",
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'test.db'}",
             'SECRET_KEY': 'test-secret',
             'TESTING': True,
         },
