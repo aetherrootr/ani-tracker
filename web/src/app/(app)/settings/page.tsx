@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
@@ -10,8 +10,10 @@ import { ConfirmDialog } from "@/components/library/ConfirmDialog";
 import { TvtimeImportCard } from "@/components/settings/TvtimeImportCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
-import { getOidcConfig } from "@/features/auth/api";
+import { getOidcConfig, updatePassword } from "@/features/auth/api";
 import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateWeekStartDay } from "@/features/auth/hooks";
 import { getImportProviders, syncAllLibraryAnime } from "@/features/library/api";
 import type { ImportProvider } from "@/features/library/types";
@@ -36,6 +38,12 @@ export default function SettingsPage() {
   const [isSavingProvider, setIsSavingProvider] = useState(false);
   const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
   const [syncLibraryMessage, setSyncLibraryMessage] = useState<string | null>(null);
+  const [passwordCardOpen, setPasswordCardOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [isPasswordConfirmOpen, setIsPasswordConfirmOpen] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -120,6 +128,33 @@ export default function SettingsPage() {
     }
   }
 
+  function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordMessage(null);
+    if (newPassword.length < 8) {
+      setPasswordError(t("settings.password.tooShort"));
+      return;
+    }
+    setPasswordError(null);
+    setIsPasswordConfirmOpen(true);
+  }
+
+  async function handlePasswordReset() {
+    setIsSavingPassword(true);
+    setPasswordError(null);
+    setPasswordMessage(null);
+
+    try {
+      await updatePassword({ password: newPassword });
+      setNewPassword("");
+      setPasswordMessage(t("settings.password.saved"));
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : t("settings.password.failed"));
+    } finally {
+      setIsSavingPassword(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -192,6 +227,40 @@ export default function SettingsPage() {
       </Card>
       <TvtimeImportCard />
       <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardTitle>{t("settings.password.title")}</CardTitle>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPasswordCardOpen((current) => !current)}>
+            {passwordCardOpen ? t("settings.password.collapse") : t("settings.password.expand")}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
+          <p>{t(user?.oidcLinked ? "settings.password.oidcDescription" : "settings.password.description")}</p>
+          {passwordCardOpen ? (
+            <form className="space-y-4" onSubmit={handlePasswordSubmit}>
+              <div className="max-w-sm space-y-2">
+                <Label htmlFor="new-password">{t("settings.password.newPassword")}</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => {
+                    setNewPassword(event.target.value);
+                    setPasswordError(null);
+                    setPasswordMessage(null);
+                  }}
+                />
+              </div>
+              {passwordError ? <p className="font-medium text-destructive">{passwordError}</p> : null}
+              {passwordMessage ? <p className="font-medium text-foreground">{passwordMessage}</p> : null}
+              <Button type="submit" variant="outline" disabled={isSavingPassword || !newPassword}>
+                {isSavingPassword ? t("settings.password.saving") : t("settings.password.button")}
+              </Button>
+            </form>
+          ) : null}
+        </CardContent>
+      </Card>
+      <Card>
         <CardHeader>
           <CardTitle>{t("settings.account.title")}</CardTitle>
         </CardHeader>
@@ -231,6 +300,17 @@ export default function SettingsPage() {
         onConfirm={() => {
           setIsUnlinkConfirmOpen(false);
           void handleUnlinkOidc();
+        }}
+      />
+      <ConfirmDialog
+        open={isPasswordConfirmOpen}
+        title={t("settings.password.confirmTitle")}
+        description={t("settings.password.confirmDescription")}
+        confirmLabel={t("settings.password.confirm")}
+        onCancel={() => setIsPasswordConfirmOpen(false)}
+        onConfirm={() => {
+          setIsPasswordConfirmOpen(false);
+          void handlePasswordReset();
         }}
       />
     </div>

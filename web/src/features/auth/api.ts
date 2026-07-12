@@ -6,6 +6,8 @@ import type {
   LoginInput,
   LogoutResponse,
   OidcConfigResponse,
+  UpdatePasswordInput,
+  UpdatePasswordResponse,
   RegisterInput,
   UpdateLanguagePreferenceInput,
   UpdatePreferencesInput,
@@ -56,6 +58,13 @@ export function updateLanguagePreference(
 
 export function updatePreferences(input: UpdatePreferencesInput): Promise<AuthResponse> {
   return apiFetch<AuthResponse>("/api/user/me/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePassword(input: UpdatePasswordInput): Promise<UpdatePasswordResponse> {
+  return apiFetch<UpdatePasswordResponse>("/api/user/me/password", {
     method: "PATCH",
     body: JSON.stringify(input),
   });

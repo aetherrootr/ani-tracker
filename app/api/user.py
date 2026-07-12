@@ -4,9 +4,11 @@ from flask import Blueprint, jsonify, request, session
 from flask.typing import ResponseReturnValue
 
 from app.api.utils.auth import (
+    hash_password,
     user_to_auth_dict,
     validate_import_provider_preference_payload,
     validate_language_preference_payload,
+    validate_password_reset_payload,
     validate_week_start_day_payload,
 )
 from app.api.utils.providers import get_import_provider_factory
@@ -76,3 +78,25 @@ def update_preferences() -> ResponseReturnValue:
     db.commit()
 
     return jsonify({"user": user_to_auth_dict(user)}), 200
+
+
+@user_bp.patch("/me/password")
+def update_password() -> ResponseReturnValue:
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int):
+        return jsonify({"message": "Authentication required"}), 401
+
+    password, error = validate_password_reset_payload(request.get_json(silent=True))
+    if error is not None or password is None:
+        return jsonify({"message": error}), 400
+
+    db = get_db()
+    user = db.get(User, user_id)
+    if user is None:
+        session.clear()
+        return jsonify({"message": "Authentication required"}), 401
+
+    user.password_hash = hash_password(password)
+    db.commit()
+
+    return jsonify({"success": True}), 200

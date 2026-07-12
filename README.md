@@ -201,6 +201,14 @@ proxies `/api/` to the shiv/Gunicorn backend. Override `WEB_CONCURRENCY` to tune
 Gunicorn workers. Run a separate container with `ani-tracker.pyz worker` for
 background jobs, or use Docker Compose to start both services.
 
+Reset a user's password from inside the container:
+
+```bash
+ani-tracker reset-password <username>
+```
+
+This sets a random 12-character password and prints it to stdout.
+
 Run lint checks:
 
 ```bash

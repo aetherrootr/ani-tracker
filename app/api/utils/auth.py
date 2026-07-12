@@ -128,6 +128,19 @@ def validate_login_payload(data: object) -> tuple[dict[str, str] | None, str | N
     return {'username': username.strip(), 'password': password}, None
 
 
+def validate_password_reset_payload(data: object) -> tuple[str | None, str | None]:
+    if not isinstance(data, dict):
+        return None, 'Request body must be a JSON object'
+
+    password = data.get('password')
+    if not isinstance(password, str) or not password:
+        return None, 'Password is required'
+    if len(password) < 8:
+        return None, 'Password must be at least 8 characters'
+
+    return password, None
+
+
 def validate_language_preference_payload(data: object) -> tuple[str | None, str | None]:
     if not isinstance(data, dict):
         return None, 'Request body must be a JSON object'
