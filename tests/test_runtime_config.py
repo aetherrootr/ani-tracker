@@ -24,18 +24,33 @@ def test_gunicorn_timeout_reads_environment(monkeypatch: pytest.MonkeyPatch) -> 
     assert gunicorn_timeout() == 45
 
 
-def test_import_provider_timeout_reads_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_import_provider_timeout_reads_environment(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
     monkeypatch.setenv('IMPORT_PROVIDER_TIMEOUT', '10.5')
 
     app = create_app(
         {
-            'DATABASE_URL': f"sqlite:///{tmp_path / 'test.db'}",
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'test.db'}",
             'MIGRATE_DATABASE': False,
             'TESTING': True,
         },
     )
 
     assert app.config['IMPORT_PROVIDER_TIMEOUT'] == pytest.approx(10.5)
+
+
+def test_instance_path_reads_environment(test_instance_path: Path) -> None:
+    app = create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'test.db'}",
+            'MIGRATE_DATABASE': False,
+            'TESTING': True,
+        },
+    )
+
+    assert Path(app.instance_path) == test_instance_path
+    assert app.config['ANIME_POSTER_STORAGE_DIR'] == str(test_instance_path / 'anime_posters')
+    assert app.config['TVTIME_IMPORT_REPORT_DIR'] == str(test_instance_path / 'tvtime_import_reports')
+    assert app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'] == str(test_instance_path / 'library_refresh_jobs')
 
 
 def test_cli_without_subcommand_runs_server(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,8 +95,8 @@ def test_cli_worker_subcommand_starts_celery_worker(monkeypatch: pytest.MonkeyPa
     assert worker_args == [['worker', '--loglevel', 'debug', '--pool', 'solo']]
 
 
-def test_cli_reset_password_sets_generated_password(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+def test_cli_reset_password_sets_generated_password(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
+    database_url = f"sqlite:///{test_instance_path / 'test.db'}"
     monkeypatch.setenv('DATABASE_URL', database_url)
     app = create_app({'DATABASE_URL': database_url, 'TESTING': True})
     session_factory = app.extensions['db_session_factory']
@@ -106,8 +121,8 @@ def test_cli_reset_password_sets_generated_password(monkeypatch: pytest.MonkeyPa
         assert verify_password(user.password_hash, password)
 
 
-def test_cli_reset_password_rejects_unknown_user(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+def test_cli_reset_password_rejects_unknown_user(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
+    database_url = f"sqlite:///{test_instance_path / 'test.db'}"
     monkeypatch.setenv('DATABASE_URL', database_url)
     create_app({'DATABASE_URL': database_url, 'TESTING': True})
 

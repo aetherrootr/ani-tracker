@@ -13,10 +13,10 @@ from app.models.user import User, UserOidcIdentity
 
 
 @pytest.fixture()
-def app(tmp_path) -> Flask:  # type: ignore[no-untyped-def]
+def app(test_instance_path) -> Flask:  # type: ignore[no-untyped-def]
     return create_app(
         {
-            "DATABASE_URL": f"sqlite:///{tmp_path / 'test.db'}",
+            "DATABASE_URL": f"sqlite:///{test_instance_path / 'test.db'}",
             "SECRET_KEY": "test-secret",
             "TESTING": True,
         },
@@ -303,10 +303,10 @@ def test_oidc_login_uses_default_callback_redirect(app: Flask, client: FlaskClie
     assert response.headers["Location"] == "https://anime.example.test/api/oidc/callback"
 
 
-def test_oidc_login_uses_forwarded_proto_and_host_when_proxy_is_trusted(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_oidc_login_uses_forwarded_proto_and_host_when_proxy_is_trusted(test_instance_path) -> None:  # type: ignore[no-untyped-def]
     app = create_app(
         {
-            "DATABASE_URL": f"sqlite:///{tmp_path / 'test.db'}",
+            "DATABASE_URL": f"sqlite:///{test_instance_path / 'test.db'}",
             "SECRET_KEY": "test-secret",
             "TESTING": True,
             "TRUST_PROXY": True,

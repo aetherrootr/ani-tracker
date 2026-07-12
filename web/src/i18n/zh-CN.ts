@@ -217,7 +217,7 @@ export const zhCN = {
       watchedEpisodes: "已观看剧集",
       watchedEpisodesHint: "只统计已标记观看且未弃番的动画。",
       unwatchedAired: "待观看已播出",
-      unwatchedAiredHint: "资料库中已播出但尚未标记观看的剧集。",
+      unwatchedAiredHint: "资料库中已播出但尚未标记观看的剧集，不包含已暂停或已弃番动画。",
       totalWatchTime: "累计耗时",
       totalWatchTimeHint: "仅包含能解析时长的剧集。",
       libraryAnime: "资料库动画",

@@ -45,13 +45,12 @@ from tests.test_auth import register_user
 
 
 @pytest.fixture()
-def app(tmp_path) -> Flask:  # type: ignore[no-untyped-def]
+def app(test_instance_path) -> Flask:  # type: ignore[no-untyped-def]
     return create_app(
         {
-            'DATABASE_URL': f"sqlite:///{tmp_path / 'test.db'}",
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'test.db'}",
             'SECRET_KEY': 'test-secret',
             'TESTING': True,
-            'ANIME_POSTER_STORAGE_DIR': str(tmp_path / 'posters'),
         },
     )
 
@@ -1067,6 +1066,36 @@ def test_statistics_summary_counts_duration_user_isolation_and_dropped(
     assert sum(item['watchedEpisodeCount'] for item in body['daily']) == 2
 
 
+def test_statistics_summary_excludes_on_hold_from_unwatched_aired(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    active = add_library_anime(
+        db_session,
+        external_id='stats-active-backlog',
+        original_name='Stats Active Backlog',
+        names=[('Stats Active Backlog', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    on_hold = add_library_anime(
+        db_session,
+        external_id='stats-on-hold-backlog',
+        original_name='Stats On Hold Backlog',
+        names=[('Stats On Hold Backlog', 'en')],
+        status=UserAnimeStatus.ON_HOLD,
+    )
+    add_episode(db_session, active, number=1)
+    add_episode(db_session, on_hold, number=1)
+    db_session.commit()
+
+    response = client.get('/api/statistics/summary')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['unwatchedAiredEpisodeCount'] == 1
+
+
 def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session) -> None:
     assert register_user(client).status_code == 201
     assert client.patch('/api/user/me/preferences', json={'weekStartDay': 6}).status_code == 200
@@ -1478,13 +1507,13 @@ def test_sync_library_anime_maps_provider_errors(app: Flask, client: FlaskClient
 def test_sync_all_library_reuses_active_refresh_job(
     app: Flask,
     client: FlaskClient,
-    tmp_path: Path,
+    test_instance_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api import anime_info
 
     assert register_user(client).status_code == 201
-    app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'] = str(tmp_path / 'library-refresh-locks')
+    app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'] = str(test_instance_path / 'library-refresh-locks')
     queued_task_ids: list[str] = []
 
     @dataclass(frozen=True)
@@ -1723,12 +1752,12 @@ def test_delete_untracked_anime_task_keeps_poster_referenced_by_relation(
     assert poster_path.exists()
 
 
-def test_create_app_preserves_celery_task_always_eager_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+def test_create_app_preserves_celery_task_always_eager_env(test_instance_path, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv('CELERY_TASK_ALWAYS_EAGER', '1')
 
     create_app(
         {
-            'DATABASE_URL': f"sqlite:///{tmp_path / 'eager.db'}",
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'eager.db'}",
             'SECRET_KEY': 'test-secret',
             'TESTING': True,
         },

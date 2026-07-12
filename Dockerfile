@@ -45,6 +45,7 @@ FROM ${PYTHON_IMAGE} AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     NEXT_TELEMETRY_DISABLED=1 \
+    ANIME_TRACKER_INSTANCE_PATH=/var/lib/ani-tracker \
     WEB_CONCURRENCY=2
 
 RUN apt-get update \
@@ -61,7 +62,7 @@ COPY docker/entrypoint.sh /usr/local/bin/ani-tracker-entrypoint
 
 RUN printf '%s\n' '#!/usr/bin/env sh' 'exec python /opt/ani-tracker/backend/ani-tracker.pyz "$@"' > /usr/local/bin/ani-tracker \
   && chmod +x /usr/local/bin/ani-tracker /usr/local/bin/ani-tracker-entrypoint \
-  && mkdir -p /run/nginx /var/cache/nginx /opt/ani-tracker/instance
+  && mkdir -p /run/nginx /var/cache/nginx /var/lib/ani-tracker
 
 EXPOSE 8080
 

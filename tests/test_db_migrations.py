@@ -5,8 +5,8 @@ from sqlalchemy import create_engine, inspect, text
 from app import create_app
 
 
-def test_create_app_migrates_empty_sqlite_database_to_head(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -> None:  # type: ignore[no-untyped-def]
+    database_url = f"sqlite:///{test_instance_path / 'test.db'}"
 
     create_app(
         {
@@ -27,8 +27,8 @@ def test_create_app_migrates_empty_sqlite_database_to_head(tmp_path) -> None:  #
         engine.dispose()
 
 
-def test_init_db_does_not_create_schema_when_migrations_are_disabled(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+def test_init_db_does_not_create_schema_when_migrations_are_disabled(test_instance_path) -> None:  # type: ignore[no-untyped-def]
+    database_url = f"sqlite:///{test_instance_path / 'test.db'}"
 
     create_app(
         {

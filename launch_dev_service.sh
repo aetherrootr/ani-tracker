@@ -3,7 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TMP_DIR="${TMPDIR:-/tmp}/ani-tracker"
+ANIME_TRACKER_INSTANCE_PATH="/tmp/ani-tracker"
+TMP_DIR="${ANIME_TRACKER_INSTANCE_PATH}"
 BACKEND_PORT="3001"
 FRONTEND_PORT="3000"
 BACKEND_URL="http://localhost:${BACKEND_PORT}"
@@ -30,15 +31,11 @@ CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/0"
 BACKEND_LOG="${TMP_DIR}/ani-tracker-backend.log"
 FRONTEND_LOG="${TMP_DIR}/ani-tracker-frontend.log"
 WORKER_LOG="${TMP_DIR}/ani-tracker-worker.log"
-ANIME_POSTER_STORAGE_DIR="${TMP_DIR}/anime_posters"
-TVTIME_IMPORT_REPORT_DIR="${TMP_DIR}/tvtime_import"
 AUTO_IMPORT_TVDB_SEASONS_ENABLED="true"
 
 mkdir -p "${TMP_DIR}"
 mkdir -p "${POSTGRES_DATA_DIR}"
 mkdir -p "${REDIS_DATA_DIR}"
-mkdir -p "${ANIME_POSTER_STORAGE_DIR}"
-mkdir -p "${TVTIME_IMPORT_REPORT_DIR}"
 
 backend_pid=""
 frontend_pid=""
@@ -301,8 +298,7 @@ requeue_pending_posters() {
     load_env_files
     export DATABASE_URL="${DATABASE_URL}"
     export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
-    export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
-    export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
+    export ANIME_TRACKER_INSTANCE_PATH="${ANIME_TRACKER_INSTANCE_PATH}"
     uv run python - <<'PY'
 from sqlalchemy import select
 
@@ -344,8 +340,7 @@ echo "Starting Celery worker with Redis broker ${CELERY_BROKER_URL}"
   load_env_files
   export DATABASE_URL="${DATABASE_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
-  export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
-  export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
+  export ANIME_TRACKER_INSTANCE_PATH="${ANIME_TRACKER_INSTANCE_PATH}"
   export AUTO_IMPORT_TVDB_SEASONS_ENABLED="${AUTO_IMPORT_TVDB_SEASONS_ENABLED}"
   uv run python -m app.main worker --pool=solo
 ) >"${WORKER_LOG}" 2>&1 &
@@ -360,8 +355,7 @@ echo "Starting backend on ${BACKEND_URL}"
   export DATABASE_URL="${DATABASE_URL}"
   export CORS_ORIGIN="${FRONTEND_URL}"
   export CELERY_BROKER_URL="${CELERY_BROKER_URL}"
-  export ANIME_POSTER_STORAGE_DIR="${ANIME_POSTER_STORAGE_DIR}"
-  export TVTIME_IMPORT_REPORT_DIR="${TVTIME_IMPORT_REPORT_DIR}"
+  export ANIME_TRACKER_INSTANCE_PATH="${ANIME_TRACKER_INSTANCE_PATH}"
   export AUTO_IMPORT_TVDB_SEASONS_ENABLED="${AUTO_IMPORT_TVDB_SEASONS_ENABLED}"
   export SECRET_KEY="integration-test-secret"
   uv run python -m app.main server --dev
@@ -388,8 +382,7 @@ Database: ${DATABASE_URL}
 Redis:    ${CELERY_BROKER_URL}
 Postgres data: ${POSTGRES_DATA_DIR}
 Redis data:    ${REDIS_DATA_DIR}
-Posters:       ${ANIME_POSTER_STORAGE_DIR}
-TV Time import: ${TVTIME_IMPORT_REPORT_DIR}
+Instance path: ${ANIME_TRACKER_INSTANCE_PATH}
 
 Logs:
 Backend:  ${BACKEND_LOG}

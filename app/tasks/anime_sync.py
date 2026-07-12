@@ -17,7 +17,7 @@ from app.services.library_refresh_jobs import (
     update_library_refresh_job,
 )
 from app.tasks.anime_poster import download_anime_poster
-from app.utils import env_bool, env_float, safe_float, safe_int
+from app.utils import configured_instance_path, env_bool, env_float, safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,12 @@ def _provider_config() -> dict[str, object]:
 
 
 def _enqueue_poster_download(database_url: str, poster_id: int) -> None:
-    storage_dir = str(celery_app.conf.get('anime_poster_storage_dir') or os.environ.get('ANIME_POSTER_STORAGE_DIR', 'instance/anime_posters'))
+    storage_dir = str(
+        celery_app.conf.get('anime_poster_storage_dir')
+        # TODO(aetherrootr): Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.
+        or os.environ.get('ANIME_POSTER_STORAGE_DIR')
+        or configured_instance_path() / 'anime_posters',
+    )
     max_bytes = safe_int(
         celery_app.conf.get('anime_poster_max_bytes') or os.environ.get('ANIME_POSTER_MAX_BYTES'),
         default=5 * 1024 * 1024,

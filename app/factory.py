@@ -15,7 +15,8 @@ from app.utils import env_bool, env_float, env_int
 
 
 def create_app(config: dict[str, object] | None = None) -> Flask:
-    app = Flask(__name__)
+    instance_path = os.environ.get("ANIME_TRACKER_INSTANCE_PATH")
+    app = Flask(__name__, instance_path=instance_path) if instance_path else Flask(__name__)
     app.config.update(_build_app_config(app, config))
     if app.config["TRUST_PROXY"]:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[method-assign]
@@ -86,12 +87,14 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "IMPORT_PROVIDER_TIMEOUT": env_float("IMPORT_PROVIDER_TIMEOUT", default=5, minimum=0),
 
         # Poster download and local file storage limits.
+        # TODO(aetherrootr): Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.
         "ANIME_POSTER_STORAGE_DIR": os.environ.get(
             "ANIME_POSTER_STORAGE_DIR",
             str(Path(app.instance_path) / "anime_posters"),
         ),
         "ANIME_POSTER_MAX_BYTES": env_int("ANIME_POSTER_MAX_BYTES", default=5 * 1024 * 1024, minimum=1),
         "ANIME_POSTER_REQUEST_TIMEOUT": env_float("ANIME_POSTER_REQUEST_TIMEOUT", default=5, minimum=0),
+        # TODO(aetherrootr): Deprecate TVTIME_IMPORT_REPORT_DIR and use ANIME_TRACKER_INSTANCE_PATH/tvtime_import_reports only.
         "TVTIME_IMPORT_REPORT_DIR": os.environ.get(
             "TVTIME_IMPORT_REPORT_DIR",
             str(Path(app.instance_path) / "tvtime_import_reports"),

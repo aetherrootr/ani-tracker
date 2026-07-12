@@ -60,7 +60,7 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
         .join(UserAnimeProgress, UserAnimeProgress.anime_id == Episode.anime_id)
         .where(
             UserAnimeProgress.user_id == user.id,
-            UserAnimeProgress.status != UserAnimeStatus.DROPPED,
+            UserAnimeProgress.status.not_in([UserAnimeStatus.DROPPED, UserAnimeStatus.ON_HOLD]),
             Episode.status == EpisodeStatus.AIRED,
             Episode.id.not_in(watched_episode_ids),
         ),
