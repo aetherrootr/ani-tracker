@@ -612,6 +612,43 @@ def test_library_list_searches_local_names_with_pinyin_and_returns_name_anchors(
     assert body['navigationAnchors'] == [{'key': 'q', 'label': 'Q', 'offset': 0, 'page': 1}]
 
 
+def test_library_list_search_requires_relevant_phrase_and_sorts_by_relevance(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        external_id='1',
+        original_name='Love Is War',
+        names=[('Love Is War', 'en')],
+        created_at=datetime(2024, 3, 1, tzinfo=UTC),
+    )
+    add_library_anime(
+        db_session,
+        external_id='2',
+        original_name='Love Live! Superstar!!',
+        names=[('Love Live! Superstar!!', 'en')],
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    add_library_anime(
+        db_session,
+        external_id='3',
+        original_name='Superstar Love Live',
+        names=[('Superstar Love Live', 'en')],
+        created_at=datetime(2024, 2, 1, tzinfo=UTC),
+    )
+
+    response = client.get('/api/anime/library?q=love%20live&sort=updated_at&order=desc')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert [item['anime']['displayName'] for item in body['items']] == [
+        'Love Live! Superstar!!',
+        'Superstar Love Live',
+    ]
+
+
 def test_library_list_filters_status_and_rejects_dropped(
     client: FlaskClient,
     db_session: Session,
