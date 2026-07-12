@@ -7,6 +7,7 @@ from app.import_provider.bangumi import BangumiImportProvider
 from app.import_provider.base import ImportProvider
 from app.import_provider.exceptions import ImportProviderResponseError
 from app.import_provider.tmdb import TmdbImportProvider
+from app.import_provider.tvdb import TVDBImportProvider
 
 
 class ImportProviderFactory:
@@ -36,6 +37,18 @@ class ImportProviderFactory:
                     access_token=tmdb_access_token if isinstance(tmdb_access_token, str) else None,
                     api_key=tmdb_api_key if isinstance(tmdb_api_key, str) else None,
                     include_adult=bool(config['TMDB_INCLUDE_ADULT']),
+                    timeout=float(config['IMPORT_PROVIDER_TIMEOUT']),
+                ),
+            )
+        tvdb_api_key = config.get('TVDB_API_KEY')
+        if isinstance(tvdb_api_key, str) and tvdb_api_key.strip():
+            tvdb_pin = config.get('TVDB_PIN')
+            providers.append(
+                TVDBImportProvider(
+                    base_url=str(config['TVDB_API_BASE_URL']),
+                    web_base_url=str(config['TVDB_WEB_BASE_URL']),
+                    api_key=tvdb_api_key,
+                    pin=tvdb_pin if isinstance(tvdb_pin, str) else None,
                     timeout=float(config['IMPORT_PROVIDER_TIMEOUT']),
                 ),
             )

@@ -9,6 +9,7 @@ from typing import Any
 class ProviderType(enum.StrEnum):
     BANGUMI = 'bangumi'
     TMDB = 'tmdb'
+    TVDB = 'tvdb'
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from app.import_provider import ImportProviderFactory
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
 from app.services.anime_sync import sync_anime_from_provider
 from app.tasks.anime_poster import download_anime_poster
-from app.utils import env_float, safe_float, safe_int
+from app.utils import env_bool, env_float, safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,17 @@ def _provider_config() -> dict[str, object]:
             'BANGUMI_USER_AGENT',
             'ani-tracker/0.0.1 (https://github.com/aetherrootr/ani-tracker)',
         ),
+        'TMDB_API_BASE_URL': os.environ.get('TMDB_API_BASE_URL', 'https://api.themoviedb.org/3'),
+        'TMDB_WEB_BASE_URL': os.environ.get('TMDB_WEB_BASE_URL', 'https://www.themoviedb.org'),
+        'TMDB_IMAGE_BASE_URL': os.environ.get('TMDB_IMAGE_BASE_URL', 'https://image.tmdb.org/t/p'),
+        'TMDB_POSTER_SIZE': os.environ.get('TMDB_POSTER_SIZE', 'w500'),
+        'TMDB_ACCESS_TOKEN': os.environ.get('TMDB_ACCESS_TOKEN'),
+        'TMDB_API_KEY': os.environ.get('TMDB_API_KEY'),
+        'TMDB_INCLUDE_ADULT': env_bool('TMDB_INCLUDE_ADULT'),
+        'TVDB_API_BASE_URL': os.environ.get('TVDB_API_BASE_URL', 'https://api4.thetvdb.com/v4'),
+        'TVDB_WEB_BASE_URL': os.environ.get('TVDB_WEB_BASE_URL', 'https://thetvdb.com'),
+        'TVDB_API_KEY': os.environ.get('TVDB_API_KEY'),
+        'TVDB_PIN': os.environ.get('TVDB_PIN'),
         'IMPORT_PROVIDER_TIMEOUT': env_float('IMPORT_PROVIDER_TIMEOUT', default=5, minimum=0),
     }
 

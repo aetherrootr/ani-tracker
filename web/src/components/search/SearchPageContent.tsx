@@ -13,7 +13,7 @@ import { useAnimeSearch } from "@/features/search/hooks";
 import { SearchResultCard } from "./SearchResultCard";
 import { SearchState } from "./SearchState";
 
-const PROVIDERS = ["bangumi", "tmdb"];
+const PROVIDERS = ["bangumi", "tmdb", "tvdb"];
 
 export function SearchPageContent() {
   const t = useTranslations();

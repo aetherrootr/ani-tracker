@@ -83,7 +83,7 @@ export function AnimeHeroSettingsMenu({ anime, onAnimeChange }: { anime: Anime; 
       <ChoiceDialog open={dialog === "name"} title={t("library.changeTitle")} error={error} onClose={() => setDialog(null)}>
         <ChoiceButton active={anime.preferredNameId === null} onClick={() => chooseName(null)}>{anime.originalName}</ChoiceButton>
         {(anime.availableNames ?? []).map((name) => (
-          <ChoiceButton key={name.id} active={anime.preferredNameId === name.id || anime.name?.id === name.id} onClick={() => chooseName(name.id)}>
+          <ChoiceButton key={name.id} active={anime.preferredNameId === name.id} onClick={() => chooseName(name.id)}>
             {name.name}<span className="text-muted-foreground">{name.language ?? "-"}</span>
           </ChoiceButton>
         ))}

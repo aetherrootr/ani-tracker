@@ -80,6 +80,10 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "TMDB_ACCESS_TOKEN": os.environ.get("TMDB_ACCESS_TOKEN"),
         "TMDB_API_KEY": os.environ.get("TMDB_API_KEY"),
         "TMDB_INCLUDE_ADULT": env_bool("TMDB_INCLUDE_ADULT"),
+        "TVDB_API_BASE_URL": os.environ.get("TVDB_API_BASE_URL", "https://api4.thetvdb.com/v4"),
+        "TVDB_WEB_BASE_URL": os.environ.get("TVDB_WEB_BASE_URL", "https://thetvdb.com"),
+        "TVDB_API_KEY": os.environ.get("TVDB_API_KEY"),
+        "TVDB_PIN": os.environ.get("TVDB_PIN"),
         "IMPORT_PROVIDER_TIMEOUT": 5.0,
 
         # Poster download and local file storage limits.
