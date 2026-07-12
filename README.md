@@ -1,8 +1,122 @@
 # ani-tracker
 
+[![Status](https://img.shields.io/badge/status-early%20stage-orange)](#project-status)
+[![Docker Compose](https://img.shields.io/badge/docker-compose-blue)](docker-compose.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+ani-tracker is a local-first tracker for anime episodes. It can also be used to
+track TV shows and movies.
+
+ani-tracker is designed as a self-hostable alternative to
+[TV Time](https://tvtime.com/). Its interaction model is
+inspired by TV Time and Apple Music.
+
+## Screenshots
+
+### Desktop
+
+| Search | Library |
+| --- | --- |
+| ![Desktop search](docs/search-desktop.png) | ![Desktop library](docs/library-desktop.png) |
+
+| Watchlist | Stats |
+| --- | --- |
+| ![Desktop watchlist](docs/watchlist-desktop.png) | ![Desktop stats](docs/stats-desktop.png) |
+
+### Mobile
+
+<p>
+  <img src="docs/search-mobile.png" alt="Mobile search" width="180">
+  <img src="docs/library-mobile.png" alt="Mobile library" width="180">
+  <img src="docs/watchlist-mobile-0.png" alt="Mobile watchlist" width="180">
+  <img src="docs/watchlist-mobile-1.png" alt="Mobile watchlist detail" width="180">
+  <img src="docs/stats-mobile.png" alt="Mobile stats" width="180">
+</p>
+
+## Project Status
+
+ani-tracker is in early development. Core tracking features are usable, but APIs,
+migrations, UI details, and metadata-provider behavior may still change.
+
+The project is built with AI assistance, with architecture design and code review
+handled by a human maintainer.
+
+## Features
+
+- Local-first: all user data is stored locally. Network access is only used to
+  fetch metadata from upstream services.
+- Multiple metadata providers: choose the provider you prefer for each title.
+  Current providers include [Bangumi](https://bangumi.tv/),
+  [TheTVDB](https://www.thetvdb.com/), and
+  [TMDB](https://www.themoviedb.org/).
+- Supply-chain attack mitigation: to keep the design simple and predictable,
+  ani-tracker only allows one upstream metadata provider per title. It also
+  provides a way to help migrate your watch history to another metadata provider.
+- Desktop and mobile experiences: ani-tracker implements separate frontend
+  interactions for desktop and mobile devices.
+- OIDC support.
+
+## Quick Start
+
+Run the full production stack with Docker Compose:
+
+```bash
+cp env.example .env
+docker compose up --build
+```
+
+The compose stack starts the application container together with PostgreSQL and
+Redis. The app is exposed at `http://localhost:8080` by default. Change
+`APP_PORT` in `.env` if you want to use another port.
+
+## Metadata Providers
+
+| Provider | Status | Notes |
+| --- | --- | --- |
+| [Bangumi](https://bangumi.tv/) | Supported | Anime-focused metadata |
+| [TheTVDB](https://www.thetvdb.com/) | Supported | TV metadata |
+| [TMDB](https://www.themoviedb.org/) | Supported | TV and movie metadata |
+
+## Configuration
+
+Copy `env.example` to `.env` before running Docker Compose. Common settings:
+
+| Variable | Description |
+| --- | --- |
+| `APP_PORT` | Public HTTP port. Defaults to `8080`. |
+| `SECRET_KEY` | Flask session secret. Change this before deployment. |
+| `POSTGRES_DB` | PostgreSQL database name. |
+| `POSTGRES_USER` | PostgreSQL username. |
+| `POSTGRES_PASSWORD` | PostgreSQL password. Change this before deployment. |
+| `TMDB_API_KEY` | Optional TMDB API key. |
+| `TMDB_ACCESS_TOKEN` | Optional TMDB access token. |
+| `TVDB_API_KEY` | Optional TheTVDB API key. |
+| `OIDC_ENABLED` | Enables optional OIDC / SSO integration. |
+
+## Non-goals
+
+- ani-tracker does not manage local media files.
+- ani-tracker is not a download, streaming, or media-server application.
+- ani-tracker does not aim to be a social network.
+
+## Known Limitations
+
+- Metadata-provider behavior may change during early development.
+- Import and export tools are still under development.
+- Some UI interactions may be refined in future releases.
+
+## Roadmap
+
+- Support importing data from TV Time.
+- Support data export.
+- Support custom background images to improve the frontend experience.
+- Support AniList as a metadata provider.
+- Support configuring streaming platforms for titles, allowing ani-tracker to
+  link from a title to the platform where it can be watched.
+
 ## Development
 
-Run the application:
+Run the backend application:
 
 ```bash
 uv run python -m app.main
@@ -76,16 +190,6 @@ The container exposes nginx on `8080`, serves the Next frontend at `/`, and
 proxies `/api/` to the shiv/Gunicorn backend. Override `WEB_CONCURRENCY` to tune
 Gunicorn workers.
 
-Run the full production stack with Docker Compose:
-
-```bash
-cp env.example .env
-docker compose up --build
-```
-
-The compose stack starts the application container together with PostgreSQL and
-Redis. The app is exposed at `http://localhost:8080` by default.
-
 Run lint checks:
 
 ```bash
@@ -103,3 +207,16 @@ Run tests:
 ```bash
 uv run pytest
 ```
+
+## Contributing
+
+Issues and discussions are welcome. The project is still evolving, so please open
+an issue before starting large changes.
+
+## License
+
+ani-tracker is licensed under the [Apache License 2.0](LICENSE).
+
+## Documentation
+
+- [中文 README](docs/README.zh-CN.md)
