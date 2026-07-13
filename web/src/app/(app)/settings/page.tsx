@@ -50,6 +50,7 @@ export default function SettingsPage() {
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [isPasswordConfirmOpen, setIsPasswordConfirmOpen] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [aboutCardOpen, setAboutCardOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -393,6 +394,26 @@ export default function SettingsPage() {
           </CardContent>
         ) : null}
       </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardTitle>{t("settings.about.title")}</CardTitle>
+          <Button type="button" variant="outline" size="sm" onClick={() => setAboutCardOpen((current) => !current)}>
+            {aboutCardOpen ? t("settings.about.collapse") : t("settings.about.expand")}
+          </Button>
+        </CardHeader>
+        {aboutCardOpen ? (
+          <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+            <p>{t("settings.about.description")}</p>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>{t("settings.about.noMedia")}</li>
+              <li>
+                {t("settings.about.metadataIntro")} <ProviderLink href="https://bangumi.tv/about/copyright">Bangumi</ProviderLink>, <ProviderLink href="https://www.themoviedb.org/api-terms-of-use">TMDB</ProviderLink>, <ProviderLink href="https://www.thetvdb.com/api-information#attribution">TVDB</ProviderLink>.
+              </li>
+              <li>{t("settings.about.responsibility")}</li>
+            </ul>
+          </CardContent>
+        ) : null}
+      </Card>
       <ConfirmDialog
         open={isUnlinkConfirmOpen}
         title={t("settings.account.unlinkSsoConfirmTitle")}
@@ -417,6 +438,14 @@ export default function SettingsPage() {
         }}
       />
     </div>
+  );
+}
+
+function ProviderLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a className="font-medium text-foreground underline underline-offset-4" href={href} target="_blank" rel="noreferrer">
+      {children}
+    </a>
   );
 }
 

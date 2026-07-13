@@ -204,6 +204,15 @@ export const en = {
       unlinkSsoConfirmTitle: "Unlink SSO account?",
       unlinkSsoConfirmDescription: "After unlinking, you cannot use this SSO identity to log in to this account unless you link it again.",
     },
+    about: {
+      title: "About",
+      expand: "Expand",
+      collapse: "Collapse",
+      description: "ani-tracker is a local-first self-hosted tracking tool designed to record watch progress and manage a personal library.",
+      noMedia: "The project does not provide downloading, streaming playback, media-server features, or local media-file management.",
+      metadataIntro: "Anime, episode, image, and description metadata may come from third-party services. Use them according to each service's terms and licensing requirements:",
+      responsibility: "Deployers and users are responsible for confirming applicable laws, third-party API terms, data-processing requirements, and privacy compliance in their jurisdiction.",
+    },
   },
   statistics: {
     eyebrow: "Statistics",
