@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
@@ -54,6 +55,12 @@ class FakeProvider(ImportProvider):
     def get_anime_detail(self, _external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
         _ = language
         raise NotImplementedError
+
+
+class SlowSearchProvider(FakeProvider):
+    def search_anime(self, keyword: str, *, limit: int, offset: int, language: str | None = None) -> ImportSearchPage:
+        time.sleep(1)
+        return super().search_anime(keyword, limit=limit, offset=offset, language=language)
 
 
 class FakeResponse:
@@ -195,6 +202,17 @@ def test_api_maps_provider_errors(client: FlaskClient, app: Flask) -> None:
     )
     response = client.get('/api/anime/search?q=frieren')
     assert response.status_code == 504
+
+
+def test_search_deadline_maps_blocked_provider_to_timeout(client: FlaskClient, app: Flask) -> None:
+    assert register_user(client).status_code == 201
+    app.config['IMPORT_SEARCH_TIMEOUT'] = 0.01
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': SlowSearchProvider()})
+
+    response = client.get('/api/anime/search?q=frieren')
+
+    assert response.status_code == 504
+    assert response.get_json() == {'message': 'Import provider request timed out'}
 
 
 def test_bangumi_provider_maps_response_to_import_search_results() -> None:

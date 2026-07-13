@@ -195,15 +195,12 @@ def test_timeout_and_invalid_responses_are_mapped() -> None:
         provider(FakeSession({'https://api4.thetvdb.com/v4/login': login_response(), 'https://api4.thetvdb.com/v4/search': FakeResponse(200, ValueError('bad json'))})).search_anime('anime', limit=10, offset=0)
 
 
-def test_search_expands_series_to_importable_seasons_including_specials_and_slices_locally() -> None:
+def test_search_maps_each_series_to_season_one_without_expanding_seasons() -> None:
     session = FakeSession(
         {
             'https://api4.thetvdb.com/v4/login': login_response(),
             'https://api4.thetvdb.com/v4/search': FakeResponse(200, {'status': 'success', 'data': [{'id': '321', 'name': 'Example Anime', 'type': 'series'}]}),
             'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
-            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'number': 0, 'overview': 'special overview', 'episodes': [{'id': 901, 'seasonNumber': 0, 'number': 1, 'aired': '2020-02-01'}]}}),
-            'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 11, 'number': 1, 'episodes': [{'id': 101, 'seasonNumber': 1, 'number': 1, 'aired': '2020-04-01'}]}}),
-            'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 12, 'number': 2, 'episodes': [{'id': 201, 'seasonNumber': 2, 'number': 1, 'aired': '2021-07-01'}]}}),
         },
     )
 
@@ -212,13 +209,39 @@ def test_search_expands_series_to_importable_seasons_including_specials_and_slic
     assert session.calls[1]['params']['query'] == 'example'
     assert session.calls[1]['params']['type'] == 'series'
     assert session.calls[1]['params']['language'] == 'zho'
-    assert page.total == 3
-    assert [item.external_id for item in page.results] == ['321:0']
-    assert page.results[0].title == '示例动画: Specials'
+    assert page.total == 1
+    assert [item.external_id for item in page.results] == ['321:1']
+    assert page.results[0].title == '示例动画'
     assert page.results[0].summary == '中文简介'
-    assert page.results[0].air_date == '2020-02-01'
-    assert page.results[0].image_url == 'https://artworks.thetvdb.com/specials.jpg'
-    assert page.results[0].url == 'https://thetvdb.com/series/example-anime/seasons/official/0'
+    assert page.results[0].air_date is None
+    assert page.results[0].image_url == 'https://artworks.thetvdb.com/s1.jpg'
+    assert page.results[0].url == 'https://thetvdb.com/series/example-anime/seasons/official/1'
+    assert not any('/seasons/' in call['url'] for call in session.calls)
+
+
+def test_search_stops_before_fetching_next_tvdb_page_when_limit_is_satisfied() -> None:
+    session = FakeSession(
+        {
+            'https://api4.thetvdb.com/v4/login': login_response(),
+            'https://api4.thetvdb.com/v4/search': FakeResponse(
+                200,
+                {
+                    'status': 'success',
+                    'data': [{'id': '321', 'name': 'Example Anime', 'type': 'series'}],
+                    'links': {'next': 'https://api4.thetvdb.com/v4/search?offset=20'},
+                },
+            ),
+            'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
+        },
+    )
+
+    page = provider(session).search_anime('example', limit=1, offset=0)
+
+    search_offsets = [call['params']['offset'] for call in session.calls if call['method'] == 'GET' and call['url'] == 'https://api4.thetvdb.com/v4/search']
+    assert search_offsets == [0]
+    assert page.total == 2
+    assert [item.external_id for item in page.results] == ['321:1']
+    assert not any('/seasons/' in call['url'] for call in session.calls)
 
 
 def test_search_accepts_prefixed_series_id_and_skips_unexpandable_series() -> None:
@@ -239,15 +262,12 @@ def test_search_accepts_prefixed_series_id_and_skips_unexpandable_series() -> No
             ),
             'https://api4.thetvdb.com/v4/series/999/extended': FakeResponse(404, {'status': 'failure'}),
             'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
-            'https://api4.thetvdb.com/v4/seasons/1/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 1, 'number': 0, 'episodes': []}}),
-            'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 11, 'number': 1, 'episodes': []}}),
-            'https://api4.thetvdb.com/v4/seasons/12/extended': FakeResponse(200, {'status': 'success', 'data': {'id': 12, 'number': 2, 'episodes': []}}),
         },
     )
 
     page = provider(session).search_anime('example', limit=10, offset=0)
 
-    assert [item.external_id for item in page.results] == ['321:0', '321:1', '321:2']
+    assert [item.external_id for item in page.results] == ['321:1']
 
 
 def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster() -> None:

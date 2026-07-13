@@ -7,6 +7,8 @@ type AddToLibraryResponse = {
   progress: { status: string };
 };
 
+const ADD_TO_LIBRARY_TIMEOUT_MS = 360000;
+
 export function searchAnime({
   keyword,
   provider = "bangumi",
@@ -30,5 +32,6 @@ export function addSearchResultToLibrary(provider: string, externalId: string, d
   return apiFetch<AddToLibraryResponse>("/api/anime/library", {
     method: "POST",
     body: JSON.stringify({ provider, externalId, duplicateResolution }),
+    timeoutMs: ADD_TO_LIBRARY_TIMEOUT_MS,
   });
 }

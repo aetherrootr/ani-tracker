@@ -38,6 +38,20 @@ def test_import_provider_timeout_reads_environment(monkeypatch: pytest.MonkeyPat
     assert app.config['IMPORT_PROVIDER_TIMEOUT'] == pytest.approx(10.5)
 
 
+def test_import_search_timeout_reads_environment(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
+    monkeypatch.setenv('IMPORT_SEARCH_TIMEOUT', '12.5')
+
+    app = create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'test.db'}",
+            'MIGRATE_DATABASE': False,
+            'TESTING': True,
+        },
+    )
+
+    assert app.config['IMPORT_SEARCH_TIMEOUT'] == pytest.approx(12.5)
+
+
 def test_auto_import_cron_defaults_are_randomized_overnight(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
     for name in (
         'AUTO_IMPORT_TVDB_SEASONS_CRON_DAY',

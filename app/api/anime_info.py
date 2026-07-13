@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import signal
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -98,6 +102,29 @@ RELATED_ANIME_DISCOVERY_BY_PROVIDER = {
 }
 
 
+@contextmanager
+def provider_search_deadline(seconds: float) -> Iterator[None]:
+    if seconds <= 0 or threading.current_thread() is not threading.main_thread() or not hasattr(signal, 'SIGALRM'):
+        yield
+        return
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def timeout_handler(_signum: int, _frame: object) -> None:
+        message = 'Import provider request timed out'
+        raise ImportProviderTimeoutError(message)
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+
+
 @anime_info_bp.get('/search')
 @require_auth_user
 def search_anime(db: Session, user: User) -> ResponseReturnValue:
@@ -118,7 +145,8 @@ def search_anime(db: Session, user: User) -> ResponseReturnValue:
 
     try:
         provider = factory.get_provider(provider_name)
-        page = provider.search_anime(keyword, limit=limit, offset=offset, language=user.language_preference)
+        with provider_search_deadline(float(current_app.config['IMPORT_SEARCH_TIMEOUT'])):
+            page = provider.search_anime(keyword, limit=limit, offset=offset, language=user.language_preference)
     except ImportProviderTimeoutError:
         return jsonify({'message': 'Import provider request timed out'}), 504
     except ImportProviderResponseError:

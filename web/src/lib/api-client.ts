@@ -17,6 +17,10 @@ export class ApiError extends Error {
 
 const API_TIMEOUT_MS = 8000;
 
+type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
 function getApiBaseUrl() {
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
     return process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -29,7 +33,8 @@ export function getApiUrl(path: string) {
   return `${getApiBaseUrl().replace(/\/$/, "")}${path}`;
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  const { timeoutMs = API_TIMEOUT_MS, ...fetchOptions } = options;
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -37,10 +42,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   const response = await withTimeout(
       fetch(getApiUrl(path), {
-      ...options,
+      ...fetchOptions,
       credentials: "include",
       headers,
     }),
+    timeoutMs,
   );
 
   if (!response.ok) {
@@ -66,7 +72,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return (await response.json()) as T;
 }
 
-function withTimeout(request: Promise<Response>): Promise<Response> {
+function withTimeout(request: Promise<Response>, timeoutMs: number): Promise<Response> {
   let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   return Promise.race([
@@ -74,7 +80,7 @@ function withTimeout(request: Promise<Response>): Promise<Response> {
     new Promise<Response>((_, reject) => {
       timeoutId = globalThis.setTimeout(() => {
         reject(new Error("Request timed out"));
-      }, API_TIMEOUT_MS);
+      }, timeoutMs);
     }),
   ]).finally(() => {
     if (timeoutId !== undefined) {
