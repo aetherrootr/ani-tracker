@@ -7,6 +7,8 @@ from app.models.progress import UserAnimeStatus
 
 LibrarySort = Literal['updated_at', 'name', 'air_date']
 LibraryOrder = Literal['asc', 'desc']
+LibraryListFilter = Literal['all', 'tracking', 'backlog']
+LibrarySeasonZeroFilter = Literal['include', 'exclude', 'only']
 
 _LIBRARY_SORT_ALIASES: dict[str, LibrarySort] = {
     'updated_at': 'updated_at',
@@ -91,6 +93,22 @@ def parse_library_order(value: str | None) -> tuple[LibraryOrder, str | None]:
         return 'desc', None
     if value not in {'asc', 'desc'}:
         return 'desc', 'Library order is invalid'
+    return value, None  # type: ignore[return-value]
+
+
+def parse_library_list_filter(value: str | None) -> tuple[LibraryListFilter, str | None]:
+    if value is None or value == '':
+        return 'all', None
+    if value not in {'all', 'tracking', 'backlog'}:
+        return 'all', 'Library list filter is invalid'
+    return value, None  # type: ignore[return-value]
+
+
+def parse_library_season_zero_filter(value: str | None) -> tuple[LibrarySeasonZeroFilter, str | None]:
+    if value is None or value == '':
+        return 'exclude', None
+    if value not in {'include', 'exclude', 'only'}:
+        return 'exclude', 'Library season zero filter is invalid'
     return value, None  # type: ignore[return-value]
 
 

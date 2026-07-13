@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from flask import Blueprint, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.auth import require_auth_user
 from app.api.utils.library import (
+    TRACKING_LIST_RECENT_DAYS,
     build_navigation_anchors,
     get_search_library_markers,
     library_search_condition,
@@ -17,8 +19,10 @@ from app.api.utils.library import (
 )
 from app.api.utils.parsing import (
     parse_library_limit,
+    parse_library_list_filter,
     parse_library_offset,
     parse_library_order,
+    parse_library_season_zero_filter,
     parse_library_sort,
     parse_library_status,
     parse_search_limit,
@@ -48,6 +52,7 @@ from app.models.anime import (
     AnimeSummary,
     Episode,
 )
+from app.models.anime_utils import tracking_list_query_parts
 from app.models.progress import (
     UserAnimeProgress,
     UserAnimeRelationOverride,
@@ -286,6 +291,12 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
     order, error = parse_library_order(request.args.get('order'))
     if error is not None:
         return jsonify({'message': error}), 400
+    list_filter, error = parse_library_list_filter(request.args.get('list'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    season_zero, error = parse_library_season_zero_filter(request.args.get('seasonZero'))
+    if error is not None:
+        return jsonify({'message': error}), 400
     keyword = request.args.get('q', '').strip()
     provider = request.args.get('provider', '').strip()
 
@@ -309,6 +320,28 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
         stmt = stmt.where(UserAnimeProgress.status == status)
     if keyword:
         stmt = stmt.where(library_search_condition(keyword))
+    if list_filter != 'all':
+        query_parts = tracking_list_query_parts(
+            user_id=user.id,
+            now=datetime.now(UTC),
+            recent_days=TRACKING_LIST_RECENT_DAYS,
+        )
+        section_condition = query_parts['tracking_condition'] if list_filter == 'tracking' else ~query_parts['tracking_condition']
+        stmt = stmt.join(
+            query_parts['next_episode_subquery'],
+            query_parts['next_episode_subquery'].c.anime_id == AnimeMetaInfo.id,
+        ).join(
+            query_parts['episode_stats_subquery'],
+            query_parts['episode_stats_subquery'].c.anime_id == AnimeMetaInfo.id,
+        ).where(section_condition)
+    season_zero_condition = or_(
+        and_(AnimeMetaInfo.provider_type == 'tvdb', AnimeMetaInfo.external_id.like('%:0')),
+        and_(AnimeMetaInfo.provider_type == 'tmdb', AnimeMetaInfo.external_id.like('tv:%:season:0')),
+    )
+    if season_zero == 'exclude':
+        stmt = stmt.where(not_(season_zero_condition))
+    elif season_zero == 'only':
+        stmt = stmt.where(season_zero_condition)
 
     loaded_progresses = db.scalars(stmt).all()
     all_matching_progresses = (

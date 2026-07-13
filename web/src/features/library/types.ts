@@ -1,6 +1,8 @@
 export type UserAnimeStatus = "plan_to_watch" | "watching" | "completed" | "on_hold" | "dropped";
 
 export type LibraryStatusFilter = "all" | Exclude<UserAnimeStatus, "dropped">;
+export type LibraryListFilter = "all" | "tracking" | "backlog";
+export type LibrarySeasonZeroFilter = "include" | "exclude" | "only";
 export type LibrarySort = "updatedAt" | "name" | "airDate";
 export type SortOrder = "asc" | "desc";
 

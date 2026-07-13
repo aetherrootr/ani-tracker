@@ -34,6 +34,8 @@ export function LibraryPageContent() {
     q: query.q,
     status: query.status,
     provider: query.provider,
+    list: query.list,
+    seasonZero: query.seasonZero,
     sort: query.sort,
     order: query.order,
     page: query.page,
@@ -254,6 +256,8 @@ export function LibraryPageContent() {
         q={searchDraft}
         status={query.status}
         provider={query.provider}
+        list={query.list}
+        seasonZero={query.seasonZero}
         providers={data?.providers ?? []}
         sort={query.sort}
         order={query.order}

@@ -175,7 +175,7 @@ def _get_tracking_list_rows(
     section: str,
 ) -> tuple[int, list[TrackingListQueryRow]]:
     selected_episode = aliased(Episode)
-    query_parts = _tracking_list_query_parts(user_id=user_id, now=now, recent_days=recent_days)
+    query_parts = tracking_list_query_parts(user_id=user_id, now=now, recent_days=recent_days)
     section_condition = query_parts['tracking_condition'] if section == 'tracking' else ~query_parts['tracking_condition']
     base_query = (
         select(
@@ -227,7 +227,7 @@ def _get_tracking_list_rows(
     ]
 
 
-def _tracking_list_query_parts(*, user_id: int, now: datetime, recent_days: int) -> dict[str, Any]:
+def tracking_list_query_parts(*, user_id: int, now: datetime, recent_days: int) -> dict[str, Any]:
     next_episode = aliased(Episode)
     watched_next_progress = aliased(UserEpisodeProgress)
     future_episode = aliased(Episode)

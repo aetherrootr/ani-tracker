@@ -7,20 +7,22 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
-import type { ImportProvider, LibrarySort, LibraryStatusFilter, SortOrder } from "@/features/library/types";
+import type { ImportProvider, LibraryListFilter, LibrarySeasonZeroFilter, LibrarySort, LibraryStatusFilter, SortOrder } from "@/features/library/types";
 
 type Props = {
   q: string;
   status: LibraryStatusFilter;
   provider: string;
+  list: LibraryListFilter;
+  seasonZero: LibrarySeasonZeroFilter;
   providers: ImportProvider[];
   sort: LibrarySort;
   order: SortOrder;
   onSearchChange: (value: string) => void;
-  onOptionsChange: (value: { status?: LibraryStatusFilter; provider?: string; sort?: LibrarySort; order?: SortOrder }) => void;
+  onOptionsChange: (value: { status?: LibraryStatusFilter; provider?: string; list?: LibraryListFilter; seasonZero?: LibrarySeasonZeroFilter; sort?: LibrarySort; order?: SortOrder }) => void;
 };
 
-export function LibraryToolbar({ q, status, provider, providers, sort, order, onSearchChange, onOptionsChange }: Props) {
+export function LibraryToolbar({ q, status, provider, list, seasonZero, providers, sort, order, onSearchChange, onOptionsChange }: Props) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
 
@@ -72,12 +74,31 @@ export function LibraryToolbar({ q, status, provider, providers, sort, order, on
             render={(item) => t(item === "all" ? "library.allStatuses" : `library.status.${item}`)}
             onChange={(next) => onOptionsChange({ status: next as LibraryStatusFilter })}
           />
-          <ProviderSelect
-            label={t("library.providerFilter")}
-            value={provider}
-            providers={providers}
-            allLabel={t("library.allProviders")}
-            onChange={(next) => onOptionsChange({ provider: next })}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ProviderSelect
+              label={t("library.providerFilter")}
+              value={provider}
+              providers={providers}
+              allLabel={t("library.allProviders")}
+              onChange={(next) => onOptionsChange({ provider: next })}
+            />
+            <SeasonZeroSelect
+              label={t("library.seasonZeroFilter")}
+              value={seasonZero}
+              options={[
+                { name: "exclude", label: t("library.seasonZero.exclude") },
+                { name: "include", label: t("library.seasonZero.include") },
+                { name: "only", label: t("library.seasonZero.only") },
+              ]}
+              onChange={(next) => onOptionsChange({ seasonZero: next })}
+            />
+          </div>
+          <OptionGroup
+            label={t("library.listFilter")}
+            options={["all", "tracking", "backlog"]}
+            value={list}
+            render={(item) => t(`library.list.${item}`)}
+            onChange={(next) => onOptionsChange({ list: next as LibraryListFilter })}
           />
           <OptionGroup
             label={t("library.sortField")}
@@ -99,6 +120,27 @@ export function LibraryToolbar({ q, status, provider, providers, sort, order, on
   );
 }
 
+function SeasonZeroSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: LibrarySeasonZeroFilter;
+  options: { name: LibrarySeasonZeroFilter; label: string }[];
+  onChange: (value: LibrarySeasonZeroFilter) => void;
+}) {
+  return (
+    <ProviderLikeSelect
+      label={label}
+      value={value}
+      options={options}
+      onChange={onChange}
+    />
+  );
+}
+
 function ProviderSelect({
   label,
   value,
@@ -112,9 +154,34 @@ function ProviderSelect({
   allLabel: string;
   onChange: (value: string) => void;
 }) {
+  const options = [{ name: "all", label: allLabel }, ...providers];
+
+  return (
+    <ProviderLikeSelect
+      label={label}
+      value={value}
+      options={options}
+      disabled={providers.length === 0 && value === "all"}
+      onChange={onChange}
+    />
+  );
+}
+
+function ProviderLikeSelect<T extends string>({
+  label,
+  value,
+  options,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { name: T; label: string }[];
+  disabled?: boolean;
+  onChange: (value: T) => void;
+}) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const options = [{ name: "all", label: allLabel }, ...providers];
   const activeLabel = options.find((item) => item.name === value)?.label ?? value;
 
   useEffect(() => {
@@ -144,8 +211,8 @@ function ProviderSelect({
     };
   }, [open]);
 
-  function selectProvider(nextProvider: string) {
-    onChange(nextProvider);
+  function selectOption(nextValue: T) {
+    onChange(nextValue);
     setOpen(false);
   }
 
@@ -156,13 +223,13 @@ function ProviderSelect({
         <Button
           type="button"
           variant="outline"
-          className="h-8 gap-2 rounded-full px-3 text-xs"
+          className="h-8 max-w-full gap-2 rounded-full px-3 text-xs"
           aria-haspopup="menu"
           aria-expanded={open}
-          disabled={providers.length === 0 && value === "all"}
+          disabled={disabled}
           onClick={() => setOpen((current) => !current)}
         >
-          {activeLabel}
+          <span className="truncate">{activeLabel}</span>
           <ChevronDown className="h-3.5 w-3.5" />
         </Button>
         {open ? (
@@ -176,7 +243,7 @@ function ProviderSelect({
                   role="menuitemradio"
                   aria-checked={active}
                   className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
-                  onClick={() => selectProvider(item.name)}
+                  onClick={() => selectOption(item.name)}
                 >
                   <span>{item.label}</span>
                   {active ? <Check className="h-4 w-4 text-primary" /> : null}

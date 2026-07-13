@@ -8,6 +8,8 @@ import type {
   AnimeDetailResponse,
   EpisodeListResponse,
   LibraryResponse,
+  LibraryListFilter,
+  LibrarySeasonZeroFilter,
   LibrarySort,
   LibraryStatusFilter,
   SortOrder,
@@ -42,6 +44,20 @@ function validSort(value: string | null): LibrarySort {
     return value;
   }
   return "updatedAt";
+}
+
+function validList(value: string | null): LibraryListFilter {
+  if (value === "tracking" || value === "backlog") {
+    return value;
+  }
+  return "all";
+}
+
+function validSeasonZero(value: string | null): LibrarySeasonZeroFilter {
+  if (value === "include" || value === "only") {
+    return value;
+  }
+  return "exclude";
 }
 
 function validOrder(value: string | null): SortOrder {
@@ -85,6 +101,8 @@ export function useLibraryQueryState() {
   const q = searchParams.get("q") ?? "";
   const status = validStatus(searchParams.get("status"));
   const provider = searchParams.get("provider") || "all";
+  const list = validList(searchParams.get("list"));
+  const seasonZero = validSeasonZero(searchParams.get("seasonZero"));
   const sort = validSort(searchParams.get("sort"));
   const order = validOrder(searchParams.get("order"));
   const page = parsePositiveInt(searchParams.get("page"), 1);
@@ -95,17 +113,21 @@ export function useLibraryQueryState() {
     q: string;
     status: LibraryStatusFilter;
     provider: string;
+    list: LibraryListFilter;
+    seasonZero: LibrarySeasonZeroFilter;
     sort: LibrarySort;
     order: SortOrder;
     page: number;
     pageSize: number;
   }>) {
     const params = new URLSearchParams(searchParams.toString());
-    const merged = { q, status, provider, sort, order, page, pageSize, ...next };
+    const merged = { q, status, provider, list, seasonZero, sort, order, page, pageSize, ...next };
 
     setParam(params, "q", merged.q, "");
     setParam(params, "status", merged.status, "all");
     setParam(params, "provider", merged.provider, "all");
+    setParam(params, "list", merged.list, "all");
+    setParam(params, "seasonZero", merged.seasonZero, "exclude");
     setParam(params, "sort", merged.sort, "updatedAt");
     setParam(params, "order", merged.order, "desc");
     setParam(params, "page", String(merged.page), "1");
@@ -116,7 +138,7 @@ export function useLibraryQueryState() {
     });
   }
 
-  return { q, status, provider, sort, order, page, pageSize, hasPageSize, update, isPending };
+  return { q, status, provider, list, seasonZero, sort, order, page, pageSize, hasPageSize, update, isPending };
 }
 
 function setParam(params: URLSearchParams, key: string, value: string, defaultValue: string) {
@@ -131,12 +153,14 @@ export function useLibraryData(query: {
   q: string;
   status: LibraryStatusFilter;
   provider: string;
+  list: LibraryListFilter;
+  seasonZero: LibrarySeasonZeroFilter;
   sort: LibrarySort;
   order: SortOrder;
   page: number;
   pageSize: number;
 }) {
-  const { q, status, provider, sort, order, page, pageSize } = query;
+  const { q, status, provider, list, seasonZero, sort, order, page, pageSize } = query;
   const [data, setData] = useState<LibraryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +172,7 @@ export function useLibraryData(query: {
     setIsLoading(true);
     setError(null);
 
-    getLibrary({ q, status, provider, sort, order, page, pageSize, signal: controller.signal })
+    getLibrary({ q, status, provider, list, seasonZero, sort, order, page, pageSize, signal: controller.signal })
       .then(setData)
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -163,7 +187,7 @@ export function useLibraryData(query: {
       });
 
     return () => controller.abort();
-  }, [q, status, provider, sort, order, page, pageSize, retryKey]);
+  }, [q, status, provider, list, seasonZero, sort, order, page, pageSize, retryKey]);
 
   return { data, isLoading, error, retry: () => setRetryKey((current) => current + 1) };
 }
