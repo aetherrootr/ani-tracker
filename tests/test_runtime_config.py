@@ -89,6 +89,33 @@ def test_auto_import_cron_environment_overrides_random_defaults(monkeypatch: pyt
     assert app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE'] == 16
 
 
+def test_untracked_anime_cleanup_disabled_defaults_to_false(test_instance_path: Path) -> None:
+    app = create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'cleanup-default.db'}",
+            'MIGRATE_DATABASE': False,
+            'TESTING': True,
+        },
+    )
+
+    assert app.config['UNTRACKED_ANIME_CLEANUP_DISABLED'] is False
+
+
+def test_untracked_anime_cleanup_disabled_reads_environment(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
+    monkeypatch.setenv('UNTRACKED_ANIME_CLEANUP_DISABLED', 'true')
+
+    app = create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'cleanup-disabled.db'}",
+            'MIGRATE_DATABASE': False,
+            'TESTING': True,
+        },
+    )
+
+    assert app.config['UNTRACKED_ANIME_CLEANUP_DISABLED'] is True
+    assert 'delete-untracked-anime' not in celery_app.conf.beat_schedule
+
+
 def test_instance_path_reads_environment(test_instance_path: Path) -> None:
     app = create_app(
         {
