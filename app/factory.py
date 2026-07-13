@@ -86,6 +86,7 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "TVDB_API_KEY": os.environ.get("TVDB_API_KEY"),
         "TVDB_PIN": os.environ.get("TVDB_PIN"),
         "IMPORT_PROVIDER_TIMEOUT": env_float("IMPORT_PROVIDER_TIMEOUT", default=5, minimum=0),
+        "IMPORT_SEARCH_TIMEOUT": env_float("IMPORT_SEARCH_TIMEOUT", default=15, minimum=0),
 
         # Poster download and local file storage limits.
         # TODO(aetherrootr): Deprecate ANIME_POSTER_STORAGE_DIR and use ANIME_TRACKER_INSTANCE_PATH/anime_posters only.

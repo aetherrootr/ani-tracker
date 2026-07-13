@@ -69,11 +69,17 @@ class TVDBImportProvider(ImportProvider):
         if request_language is not None:
             request_params['language'] = request_language
         results: list[ImportSearchResult] = []
+        target_count = offset + limit
+        has_more = False
         source_offset = 0
         while True:
             page_body = self._request_json('/search', params={**request_params, 'offset': source_offset})
             search_results = self._response_data_list(page_body, 'TVDB search response is invalid')
-            for item in search_results:
+            page_has_next = self._has_next_page(page_body)
+            for item_index, item in enumerate(search_results):
+                if len(results) >= target_count:
+                    has_more = True
+                    break
                 if not isinstance(item, dict):
                     continue
                 series_id = self._series_id(item)
@@ -84,13 +90,24 @@ class TVDBImportProvider(ImportProvider):
                 except ImportProviderResponseError:
                     logger.warning('Skipping TVDB search result because series %s could not be expanded', series_id)
                     continue
-                for season in self._importable_seasons(series, include_specials=True):
-                    season_detail = self._season_detail_for_summary(season)
-                    results.append(self._map_season_search(item, series, season, season_detail, language=request_language))
-            if not self._has_next_page(page_body):
+                season = self._search_season(series)
+                if season is None:
+                    continue
+                results.append(self._map_season_search(item, series, season, None, language=request_language))
+                if len(results) >= target_count and item_index < len(search_results) - 1:
+                    has_more = True
+                    break
+                if len(results) >= target_count:
+                    break
+            if len(results) >= target_count:
+                has_more = has_more or page_has_next
+                break
+            if not page_has_next:
                 break
             source_offset += self._search_series_limit
-        return ImportSearchPage(total=len(results), limit=limit, offset=offset, results=results[offset:offset + limit])
+        page_results = results[offset:offset + limit]
+        total = offset + len(page_results) + 1 if has_more else len(results)
+        return ImportSearchPage(total=total, limit=limit, offset=offset, results=page_results)
 
     def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
         series_id, season_number = parse_external_id(external_id)
@@ -335,6 +352,12 @@ class TVDBImportProvider(ImportProvider):
         message = 'TVDB season does not exist'
         raise ImportProviderResponseError(message)
 
+    def _search_season(self, series: dict[str, Any]) -> dict[str, Any] | None:
+        for season in self._importable_seasons(series, include_specials=False):
+            if coerce_int(season.get('number')) == 1:
+                return season
+        return None
+
     def _season_detail_for_summary(self, season: dict[str, Any]) -> dict[str, Any] | None:
         season_id = season.get('id')
         if not isinstance(season_id, int | str):
@@ -363,7 +386,7 @@ class TVDBImportProvider(ImportProvider):
         return ImportSearchResult(
             provider=self.name,
             external_id=build_external_id(series_id, season_number),
-            title=self._season_title(series, {**season, **{key: value for key, value in detail.items() if value is not None}}, language=language),
+            title=self._search_title(search_result, series, language=language),
             original_title=first_non_empty(series.get('name'), search_result.get('name'), search_result.get('title')),
             summary=self._localized_summary(detail, language) or self._localized_summary(series, language) or first_non_empty(detail.get('overview'), season.get('overview'), series.get('overview'), search_result.get('overview')),
             air_date=self._search_air_date(season, detail),
@@ -373,6 +396,9 @@ class TVDBImportProvider(ImportProvider):
             url=self._season_url(series, season_number),
             raw_data={'search_result': search_result, 'series': self._series_summary(series), 'season': season},
         )
+
+    def _search_title(self, search_result: dict[str, Any], series: dict[str, Any], *, language: str | None) -> str:
+        return self._localized_name(series, language) or first_non_empty(series.get('name'), search_result.get('name'), search_result.get('title')) or 'Untitled'
 
     def _map_episode(
         self,
