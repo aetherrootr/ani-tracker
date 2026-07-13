@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 export function StatisticsPageContent() {
   const t = useTranslations();
   const { user } = useCurrentUser();
-  const summary = useStatisticsSummary(user?.weekStartDay);
+  const summary = useStatisticsSummary(user?.weekStartDay, user?.includeUnwatchedSeasonZeroInStatistics);
   const timeline = useWatchTimeline();
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
 

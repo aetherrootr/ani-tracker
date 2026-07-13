@@ -1121,6 +1121,48 @@ def test_tracking_list_paginates_backlog_items(
     assert invalid_offset_response.status_code == 400
 
 
+def test_tracking_list_season_zero_preference_only_affects_unwatched_queue(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    season_zero = add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='123:0',
+        original_name='Specials',
+        names=[('Specials', 'en')],
+        air_date=date(2020, 1, 1),
+    )
+    season_zero.total_episodes = 2
+    watched_special = add_episode(db_session, season_zero, number=1, air_at=now - timedelta(days=100))
+    add_episode(db_session, season_zero, number=2, air_at=now - timedelta(days=99))
+    normal = add_library_anime(
+        db_session,
+        external_id='normal-backlog',
+        original_name='Normal Backlog',
+        names=[('Normal Backlog', 'en')],
+        air_date=date(2021, 1, 1),
+    )
+    normal.total_episodes = 1
+    add_episode(db_session, normal, number=1, air_at=now - timedelta(days=90))
+    db_session.add(UserEpisodeProgress(user_id=1, episode_id=watched_special.id, watched=True, watched_at=now))
+    db_session.commit()
+
+    default_backlog = client.get('/api/watch-state/tracking-list/backlog')
+    recent_response = client.get('/api/watch-state/tracking-list/recently-watched')
+    assert client.patch('/api/user/me/preferences', json={'includeUnwatchedSeasonZeroInTracking': True}).status_code == 200
+    included_backlog = client.get('/api/watch-state/tracking-list/backlog')
+
+    assert default_backlog.status_code == 200
+    assert [item['anime']['displayName'] for item in default_backlog.get_json()['items']] == ['Normal Backlog']
+    assert recent_response.status_code == 200
+    assert [item['anime']['displayName'] for item in recent_response.get_json()['items']] == ['Specials']
+    assert included_backlog.status_code == 200
+    assert [item['anime']['displayName'] for item in included_backlog.get_json()['items']] == ['Normal Backlog', 'Specials']
+
+
 def test_statistics_summary_counts_duration_user_isolation_and_dropped(
     client: FlaskClient,
     db_session: Session,
@@ -1208,6 +1250,47 @@ def test_statistics_summary_excludes_on_hold_from_unwatched_aired(
     assert response.status_code == 200
     body = response.get_json()
     assert body['unwatchedAiredEpisodeCount'] == 1
+
+
+def test_statistics_season_zero_preference_only_affects_unwatched_aired(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    normal = add_library_anime(
+        db_session,
+        external_id='normal-stats',
+        original_name='Normal Stats',
+        names=[('Normal Stats', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    season_zero = add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='456:0',
+        original_name='Stats Specials',
+        names=[('Stats Specials', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    add_episode(db_session, normal, number=1)
+    watched_special = add_episode(db_session, season_zero, number=1)
+    add_episode(db_session, season_zero, number=2)
+    db_session.add(UserEpisodeProgress(user_id=1, episode_id=watched_special.id, watched=True, watched_at=now))
+    db_session.commit()
+
+    default_response = client.get('/api/statistics/summary')
+    assert client.patch('/api/user/me/preferences', json={'includeUnwatchedSeasonZeroInStatistics': True}).status_code == 200
+    included_response = client.get('/api/statistics/summary')
+
+    assert default_response.status_code == 200
+    default_body = default_response.get_json()
+    assert default_body['watchedEpisodeCount'] == 1
+    assert default_body['unwatchedAiredEpisodeCount'] == 1
+    assert included_response.status_code == 200
+    included_body = included_response.get_json()
+    assert included_body['watchedEpisodeCount'] == 1
+    assert included_body['unwatchedAiredEpisodeCount'] == 2
 
 
 def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session) -> None:

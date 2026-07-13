@@ -14,12 +14,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { getOidcConfig, updatePassword } from "@/features/auth/api";
-import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateWeekStartDay } from "@/features/auth/hooks";
+import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateIncludeUnwatchedSeasonZeroInStatistics, useUpdateIncludeUnwatchedSeasonZeroInTracking, useUpdateWeekStartDay } from "@/features/auth/hooks";
 import { getCurrentLibraryRefreshJob, getImportProviders, getLibraryRefreshJob, syncAllLibraryAnime } from "@/features/library/api";
 import type { ImportProvider, LibraryRefreshJob } from "@/features/library/types";
 import { getApiUrl } from "@/lib/api-client";
 
 const WEEK_START_OPTIONS = ["0", "1", "2", "3", "4", "5", "6"] as const;
+const BOOLEAN_OPTIONS = ["true", "false"] as const;
 
 export default function SettingsPage() {
   const t = useTranslations();
@@ -28,6 +29,8 @@ export default function SettingsPage() {
   const unlinkOidc = useUnlinkOidc();
   const updateWeekStartDay = useUpdateWeekStartDay();
   const updateImportProviderPreference = useUpdateImportProviderPreference();
+  const updateIncludeUnwatchedSeasonZeroInTracking = useUpdateIncludeUnwatchedSeasonZeroInTracking();
+  const updateIncludeUnwatchedSeasonZeroInStatistics = useUpdateIncludeUnwatchedSeasonZeroInStatistics();
   const { user } = useCurrentUser();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isUnlinkingOidc, setIsUnlinkingOidc] = useState(false);
@@ -36,6 +39,7 @@ export default function SettingsPage() {
   const [isSavingWeekStart, setIsSavingWeekStart] = useState(false);
   const [providers, setProviders] = useState<ImportProvider[]>([]);
   const [isSavingProvider, setIsSavingProvider] = useState(false);
+  const [isSavingSeasonZero, setIsSavingSeasonZero] = useState(false);
   const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
   const [isLoadingLibraryRefreshJob, setIsLoadingLibraryRefreshJob] = useState(true);
   const [libraryRefreshJob, setLibraryRefreshJob] = useState<LibraryRefreshJob | null>(null);
@@ -141,6 +145,24 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSeasonZeroTrackingChange(value: (typeof BOOLEAN_OPTIONS)[number]) {
+    setIsSavingSeasonZero(true);
+    try {
+      await updateIncludeUnwatchedSeasonZeroInTracking(value === "true");
+    } finally {
+      setIsSavingSeasonZero(false);
+    }
+  }
+
+  async function handleSeasonZeroStatisticsChange(value: (typeof BOOLEAN_OPTIONS)[number]) {
+    setIsSavingSeasonZero(true);
+    try {
+      await updateIncludeUnwatchedSeasonZeroInStatistics(value === "true");
+    } finally {
+      setIsSavingSeasonZero(false);
+    }
+  }
+
   async function handleSyncAllLibrary() {
     setIsSyncingLibrary(true);
     setSyncLibraryMessage(null);
@@ -240,6 +262,41 @@ export default function SettingsPage() {
           ) : (
             <p>{t("settings.provider.empty")}</p>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.seasonZero.title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5 text-sm leading-6 text-muted-foreground">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t("settings.seasonZero.description")}</span>
+            <BadgeLikeStatus>{isSavingSeasonZero ? t("settings.seasonZero.saving") : t("settings.seasonZero.saved")}</BadgeLikeStatus>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-2 rounded-lg border p-4">
+              <Label>{t("settings.seasonZero.tracking")}</Label>
+              <p>{t("settings.seasonZero.trackingDescription")}</p>
+              <SlidingOptionGroup
+                options={BOOLEAN_OPTIONS}
+                value={user?.includeUnwatchedSeasonZeroInTracking ? "true" : "false"}
+                render={(value) => t(`settings.seasonZero.boolean.${value}`)}
+                onChange={handleSeasonZeroTrackingChange}
+                className="max-w-xs"
+              />
+            </div>
+            <div className="space-y-2 rounded-lg border p-4">
+              <Label>{t("settings.seasonZero.statistics")}</Label>
+              <p>{t("settings.seasonZero.statisticsDescription")}</p>
+              <SlidingOptionGroup
+                options={BOOLEAN_OPTIONS}
+                value={user?.includeUnwatchedSeasonZeroInStatistics ? "true" : "false"}
+                render={(value) => t(`settings.seasonZero.boolean.${value}`)}
+                onChange={handleSeasonZeroStatisticsChange}
+                className="max-w-xs"
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
       <Card>

@@ -59,6 +59,8 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'languagePreference': user.language_preference,
         'importProviderPreference': user.import_provider_preference,
         'weekStartDay': user.week_start_day,
+        'includeUnwatchedSeasonZeroInTracking': user.include_unwatched_season_zero_in_tracking,
+        'includeUnwatchedSeasonZeroInStatistics': user.include_unwatched_season_zero_in_statistics,
         'oidcLinked': bool(user.oidc_identities),
     }
 
@@ -172,3 +174,14 @@ def validate_import_provider_preference_payload(data: object, available_provider
         return None, 'Import provider preference is invalid'
 
     return provider, None
+
+
+def validate_boolean_preference_payload(data: object, key: str, label: str) -> tuple[bool | None, str | None]:
+    if not isinstance(data, dict):
+        return None, 'Request body must be a JSON object'
+
+    value = data.get(key)
+    if not isinstance(value, bool):
+        return None, f'{label} is invalid'
+
+    return value, None

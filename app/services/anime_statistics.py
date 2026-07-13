@@ -4,11 +4,12 @@ from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, not_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.serializers import select_anime_name_for_user, select_episode_name_for_user
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
+from app.models.anime_utils import season_zero_anime_condition
 from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
 from app.models.user import User
 from app.models.validater import validate_pagination
@@ -55,15 +56,19 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
         UserEpisodeProgress.user_id == user.id,
         UserEpisodeProgress.watched.is_(True),
     )
+    unwatched_aired_conditions = [
+        UserAnimeProgress.user_id == user.id,
+        UserAnimeProgress.status.not_in([UserAnimeStatus.DROPPED, UserAnimeStatus.ON_HOLD]),
+        Episode.status == EpisodeStatus.AIRED,
+        Episode.id.not_in(watched_episode_ids),
+    ]
+    if not user.include_unwatched_season_zero_in_statistics:
+        unwatched_aired_conditions.append(not_(season_zero_anime_condition(AnimeMetaInfo)))
     unwatched_aired_episode_count = session.scalar(
         select(func.count(Episode.id))
         .join(UserAnimeProgress, UserAnimeProgress.anime_id == Episode.anime_id)
-        .where(
-            UserAnimeProgress.user_id == user.id,
-            UserAnimeProgress.status.not_in([UserAnimeStatus.DROPPED, UserAnimeStatus.ON_HOLD]),
-            Episode.status == EpisodeStatus.AIRED,
-            Episode.id.not_in(watched_episode_ids),
-        ),
+        .join(AnimeMetaInfo, AnimeMetaInfo.id == Episode.anime_id)
+        .where(*unwatched_aired_conditions),
     ) or 0
 
     watched_rows = session.execute(

@@ -94,6 +94,8 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "languagePreference": "zh-CN",
             "importProviderPreference": "bangumi",
             "weekStartDay": 0,
+            "includeUnwatchedSeasonZeroInTracking": False,
+            "includeUnwatchedSeasonZeroInStatistics": False,
             "oidcLinked": False,
         },
     }
@@ -106,6 +108,8 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
     assert user.password_hash != "password123"
     assert user.language_preference == "zh-CN"
     assert user.import_provider_preference == "bangumi"
+    assert user.include_unwatched_season_zero_in_tracking is False
+    assert user.include_unwatched_season_zero_in_statistics is False
 
     me_response = client.get("/api/user/me")
     assert me_response.status_code == 200
@@ -240,6 +244,31 @@ def test_update_preferences_updates_import_provider_preference(client: FlaskClie
     user = db_session.scalar(select(User).where(User.username == "link"))
     assert user is not None
     assert user.import_provider_preference == "bangumi"
+
+
+def test_update_preferences_updates_season_zero_preferences(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+
+    invalid_response = client.patch("/api/user/me/preferences", json={"includeUnwatchedSeasonZeroInTracking": "true"})
+    assert invalid_response.status_code == 400
+    assert invalid_response.get_json() == {"message": "Tracking season zero preference is invalid"}
+
+    update_response = client.patch(
+        "/api/user/me/preferences",
+        json={
+            "includeUnwatchedSeasonZeroInTracking": True,
+            "includeUnwatchedSeasonZeroInStatistics": True,
+        },
+    )
+
+    assert update_response.status_code == 200
+    user_body = update_response.get_json()["user"]
+    assert user_body["includeUnwatchedSeasonZeroInTracking"] is True
+    assert user_body["includeUnwatchedSeasonZeroInStatistics"] is True
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.include_unwatched_season_zero_in_tracking is True
+    assert user.include_unwatched_season_zero_in_statistics is True
 
 
 def test_update_preferences_updates_language_and_week_start_day_together(client: FlaskClient) -> None:
