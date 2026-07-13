@@ -1978,6 +1978,18 @@ def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
     assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
 
 
+def test_celery_beat_schedule_can_disable_delete_untracked_anime() -> None:
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'UNTRACKED_ANIME_CLEANUP_DISABLED': True,
+        },
+    )
+
+    assert 'sync-airing-anime' in celery_app.conf.beat_schedule
+    assert 'delete-untracked-anime' not in celery_app.conf.beat_schedule
+
+
 def test_scheduled_tasks_retry_three_times_after_five_minutes() -> None:
     from app.tasks.anime_cleanup import delete_untracked_anime_task
     from app.tasks.anime_sync import sync_airing_anime
