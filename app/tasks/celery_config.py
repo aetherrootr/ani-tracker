@@ -23,6 +23,7 @@ def configure_celery_from_env() -> None:
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_DAY'),
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_HOUR'),
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE'),
+            cleanup_disabled=env_bool('UNTRACKED_ANIME_CLEANUP_DISABLED'),
             tvdb_season_discovery_enabled=env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'),
             tvdb_season_discovery_day=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'),
             tvdb_season_discovery_hour=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'),
@@ -53,6 +54,7 @@ def configure_celery(config: dict[str, object]) -> None:
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_DAY'),
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_HOUR'),
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE'),
+            cleanup_disabled=bool(config.get('UNTRACKED_ANIME_CLEANUP_DISABLED')),
             tvdb_season_discovery_enabled=bool(config.get('AUTO_IMPORT_TVDB_SEASONS_ENABLED')),
             tvdb_season_discovery_day=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'),
             tvdb_season_discovery_hour=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'),
@@ -73,6 +75,7 @@ def _beat_schedule(
     cleanup_hour: object = None,
     cleanup_minute: object = None,
     *,
+    cleanup_disabled: bool = False,
     tvdb_season_discovery_enabled: bool = False,
     tvdb_season_discovery_day: object = None,
     tvdb_season_discovery_hour: object = None,
@@ -90,7 +93,9 @@ def _beat_schedule(
                 minute=safe_int(minute, default=0, minimum=0, maximum=59),
             ),
         },
-        'delete-untracked-anime': {
+    }
+    if not cleanup_disabled:
+        schedule['delete-untracked-anime'] = {
             'task': 'app.tasks.anime_cleanup.delete_untracked_anime',
             'schedule': crontab(
                 month_of_year=safe_cron_months(cleanup_months),
@@ -98,8 +103,7 @@ def _beat_schedule(
                 hour=safe_int(cleanup_hour, default=secrets.randbelow(24), minimum=0, maximum=23),
                 minute=safe_int(cleanup_minute, default=secrets.randbelow(60), minimum=0, maximum=59),
             ),
-        },
-    }
+        }
     if tvdb_season_discovery_enabled:
         schedule['discover-tvdb-seasons'] = {
             'task': 'app.tasks.tvdb_season_discovery.discover_tvdb_seasons_for_all_users',
