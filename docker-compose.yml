@@ -21,9 +21,7 @@ x-app-environment: &app-environment
 
 services:
   app:
-    build:
-      context: .
-    image: ani-tracker:local
+    image: ghcr.io/aetherrootr/ani-tracker:latest
     restart: unless-stopped
     depends_on:
       postgres:
@@ -37,7 +35,7 @@ services:
       - ani_tracker_data:/var/lib/ani-tracker
 
   worker:
-    image: ani-tracker:local
+    image: ghcr.io/aetherrootr/ani-tracker:latest
     restart: unless-stopped
     command: ["python", "/opt/ani-tracker/backend/ani-tracker.pyz", "worker"]
     depends_on:

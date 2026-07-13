@@ -201,6 +201,15 @@ export const zhCN = {
       unlinkSsoConfirmTitle: "解除 SSO 绑定？",
       unlinkSsoConfirmDescription: "解除后将无法继续使用当前 SSO 身份登录此账号，除非重新绑定。",
     },
+    about: {
+      title: "关于",
+      expand: "展开",
+      collapse: "收起",
+      description: "ani-tracker 是本地优先的自托管追踪工具，设计目标是记录观看进度和管理个人资料库。",
+      noMedia: "项目不提供下载、流媒体播放、媒体服务器或本地媒体文件管理功能。",
+      metadataIntro: "动画、剧集、图片和说明等元数据可能来自第三方服务，使用时应遵守对应服务条款和授权要求：",
+      responsibility: "部署和使用者应自行确认所在地区的法律法规、第三方 API 条款、数据处理和隐私合规要求。",
+    },
   },
   statistics: {
     eyebrow: "Statistics",

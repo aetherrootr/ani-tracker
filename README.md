@@ -11,6 +11,10 @@ ani-tracker is designed as a self-hostable alternative to
 [TV Time](https://tvtime.com/). Its interaction model is
 inspired by TV Time and Apple Music.
 
+## Documentation
+
+- [中文 README](docs/README.zh-CN.md)
+
 ## Screenshots
 
 ### Desktop
@@ -26,11 +30,11 @@ inspired by TV Time and Apple Music.
 ### Mobile
 
 <p>
-  <img src="docs/search-mobile.png" alt="Mobile search" width="180">
-  <img src="docs/library-mobile.png" alt="Mobile library" width="180">
-  <img src="docs/watchlist-mobile-0.png" alt="Mobile watchlist" width="180">
-  <img src="docs/watchlist-mobile-1.png" alt="Mobile watchlist detail" width="180">
-  <img src="docs/stats-mobile.png" alt="Mobile stats" width="180">
+  <img src="docs/images/search-mobile.png" alt="Mobile search" width="180">
+  <img src="docs/images/library-mobile.png" alt="Mobile library" width="180">
+  <img src="docs/images/watchlist-mobile-0.png" alt="Mobile watchlist" width="180">
+  <img src="docs/images/watchlist-mobile-1.png" alt="Mobile watchlist detail" width="180">
+  <img src="docs/images/stats-mobile.png" alt="Mobile stats" width="180">
 </p>
 
 ## Project Status
@@ -55,7 +59,7 @@ handled by a human maintainer.
   to migrate your watch history when switching providers.
 - Desktop and mobile experiences: ani-tracker implements separate frontend
   interactions for desktop and mobile devices.
-- OIDC support.
+- OIDC / SSO support.
 
 ## Quick Start
 
@@ -76,7 +80,12 @@ Redis. The app is exposed at `http://localhost:8080` by default. Change
 | --- | --- | --- |
 | [Bangumi](https://bangumi.tv/) | Supported | Anime-focused metadata |
 | [TheTVDB](https://www.thetvdb.com/) | Supported | TV metadata |
-| [TMDB](https://www.themoviedb.org/) | Supported | TV and movie metadata |
+| [TMDB](https://www.themoviedb.org/) | Partial Supported | TV and movie metadata |
+
+Using TheTVDB data requires a TheTVDB subscription. Subscribe at
+[TheTVDB Subscribe](https://www.thetvdb.com/subscribe) to obtain an API PIN for
+TheTVDB API access. TheTVDB-backed features, including importing data from
+TV Time, require a valid API PIN. ani-tracker does not provide a TheTVDB API PIN.
 
 ## Configuration
 
@@ -92,7 +101,8 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `ANIME_TRACKER_INSTANCE_PATH` | Persistent app instance directory. Defaults to `/var/lib/ani-tracker` in production containers. |
 | `TMDB_API_KEY` | Optional TMDB API key. |
 | `TMDB_ACCESS_TOKEN` | Optional TMDB access token. |
-| `TVDB_API_KEY` | Optional TheTVDB API key. |
+| `TVDB_API_KEY` | Optional TheTVDB API key. TheTVDB-backed features also require a user-provided API PIN. |
+| `TVDB_API_PIN` | Optional TheTVDB API PIN. Obtain it from a TheTVDB subscription; ani-tracker does not provide one. |
 | `UNTRACKED_ANIME_CLEANUP_DISABLED` | Disables the scheduled `delete_untracked_anime` cleanup when set to `true`. Defaults to `false`. |
 | `AUTO_IMPORT_TVDB_SEASONS_ENABLED` | Automatically import discovered TVDB seasons for eligible user-library entries. |
 | `AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED` | Automatically import conservative Bangumi related anime (`续集`/`前传`) for eligible user-library entries. |
@@ -107,12 +117,11 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 ## Known Limitations
 
 - Metadata-provider behavior may change during early development.
-- Import and export tools are still under development.
+- Export tools are still under development.
 - Some UI interactions may be refined in future releases.
 
 ## Roadmap
 
-- Support importing data from TV Time.
 - Support data export.
 - Support custom background images to improve the frontend experience.
 - Support AniList as a metadata provider.
@@ -242,6 +251,14 @@ an issue before starting large changes.
 
 ani-tracker is licensed under the [Apache License 2.0](LICENSE).
 
-## Documentation
+## Compliance
 
-- [中文 README](docs/README.zh-CN.md)
+ani-tracker is a self-hosted tracking tool for recording watch progress and
+managing a personal library. It does not provide downloading, streaming
+playback, media-server features, or local media-file management.
+
+Metadata such as titles, episode information, images, and descriptions may come
+from third-party services including Bangumi, TheTVDB, and TMDB. Deployers and
+users are responsible for complying with applicable laws, third-party API terms,
+licensing requirements, data-processing requirements, and privacy obligations in
+their jurisdiction.
