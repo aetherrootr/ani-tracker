@@ -62,6 +62,18 @@ def current_library_refresh_job(root: str | Path, user_id: int) -> dict[str, Any
     return active or (jobs[0] if jobs else None)
 
 
+def current_user_job(
+    root: str | Path,
+    *,
+    user_id: int,
+    kind: str,
+    anime_id: int | None = None,
+) -> dict[str, Any] | None:
+    jobs = [job for job in _user_jobs(root, user_id) if job.get('kind') == kind and (anime_id is None or job.get('animeId') == anime_id)]
+    active = next((job for job in jobs if job.get('status') in {'queued', 'running'}), None)
+    return active or (jobs[0] if jobs else None)
+
+
 def release_library_refresh_lock(lock_path: str | None) -> None:
     if not lock_path:
         return

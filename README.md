@@ -93,6 +93,8 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `TMDB_API_KEY` | Optional TMDB API key. |
 | `TMDB_ACCESS_TOKEN` | Optional TMDB access token. |
 | `TVDB_API_KEY` | Optional TheTVDB API key. |
+| `AUTO_IMPORT_TVDB_SEASONS_ENABLED` | Automatically import discovered TVDB seasons for eligible user-library entries. |
+| `AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED` | Automatically import conservative Bangumi related anime (`续集`/`前传`) for eligible user-library entries. |
 | `OIDC_ENABLED` | Enables optional OIDC / SSO integration. |
 
 ## Non-goals

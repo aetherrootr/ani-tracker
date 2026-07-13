@@ -16,11 +16,11 @@ import type {
   ResolveEpisodeConflictsResponse,
   LibrarySort,
   LibraryStatusFilter,
-  SortOrder,
+  RelatedAnimeDiscoveryJobResponse,
   TrackingListPage,
   TrackingListResponse,
   TrackingListItem,
-  TvdbSeasonDiscoveryResponse,
+  SortOrder,
   UserAnimeStatus,
 } from "./types";
 
@@ -161,8 +161,17 @@ export function syncAnime(animeId: number) {
   return apiFetch<AnimeSyncResponse>(`/api/anime/library/${animeId}/sync`, { method: "POST" });
 }
 
-export function discoverTvdbSeasons(animeId: number) {
-  return apiFetch<TvdbSeasonDiscoveryResponse>(`/api/anime/library/${animeId}/discover-tvdb-seasons`, { method: "POST" });
+export function discoverRelatedAnime(animeId: number) {
+  return apiFetch<RelatedAnimeDiscoveryJobResponse>(`/api/anime/library/${animeId}/discover-related-anime`, { method: "POST" });
+}
+
+export function getRelatedAnimeDiscoveryJob(animeId: number, jobId: string, signal?: AbortSignal) {
+  return apiFetch<LibraryRefreshJob>(`/api/anime/library/${animeId}/discover-related-anime/${jobId}`, { signal });
+}
+
+export async function getCurrentRelatedAnimeDiscoveryJob(animeId: number, signal?: AbortSignal) {
+  const response = await apiFetch<{ job: LibraryRefreshJob | null }>(`/api/anime/library/${animeId}/discover-related-anime`, { signal });
+  return response.job;
 }
 
 export function syncAllLibraryAnime() {

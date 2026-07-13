@@ -25,12 +25,15 @@ from app.import_provider.types import (
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
+    ImportRelatedAnime,
     ImportSearchPage,
     ImportSearchResult,
 )
 from app.import_provider.utils import coerce_int, non_empty_str
 
 logger = logging.getLogger(__name__)
+
+BANGUMI_AUTO_IMPORT_RELATIONS = {'续集', '前传'}
 
 
 class BangumiImportProvider(ImportProvider):
@@ -102,7 +105,8 @@ class BangumiImportProvider(ImportProvider):
             raise ImportProviderResponseError(message)
 
         episodes = self._fetch_episodes(external_id)
-        return self._map_detail(subject, episodes)
+        related_subjects = self._fetch_related_subject_chain(external_id)
+        return self._map_detail(subject, episodes, related_subjects)
 
     def _request_json(self, method: str, path: str, **kwargs: Any) -> object:
         request = self._session.post if method == 'post' else self._session.get
@@ -158,6 +162,34 @@ class BangumiImportProvider(ImportProvider):
 
         return episodes
 
+    def _fetch_related_subjects(self, subject_id: str) -> list[dict[str, Any]]:
+        body = self._request_json('get', f'/v0/subjects/{subject_id}/subjects')
+        if not isinstance(body, list):
+            message = 'Bangumi related subjects response is invalid'
+            raise ImportProviderResponseError(message)
+        return [item for item in body if isinstance(item, dict)]
+
+    def _fetch_related_subject_chain(self, subject_id: str) -> list[dict[str, Any]]:
+        visited = {subject_id}
+        queue = [subject_id]
+        related_by_id: dict[str, dict[str, Any]] = {}
+
+        index = 0
+        while index < len(queue):
+            current_id = queue[index]
+            index += 1
+            for subject in self._fetch_related_subjects(current_id):
+                related_id = self._related_subject_id(subject)
+                if related_id is None or related_id in visited:
+                    continue
+                if not self._is_auto_import_related_subject(subject):
+                    continue
+                visited.add(related_id)
+                related_by_id[related_id] = subject
+                queue.append(related_id)
+
+        return list(related_by_id.values())
+
     def _map_subject(self, subject: object) -> ImportSearchResult | None:
         if not isinstance(subject, dict):
             return None
@@ -185,7 +217,12 @@ class BangumiImportProvider(ImportProvider):
             raw_data=subject,
         )
 
-    def _map_detail(self, subject: dict[str, Any], episodes: list[dict[str, Any]]) -> ImportAnimeDetail:
+    def _map_detail(
+        self,
+        subject: dict[str, Any],
+        episodes: list[dict[str, Any]],
+        related_subjects: list[dict[str, Any]],
+    ) -> ImportAnimeDetail:
         subject_id = subject.get('id')
         if not isinstance(subject_id, int | str):
             message = 'Bangumi subject id is missing'
@@ -217,7 +254,36 @@ class BangumiImportProvider(ImportProvider):
             episodes=[episode for item in episodes if (episode := self._map_episode(item)) is not None],
             raw_data=subject,
             air_date=self._pick_air_date(subject, episodes),
+            related_anime=[item for related in related_subjects if (item := self._map_related_subject(related)) is not None],
         )
+
+    def _map_related_subject(self, subject: dict[str, Any]) -> ImportRelatedAnime | None:
+        if not self._is_auto_import_related_subject(subject):
+            return None
+        external_id = self._related_subject_id(subject)
+        if external_id is None:
+            return None
+        name_cn = non_empty_str(subject.get('name_cn'))
+        name = non_empty_str(subject.get('name'))
+        return ImportRelatedAnime(
+            provider=self.name,
+            external_id=external_id,
+            title=name_cn or name or 'Untitled',
+            relation_type='same_series_season',
+            season_number=None,
+            air_date=None,
+            episode_count=None,
+            url=f'{self._web_base_url}/subject/{external_id}',
+            poster_source_url=pick_image_url(subject.get('images')),
+            raw_data=subject,
+        )
+
+    def _is_auto_import_related_subject(self, subject: dict[str, Any]) -> bool:
+        return subject.get('type') == 2 and subject.get('relation') in BANGUMI_AUTO_IMPORT_RELATIONS
+
+    def _related_subject_id(self, subject: dict[str, Any]) -> str | None:
+        subject_id = subject.get('id')
+        return str(subject_id) if isinstance(subject_id, int | str) else None
 
     def _pick_air_date(self, subject: dict[str, Any], episodes: list[dict[str, Any]]) -> date | None:
         air_at = parse_air_at(subject.get('date'))

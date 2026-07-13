@@ -134,7 +134,7 @@ export type AnimeDetailResponse = {
   anime: Anime;
   progress: AnimeProgress;
   features?: {
-    tvdbSeasonDiscovery: boolean;
+    seasonDiscovery: boolean;
   };
 };
 
@@ -156,7 +156,7 @@ export type AnimeSyncResponse = {
   episodeConflicts: EpisodeConflict[];
 };
 
-export type TvdbSeasonDiscoveryResponse = {
+export type RelatedAnimeDiscoveryResponse = {
   checked: boolean;
   skippedReason: string | null;
   importedAnimeIds: number[];
@@ -184,6 +184,8 @@ export type LibraryRefreshResponse = {
   taskId: string;
   job: LibraryRefreshJob | null;
 };
+
+export type RelatedAnimeDiscoveryJobResponse = LibraryRefreshResponse;
 
 export type ResolveEpisodeConflictsResponse = {
   anime: Anime;
