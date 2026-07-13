@@ -21,11 +21,11 @@ inspired by TV Time and Apple Music.
 
 | Search | Library |
 | --- | --- |
-| ![Desktop search](docs/search-desktop.png) | ![Desktop library](docs/library-desktop.png) |
+| ![Desktop search](docs/images/search-desktop.png) | ![Desktop library](docs/images/library-desktop.png) |
 
 | Watchlist | Stats |
 | --- | --- |
-| ![Desktop watchlist](docs/watchlist-desktop.png) | ![Desktop stats](docs/stats-desktop.png) |
+| ![Desktop watchlist](docs/images/watchlist-desktop.png) | ![Desktop stats](docs/images/stats-desktop.png) |
 
 ### Mobile
 
