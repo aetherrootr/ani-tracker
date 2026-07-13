@@ -18,14 +18,19 @@ type Props = {
 
 export function LibraryPagination({ page, totalPages, total, disabled, onPageChange }: Props) {
   const t = useTranslations();
-  const [inputPage, setInputPage] = useState(String(page));
+  const [inputPage, setInputPage] = useState({ page, value: String(page) });
+  const inputPageValue = inputPage.page === page ? inputPage.value : String(page);
   const pages = buildPages(page, totalPages);
   const canPrevious = page > 1 && !disabled;
   const canNext = page < totalPages && !disabled;
 
   function jump(target: number) {
+    if (!Number.isFinite(target) || totalPages === 0) {
+      setInputPage({ page, value: String(page) });
+      return;
+    }
     const next = Math.min(Math.max(target, 1), Math.max(totalPages, 1));
-    setInputPage(String(next));
+    setInputPage({ page: next, value: String(next) });
     if (next !== page) {
       onPageChange(next);
     }
@@ -44,7 +49,7 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
         })}
       </div>
 
-      <div className="flex items-center justify-between gap-2 sm:justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
         <Button
           type="button"
           variant="outline"
@@ -81,20 +86,30 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
         </div>
 
         <form
-          className="flex items-center gap-1 md:hidden"
+          className="flex items-center gap-1"
           onSubmit={(event) => {
             event.preventDefault();
-            jump(Number(inputPage));
+            jump(Number.parseInt(inputPageValue, 10));
           }}
         >
           <Input
             aria-label={t("library.jumpPage")}
-            value={inputPage}
+            value={inputPageValue}
             inputMode="numeric"
+            disabled={disabled || totalPages === 0}
             className="h-12 w-20 text-center text-base sm:h-9 sm:w-16 sm:text-sm"
-            onChange={(event) => setInputPage(event.target.value)}
+            onChange={(event) => setInputPage({ page, value: event.target.value })}
           />
           <span className="text-muted-foreground">/ {totalPages}</span>
+          <Button
+            type="submit"
+            variant="secondary"
+            size="sm"
+            className="h-12 px-3 sm:h-9"
+            disabled={disabled || totalPages === 0}
+          >
+            {t("library.confirm")}
+          </Button>
         </form>
 
         <Button

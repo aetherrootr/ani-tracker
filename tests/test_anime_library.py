@@ -751,6 +751,90 @@ def test_library_list_filters_provider_and_returns_available_providers(
     ]
 
 
+def test_library_list_filters_tracking_and_backlog_lists(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    tracking = add_library_anime(
+        db_session,
+        external_id='tracking-filter',
+        original_name='Tracking Filter',
+        names=[('Tracking Filter', 'en')],
+    )
+    add_episode(db_session, tracking, number=1, air_at=now - timedelta(days=1))
+    add_episode(db_session, tracking, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    backlog = add_library_anime(
+        db_session,
+        external_id='backlog-filter',
+        original_name='Backlog Filter',
+        names=[('Backlog Filter', 'en')],
+        air_date=date(2020, 1, 1),
+    )
+    backlog.total_episodes = 1
+    add_episode(db_session, backlog, number=1, air_at=now - timedelta(days=120))
+    db_session.commit()
+
+    tracking_response = client.get('/api/anime/library?list=tracking&sort=name&order=asc')
+    backlog_response = client.get('/api/anime/library?list=backlog&sort=name&order=asc')
+    invalid_response = client.get('/api/anime/library?list=recently-watched')
+
+    assert tracking_response.status_code == 200
+    assert [item['anime']['displayName'] for item in tracking_response.get_json()['items']] == ['Tracking Filter']
+    assert backlog_response.status_code == 200
+    assert [item['anime']['displayName'] for item in backlog_response.get_json()['items']] == ['Backlog Filter']
+    assert invalid_response.status_code == 400
+
+
+def test_library_list_filters_season_zero_records(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='321:0',
+        original_name='TVDB Specials',
+        names=[('TVDB Specials', 'en')],
+    )
+    add_library_anime(
+        db_session,
+        provider_type='tmdb',
+        external_id='tv:123:season:0',
+        original_name='TMDB Specials',
+        names=[('TMDB Specials', 'en')],
+    )
+    add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='321:1',
+        original_name='TVDB Season One',
+        names=[('TVDB Season One', 'en')],
+    )
+
+    default_response = client.get('/api/anime/library?sort=name&order=asc')
+    include_response = client.get('/api/anime/library?seasonZero=include&sort=name&order=asc')
+    only_response = client.get('/api/anime/library?seasonZero=only&sort=name&order=asc')
+    invalid_response = client.get('/api/anime/library?seasonZero=hidden')
+
+    assert default_response.status_code == 200
+    assert [item['anime']['displayName'] for item in default_response.get_json()['items']] == ['TVDB Season One']
+    assert include_response.status_code == 200
+    assert [item['anime']['displayName'] for item in include_response.get_json()['items']] == [
+        'TMDB Specials',
+        'TVDB Season One',
+        'TVDB Specials',
+    ]
+    assert only_response.status_code == 200
+    assert [item['anime']['displayName'] for item in only_response.get_json()['items']] == [
+        'TMDB Specials',
+        'TVDB Specials',
+    ]
+    assert invalid_response.status_code == 400
+
+
 def test_library_list_updated_at_sort_uses_added_time(
     client: FlaskClient,
     db_session: Session,
