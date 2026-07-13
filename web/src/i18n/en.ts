@@ -98,6 +98,20 @@ export const en = {
       saved: "Saved",
       empty: "No import providers are currently available.",
     },
+    seasonZero: {
+      title: "Unwatched season 0 episodes",
+      description: "Control whether unwatched season 0 episodes are included in the tracking queue and stats. Watched records are always shown and counted normally.",
+      tracking: "Tracking list",
+      trackingDescription: "Show unwatched season 0 episodes in the tracking and backlog lists.",
+      statistics: "Stats",
+      statisticsDescription: "Include unwatched season 0 episodes in the unwatched aired episode count.",
+      saving: "Saving",
+      saved: "Saved",
+      boolean: {
+        true: "Include",
+        false: "Exclude",
+      },
+    },
     librarySync: {
       title: "Refresh library data",
       description: "Refresh metadata for every anime in your library and queue poster downloads in the background.",

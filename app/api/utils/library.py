@@ -315,6 +315,7 @@ def tracking_list_tracking_page(session: Session, user: User, *, limit: int, off
         offset=offset,
         now=datetime.now(UTC),
         recent_days=TRACKING_LIST_RECENT_DAYS,
+        include_unwatched_season_zero=user.include_unwatched_season_zero_in_tracking,
     )
     return tracking_list_page_response(
         serialize_tracking_rows(session, user, rows, watched=False),
@@ -332,6 +333,7 @@ def tracking_list_backlog_page(session: Session, user: User, *, limit: int, offs
         offset=offset,
         now=datetime.now(UTC),
         recent_days=TRACKING_LIST_RECENT_DAYS,
+        include_unwatched_season_zero=user.include_unwatched_season_zero_in_tracking,
     )
     return tracking_list_page_response(
         serialize_tracking_rows(session, user, rows, watched=False),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import TimestampedBase
@@ -35,6 +35,8 @@ class User(TimestampedBase):
         default=DEFAULT_IMPORT_PROVIDER_PREFERENCE,
         server_default=DEFAULT_IMPORT_PROVIDER_PREFERENCE,
     )
+    include_unwatched_season_zero_in_tracking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    include_unwatched_season_zero_in_statistics: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     episode_progresses: Mapped[list[UserEpisodeProgress]] = relationship(
         back_populates="user",

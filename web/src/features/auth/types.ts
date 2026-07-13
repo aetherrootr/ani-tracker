@@ -8,6 +8,8 @@ export type AuthUser = {
   languagePreference: Locale;
   importProviderPreference: string;
   weekStartDay: number;
+  includeUnwatchedSeasonZeroInTracking: boolean;
+  includeUnwatchedSeasonZeroInStatistics: boolean;
   oidcLinked: boolean;
 };
 
@@ -35,6 +37,8 @@ export type UpdateLanguagePreferenceInput = {
 export type UpdatePreferencesInput = {
   weekStartDay?: number;
   importProviderPreference?: string;
+  includeUnwatchedSeasonZeroInTracking?: boolean;
+  includeUnwatchedSeasonZeroInStatistics?: boolean;
 };
 
 export type UpdatePasswordInput = {

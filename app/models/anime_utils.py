@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, not_, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
@@ -39,6 +39,7 @@ def get_tracking_list_rows(
     offset: int,
     now: datetime,
     recent_days: int,
+    include_unwatched_season_zero: bool = False,
 ) -> tuple[int, list[TrackingListQueryRow]]:
     return _get_tracking_list_rows(
         session,
@@ -47,6 +48,7 @@ def get_tracking_list_rows(
         offset=offset,
         now=now,
         recent_days=recent_days,
+        include_unwatched_season_zero=include_unwatched_season_zero,
         section='tracking',
     )
 
@@ -59,6 +61,7 @@ def get_backlog_list_rows(
     offset: int,
     now: datetime,
     recent_days: int,
+    include_unwatched_season_zero: bool = False,
 ) -> tuple[int, list[TrackingListQueryRow]]:
     return _get_tracking_list_rows(
         session,
@@ -67,6 +70,7 @@ def get_backlog_list_rows(
         offset=offset,
         now=now,
         recent_days=recent_days,
+        include_unwatched_season_zero=include_unwatched_season_zero,
         section='backlog',
     )
 
@@ -172,11 +176,20 @@ def _get_tracking_list_rows(
     offset: int,
     now: datetime,
     recent_days: int,
+    include_unwatched_season_zero: bool,
     section: str,
 ) -> tuple[int, list[TrackingListQueryRow]]:
     selected_episode = aliased(Episode)
     query_parts = tracking_list_query_parts(user_id=user_id, now=now, recent_days=recent_days)
     section_condition = query_parts['tracking_condition'] if section == 'tracking' else ~query_parts['tracking_condition']
+    conditions = [
+        UserAnimeProgress.user_id == user_id,
+        UserAnimeProgress.status != UserAnimeStatus.DROPPED,
+        section_condition,
+    ]
+    if not include_unwatched_season_zero:
+        conditions.append(not_(season_zero_anime_condition(AnimeMetaInfo)))
+
     base_query = (
         select(
             UserAnimeProgress.id.label('progress_id'),
@@ -196,11 +209,7 @@ def _get_tracking_list_rows(
         )
         .join(query_parts['episode_stats_subquery'], query_parts['episode_stats_subquery'].c.anime_id == AnimeMetaInfo.id)
         .outerjoin(query_parts['watched_count_subquery'], query_parts['watched_count_subquery'].c.anime_id == AnimeMetaInfo.id)
-        .where(
-            UserAnimeProgress.user_id == user_id,
-            UserAnimeProgress.status != UserAnimeStatus.DROPPED,
-            section_condition,
-        )
+        .where(*conditions)
     )
     total = session.scalar(select(func.count()).select_from(base_query.subquery())) or 0
     order_by = (
@@ -296,3 +305,10 @@ def tracking_list_query_parts(*, user_id: int, now: datetime, recent_days: int) 
         'watched_count_subquery': watched_count_subquery,
         'tracking_condition': tracking_condition,
     }
+
+
+def season_zero_anime_condition(anime: type[AnimeMetaInfo]):  # type: ignore[no-untyped-def]
+    return or_(
+        and_(anime.provider_type == 'tvdb', anime.external_id.like('%:0')),
+        and_(anime.provider_type == 'tmdb', anime.external_id.like('tv:%:season:0')),
+    )

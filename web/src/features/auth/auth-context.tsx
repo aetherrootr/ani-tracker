@@ -18,6 +18,8 @@ type AuthContextValue = {
   updateLanguagePreference: (input: AuthUser["languagePreference"]) => Promise<AuthUser>;
   updateWeekStartDay: (input: number) => Promise<AuthUser>;
   updateImportProviderPreference: (input: string) => Promise<AuthUser>;
+  updateIncludeUnwatchedSeasonZeroInTracking: (input: boolean) => Promise<AuthUser>;
+  updateIncludeUnwatchedSeasonZeroInStatistics: (input: boolean) => Promise<AuthUser>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -113,6 +115,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return response.user;
   }
 
+  async function handleUpdateIncludeUnwatchedSeasonZeroInTracking(includeUnwatchedSeasonZeroInTracking: boolean) {
+    const response = await updatePreferences({ includeUnwatchedSeasonZeroInTracking });
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
+  async function handleUpdateIncludeUnwatchedSeasonZeroInStatistics(includeUnwatchedSeasonZeroInStatistics: boolean) {
+    const response = await updatePreferences({ includeUnwatchedSeasonZeroInStatistics });
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -126,6 +142,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateLanguagePreference: handleUpdateLanguagePreference,
         updateWeekStartDay: handleUpdateWeekStartDay,
         updateImportProviderPreference: handleUpdateImportProviderPreference,
+        updateIncludeUnwatchedSeasonZeroInTracking: handleUpdateIncludeUnwatchedSeasonZeroInTracking,
+        updateIncludeUnwatchedSeasonZeroInStatistics: handleUpdateIncludeUnwatchedSeasonZeroInStatistics,
       }}
     >
       {children}

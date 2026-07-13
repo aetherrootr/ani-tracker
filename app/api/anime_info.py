@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from flask import Blueprint, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
-from sqlalchemy import and_, func, not_, or_, select
+from sqlalchemy import func, not_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.auth import require_auth_user
@@ -52,7 +52,7 @@ from app.models.anime import (
     AnimeSummary,
     Episode,
 )
-from app.models.anime_utils import tracking_list_query_parts
+from app.models.anime_utils import season_zero_anime_condition, tracking_list_query_parts
 from app.models.progress import (
     UserAnimeProgress,
     UserAnimeRelationOverride,
@@ -334,10 +334,7 @@ def list_library(db: Session, user: User) -> ResponseReturnValue:
             query_parts['episode_stats_subquery'],
             query_parts['episode_stats_subquery'].c.anime_id == AnimeMetaInfo.id,
         ).where(section_condition)
-    season_zero_condition = or_(
-        and_(AnimeMetaInfo.provider_type == 'tvdb', AnimeMetaInfo.external_id.like('%:0')),
-        and_(AnimeMetaInfo.provider_type == 'tmdb', AnimeMetaInfo.external_id.like('tv:%:season:0')),
-    )
+    season_zero_condition = season_zero_anime_condition(AnimeMetaInfo)
     if season_zero == 'exclude':
         stmt = stmt.where(not_(season_zero_condition))
     elif season_zero == 'only':

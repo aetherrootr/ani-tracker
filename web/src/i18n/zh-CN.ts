@@ -95,6 +95,20 @@ export const zhCN = {
       saved: "已保存",
       empty: "当前没有可用的导入数据源。",
     },
+    seasonZero: {
+      title: "Season 0 未观看剧集",
+      description: "控制未观看的 Season 0 剧集是否参与追番队列和统计。已观看的记录始终正常显示和统计。",
+      tracking: "追番列表",
+      trackingDescription: "是否在追番列表和补番列表中显示未观看的 Season 0 剧集。",
+      statistics: "Stats 统计",
+      statisticsDescription: "是否在未观看已播剧集数量中计入未观看的 Season 0 剧集。",
+      saving: "保存中",
+      saved: "已保存",
+      boolean: {
+        true: "计入",
+        false: "不计入",
+      },
+    },
     librarySync: {
       title: "刷新资料库数据",
       description: "后台刷新资料库中所有动画的上游元数据，并重新排队下载海报。",

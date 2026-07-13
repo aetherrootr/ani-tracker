@@ -7,7 +7,7 @@ import type { StatisticsSummary, WatchTimelineItem } from "./types";
 
 const TIMELINE_PAGE_SIZE = 30;
 
-export function useStatisticsSummary(weekStartDay?: number) {
+export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeasonZeroInStatistics?: boolean) {
   const [data, setData] = useState<StatisticsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -35,7 +35,7 @@ export function useStatisticsSummary(weekStartDay?: number) {
       });
 
     return () => controller.abort();
-  }, [retryKey, weekStartDay]);
+  }, [retryKey, weekStartDay, includeUnwatchedSeasonZeroInStatistics]);
 
   async function recalculate() {
     setIsRefreshing(true);

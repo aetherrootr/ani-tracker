@@ -49,3 +49,17 @@ export function useUpdateImportProviderPreference() {
 
   return updateImportProviderPreference;
 }
+
+
+export function useUpdateIncludeUnwatchedSeasonZeroInTracking() {
+  const { updateIncludeUnwatchedSeasonZeroInTracking } = useAuth();
+
+  return updateIncludeUnwatchedSeasonZeroInTracking;
+}
+
+
+export function useUpdateIncludeUnwatchedSeasonZeroInStatistics() {
+  const { updateIncludeUnwatchedSeasonZeroInStatistics } = useAuth();
+
+  return updateIncludeUnwatchedSeasonZeroInStatistics;
+}
