@@ -9,6 +9,8 @@ celery_app = Celery(
         'app.tasks.anime_cleanup',
         'app.tasks.anime_poster',
         'app.tasks.anime_sync',
+        'app.tasks.bangumi_related_anime_discovery',
+        'app.tasks.related_anime_discovery',
         'app.tasks.tvdb_season_discovery',
         'app.tasks.tvtime_import',
     ],

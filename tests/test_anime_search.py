@@ -68,16 +68,24 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, response: FakeResponse | None = None, error: Exception | None = None) -> None:
+    def __init__(self, response: FakeResponse | list[FakeResponse] | None = None, error: Exception | None = None) -> None:
         self.response = response
         self.error = error
         self.calls: list[dict[str, Any]] = []
 
     def post(self, url: str, **kwargs: Any) -> FakeResponse:
+        return self._request(url, **kwargs)
+
+    def get(self, url: str, **kwargs: Any) -> FakeResponse:
+        return self._request(url, **kwargs)
+
+    def _request(self, url: str, **kwargs: Any) -> FakeResponse:
         self.calls.append({'url': url, **kwargs})
         if self.error is not None:
             raise self.error
         assert self.response is not None
+        if isinstance(self.response, list):
+            return self.response.pop(0)
         return self.response
 
 
@@ -279,6 +287,110 @@ def test_bangumi_provider_tolerates_missing_optional_fields() -> None:
         url='https://bgm.tv/subject/1',
         raw_data={'id': 1, 'name': ''},
     )
+
+
+def test_bangumi_provider_maps_safe_related_anime_only() -> None:
+    session = FakeSession(
+        [
+            FakeResponse(
+                200,
+                {
+                    'id': 493042,
+                    'name': '葬送のフリーレン',
+                    'name_cn': '葬送的芙莉莲',
+                    'summary': 'summary',
+                    'date': '2023-09-29',
+                    'platform': 'TV',
+                    'images': {'medium': 'https://example.test/current.jpg'},
+                    'eps': 28,
+                },
+            ),
+            FakeResponse(200, {'total': 0, 'data': []}),
+            FakeResponse(
+                200,
+                [
+                    {
+                        'id': 100,
+                        'type': 2,
+                        'name': 'Frieren 2',
+                        'name_cn': '葬送的芙莉莲 第二季',
+                        'relation': '续集',
+                        'images': {'common': 'https://example.test/s2.jpg'},
+                    },
+                    {'id': 101, 'type': 2, 'name': 'Frieren Special', 'relation': '番外篇'},
+                    {'id': 102, 'type': 1, 'name': 'Frieren Manga', 'relation': '前传'},
+                    {'id': 103, 'type': 2, 'name': 'Frieren Reimagined', 'relation': '不同演绎'},
+                    {'id': 104, 'type': 2, 'name': 'Frieren 0', 'relation': '前传'},
+                ],
+            ),
+            FakeResponse(200, []),
+            FakeResponse(200, []),
+        ],
+    )
+    provider = BangumiImportProvider(
+        base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
+        user_agent='ani-tracker/0.1.0 (test)',
+        timeout=5,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    detail = provider.get_anime_detail('493042')
+
+    assert session.calls[2]['url'] == 'https://api.bgm.tv/v0/subjects/493042/subjects'
+    assert [item.external_id for item in detail.related_anime] == ['100', '104']
+    assert detail.related_anime[0].provider == 'bangumi'
+    assert detail.related_anime[0].title == '葬送的芙莉莲 第二季'
+    assert detail.related_anime[0].relation_type == 'same_series_season'
+    assert detail.related_anime[0].season_number is None
+    assert detail.related_anime[0].air_date is None
+    assert detail.related_anime[0].episode_count is None
+    assert detail.related_anime[0].url == 'https://bgm.tv/subject/100'
+    assert detail.related_anime[0].poster_source_url == 'https://example.test/s2.jpg'
+
+
+def test_bangumi_provider_chains_safe_related_anime() -> None:
+    session = FakeSession(
+        [
+            FakeResponse(200, {'id': 493042, 'name': 'Current', 'platform': 'TV'}),
+            FakeResponse(200, {'total': 0, 'data': []}),
+            FakeResponse(
+                200,
+                [
+                    {'id': 100, 'type': 2, 'name': 'Season 2', 'relation': '续集'},
+                    {'id': 90, 'type': 2, 'name': 'Season 0', 'relation': '前传'},
+                ],
+            ),
+            FakeResponse(
+                200,
+                [
+                    {'id': 101, 'type': 2, 'name': 'Season 3', 'relation': '续集'},
+                    {'id': 493042, 'type': 2, 'name': 'Current', 'relation': '前传'},
+                ],
+            ),
+            FakeResponse(200, [{'id': 80, 'type': 2, 'name': 'Season -1', 'relation': '前传'}]),
+            FakeResponse(200, []),
+            FakeResponse(200, []),
+        ],
+    )
+    provider = BangumiImportProvider(
+        base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
+        user_agent='ani-tracker/0.1.0 (test)',
+        timeout=5,
+        session=session,  # type: ignore[arg-type]
+    )
+
+    detail = provider.get_anime_detail('493042')
+
+    assert [item.external_id for item in detail.related_anime] == ['100', '90', '101', '80']
+    assert [call['url'] for call in session.calls[2:]] == [
+        'https://api.bgm.tv/v0/subjects/493042/subjects',
+        'https://api.bgm.tv/v0/subjects/100/subjects',
+        'https://api.bgm.tv/v0/subjects/90/subjects',
+        'https://api.bgm.tv/v0/subjects/101/subjects',
+        'https://api.bgm.tv/v0/subjects/80/subjects',
+    ]
 
 
 def test_bangumi_provider_maps_non_2xx_to_response_error() -> None:

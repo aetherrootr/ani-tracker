@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
 
 from authlib.integrations.flask_client import OAuth
@@ -118,9 +119,13 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "UNTRACKED_ANIME_CLEANUP_CRON_HOUR": env_int('UNTRACKED_ANIME_CLEANUP_CRON_HOUR', default=-1, minimum=0, maximum=23),
         "UNTRACKED_ANIME_CLEANUP_CRON_MINUTE": env_int('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE', default=-1, minimum=0, maximum=59),
         "AUTO_IMPORT_TVDB_SEASONS_ENABLED": env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'),
-        "AUTO_IMPORT_TVDB_SEASONS_CRON_DAY": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY', default=0, minimum=1, maximum=28),
-        "AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR', default=-1, minimum=0, maximum=23),
-        "AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE', default=-1, minimum=0, maximum=59),
+        "AUTO_IMPORT_TVDB_SEASONS_CRON_DAY": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY', default=_random_cron_day(), minimum=1, maximum=28),
+        "AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR', default=_random_cron_hour(1, 3), minimum=0, maximum=23),
+        "AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE": env_int('AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE', default=_random_cron_minute(), minimum=0, maximum=59),
+        "AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED": env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'),
+        "AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY": env_int('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY', default=_random_cron_day(), minimum=1, maximum=28),
+        "AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR": env_int('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR', default=_random_cron_hour(3, 5), minimum=0, maximum=23),
+        "AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE": env_int('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE', default=_random_cron_minute(), minimum=0, maximum=59),
     }
     if config is not None:
         # Test and local callers can override any environment-derived setting.
@@ -138,6 +143,18 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         )
 
     return app_config
+
+
+def _random_cron_day() -> int:
+    return secrets.randbelow(28) + 1
+
+
+def _random_cron_hour(start: int, end: int) -> int:
+    return secrets.randbelow(end - start + 1) + start
+
+
+def _random_cron_minute() -> int:
+    return secrets.randbelow(60)
 
 
 def init_oidc(app: Flask) -> None:

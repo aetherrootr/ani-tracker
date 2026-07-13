@@ -72,14 +72,25 @@ from app.services.anime_sync import (
 from app.services.library_refresh_jobs import (
     acquire_library_refresh_lock,
     current_library_refresh_job,
+    current_user_job,
     load_library_refresh_job,
     release_library_refresh_lock,
     store_library_refresh_job,
 )
-from app.services.tvdb_season_discovery import discover_tvdb_seasons_for_user_anime
 from app.tasks.anime_sync import refresh_user_library
 
 anime_info_bp = Blueprint("anime_info", __name__)
+
+RELATED_ANIME_DISCOVERY_BY_PROVIDER = {
+    'bangumi': {
+        'enabled_config': 'AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED',
+        'disabled_message': 'Bangumi related anime auto import is disabled',
+    },
+    'tvdb': {
+        'enabled_config': 'AUTO_IMPORT_TVDB_SEASONS_ENABLED',
+        'disabled_message': 'TVDB season auto import is disabled',
+    },
+}
 
 
 @anime_info_bp.get('/search')
@@ -401,42 +412,68 @@ def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturn
     )
 
 
-@anime_info_bp.post('/library/<int:anime_id>/discover-tvdb-seasons')
+@anime_info_bp.post('/library/<int:anime_id>/discover-related-anime')
 @require_auth_user
-def discover_library_tvdb_seasons(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
-    if not current_app.config.get('AUTO_IMPORT_TVDB_SEASONS_ENABLED'):
-        return jsonify({'message': 'TVDB season auto import is disabled'}), 403
+def discover_library_related_anime(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
     progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
     if progress is None:
         return jsonify({'message': 'Anime not found'}), 404
     anime = db.get(AnimeMetaInfo, anime_id)
     if anime is None:
         return jsonify({'message': 'Anime not found'}), 404
-    if anime.provider_type != 'tvdb':
-        return jsonify({'message': 'TVDB season discovery only supports TVDB anime'}), 400
+    discovery_config = RELATED_ANIME_DISCOVERY_BY_PROVIDER.get(anime.provider_type)
+    if discovery_config is None:
+        return jsonify({'message': 'Related anime discovery is not supported for this provider'}), 400
+    if not current_app.config.get(str(discovery_config['enabled_config'])):
+        return jsonify({'message': discovery_config['disabled_message']}), 403
 
-    try:
-        provider = get_import_provider_factory().get_provider('tvdb')
-        result = discover_tvdb_seasons_for_user_anime(db, provider, user_id=user.id, anime_id=anime_id)
-    except ImportProviderTimeoutError:
-        db.rollback()
-        return jsonify({'message': 'Import provider request timed out'}), 504
-    except ImportProviderResponseError:
-        db.rollback()
-        return jsonify({'message': 'Import provider response error'}), 502
-    except Exception:
-        db.rollback()
-        raise
-
-    return jsonify(
+    task_id = uuid4().hex
+    job_dir = str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'])
+    progress_payload = _library_refresh_progress('queued', 0, 1, 'Related anime discovery queued')
+    store_library_refresh_job(
+        job_dir,
+        task_id,
         {
-            'checked': result.checked,
-            'skippedReason': result.skipped_reason,
-            'importedAnimeIds': result.imported_anime_ids,
-            'existingAnimeIds': result.existing_anime_ids,
-            'postersQueued': len(set(result.poster_ids_to_enqueue)),
+            'jobId': task_id,
+            'userId': user.id,
+            'animeId': anime_id,
+            'kind': 'related_anime_discovery',
+            'status': 'queued',
+            'progress': progress_payload,
+            'summary': None,
         },
     )
+    try:
+        from app.tasks.related_anime_discovery import discover_related_anime_for_library_anime
+
+        task = discover_related_anime_for_library_anime.apply_async(args=(user.id, anime_id, job_dir, task_id), task_id=task_id)
+    except Exception:
+        raise
+    return jsonify({'queued': True, 'taskId': task.id, 'job': _library_refresh_job_response(load_library_refresh_job(job_dir, task.id))}), 202
+
+
+@anime_info_bp.get('/library/<int:anime_id>/discover-related-anime/<job_id>')
+@require_auth_user
+def get_related_anime_discovery_job(_db: Session, user: User, anime_id: int, job_id: str) -> ResponseReturnValue:
+    job = load_library_refresh_job(str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']), job_id)
+    if job is None or job.get('userId') != user.id or job.get('animeId') != anime_id or job.get('kind') != 'related_anime_discovery':
+        return jsonify({'message': 'Related anime discovery job not found'}), 404
+    return jsonify(_library_refresh_job_response(job))
+
+
+@anime_info_bp.get('/library/<int:anime_id>/discover-related-anime')
+@require_auth_user
+def get_current_related_anime_discovery_job(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    job = current_user_job(
+        str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']),
+        user_id=user.id,
+        anime_id=anime_id,
+        kind='related_anime_discovery',
+    )
+    return jsonify({'job': _library_refresh_job_response(job)})
 
 
 @anime_info_bp.post('/library/sync-all')
@@ -556,10 +593,15 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
             ),
             'progress': serialize_progress(progress),
             'features': {
-                'tvdbSeasonDiscovery': bool(current_app.config.get('AUTO_IMPORT_TVDB_SEASONS_ENABLED')),
+                'seasonDiscovery': _season_discovery_enabled(anime.provider_type),
             },
         },
     )
+
+
+def _season_discovery_enabled(provider_type: str) -> bool:
+    discovery_config = RELATED_ANIME_DISCOVERY_BY_PROVIDER.get(provider_type)
+    return bool(discovery_config is not None and current_app.config.get(str(discovery_config['enabled_config'])))
 
 
 @anime_info_bp.patch('/library/<int:anime_id>/status')

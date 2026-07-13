@@ -19,10 +19,11 @@ ELIGIBLE_TVDB_SEASON_STATUSES = {
     UserAnimeStatus.WATCHING,
     UserAnimeStatus.COMPLETED,
 }
+ELIGIBLE_RELATED_ANIME_STATUSES = ELIGIBLE_TVDB_SEASON_STATUSES
 
 
 @dataclass(frozen=True)
-class TvdbSeasonDiscoveryResult:
+class RelatedAnimeDiscoveryResult:
     checked: bool
     skipped_reason: str | None = None
     imported_anime_ids: list[int] = field(default_factory=list)
@@ -30,14 +31,15 @@ class TvdbSeasonDiscoveryResult:
     poster_ids_to_enqueue: list[int] = field(default_factory=list)
 
 
-def discover_tvdb_seasons_for_user_anime(
+def discover_related_anime_for_user_anime(
     session: Session,
     provider: ImportProvider,
     *,
     user_id: int,
     anime_id: int,
+    provider_name: str,
     enqueue_posters: bool = True,
-) -> TvdbSeasonDiscoveryResult:
+) -> RelatedAnimeDiscoveryResult:
     progress = session.scalar(
         select(UserAnimeProgress).where(
             UserAnimeProgress.user_id == user_id,
@@ -46,29 +48,29 @@ def discover_tvdb_seasons_for_user_anime(
     )
     anime = session.get(AnimeMetaInfo, anime_id)
     if progress is None or anime is None:
-        return TvdbSeasonDiscoveryResult(checked=False, skipped_reason='not_in_library')
-    if anime.provider_type != 'tvdb' or provider.name != 'tvdb':
-        return TvdbSeasonDiscoveryResult(checked=False, skipped_reason='not_tvdb')
-    if progress.status not in ELIGIBLE_TVDB_SEASON_STATUSES:
-        return TvdbSeasonDiscoveryResult(checked=False, skipped_reason='status_not_eligible')
+        return RelatedAnimeDiscoveryResult(checked=False, skipped_reason='not_in_library')
+    if anime.provider_type != provider_name or provider.name != provider_name:
+        return RelatedAnimeDiscoveryResult(checked=False, skipped_reason=f'not_{provider_name}')
+    if progress.status not in ELIGIBLE_RELATED_ANIME_STATUSES:
+        return RelatedAnimeDiscoveryResult(checked=False, skipped_reason='status_not_eligible')
 
     user = session.get(User, user_id)
     sync_result = sync_anime_from_provider(session, provider, anime_id=anime_id, user_id=user_id)
     if sync_result is None:
-        return TvdbSeasonDiscoveryResult(checked=False, skipped_reason='not_found')
+        return RelatedAnimeDiscoveryResult(checked=False, skipped_reason='not_found')
     session.flush()
 
     relations = session.scalars(
         select(AnimeRelation).where(
             AnimeRelation.anime_id == anime_id,
-            AnimeRelation.provider_type == 'tvdb',
+            AnimeRelation.provider_type == provider_name,
             AnimeRelation.relation_type == 'same_series_season',
         ),
     ).all()
     if not _related_library_statuses_are_eligible(session, user_id=user_id, relations=relations):
         session.commit()
         _enqueue_posters(sync_result.poster_ids_to_enqueue, enqueue_posters=enqueue_posters)
-        return TvdbSeasonDiscoveryResult(
+        return RelatedAnimeDiscoveryResult(
             checked=True,
             skipped_reason='related_status_not_eligible',
             poster_ids_to_enqueue=sync_result.poster_ids_to_enqueue,
@@ -107,7 +109,7 @@ def discover_tvdb_seasons_for_user_anime(
 
     session.commit()
     _enqueue_posters(poster_ids, enqueue_posters=enqueue_posters)
-    return TvdbSeasonDiscoveryResult(
+    return RelatedAnimeDiscoveryResult(
         checked=True,
         imported_anime_ids=imported_ids,
         existing_anime_ids=existing_ids,
@@ -130,7 +132,7 @@ def _related_library_statuses_are_eligible(
             UserAnimeProgress.anime_id.in_(related_ids),
         ),
     ).all()
-    return all(status in ELIGIBLE_TVDB_SEASON_STATUSES for status in statuses)
+    return all(status in ELIGIBLE_RELATED_ANIME_STATUSES for status in statuses)
 
 
 def _progress_for_relation(session: Session, *, user_id: int, relation: AnimeRelation) -> UserAnimeProgress | None:

@@ -5,13 +5,13 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Repeat2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { assetUrl, discoverTvdbSeasons, getAnimeDetail, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
+import { assetUrl, discoverRelatedAnime, getAnimeDetail, getCurrentRelatedAnimeDiscoveryJob, getRelatedAnimeDiscoveryJob, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
 import { useAnimeDetail } from "@/features/library/hooks";
-import type { Anime, AnimeProgress, EpisodeConflict, RelatedAnime, UserAnimeStatus } from "@/features/library/types";
+import type { Anime, AnimeProgress, EpisodeConflict, LibraryRefreshJob, RelatedAnime, RelatedAnimeDiscoveryResponse, UserAnimeStatus } from "@/features/library/types";
 import { addSearchResultToLibrary } from "@/features/search/api";
 import type { DuplicateAnimeConflict, DuplicateResolution } from "@/features/search/types";
 import { ApiError } from "@/lib/api-client";
@@ -28,6 +28,17 @@ import { ProviderSwitchDialog } from "./ProviderSwitchDialog";
 const STATUS_OPTIONS: UserAnimeStatus[] = ["plan_to_watch", "watching", "completed", "on_hold", "dropped"];
 const POSTER_POLL_INTERVAL_MS = 1200;
 const POSTER_POLL_ATTEMPTS = 10;
+const DISCOVERY_JOB_POLL_INTERVAL_MS = 1200;
+const DISCOVERY_JOB_POLL_ATTEMPTS = 150;
+const RELATED_ANIME_DISCOVERY_BY_PROVIDER = {
+  bangumi: discoverRelatedAnime,
+  tvdb: discoverRelatedAnime,
+} as const;
+const RELATED_ANIME_DISCOVERY_MESSAGES = {
+  imported: "library.relatedAnimeDiscoveryImported",
+  noNew: "library.relatedAnimeDiscoveryNoNew",
+  skippedByStatus: "library.relatedAnimeDiscoverySkippedByStatus",
+} as const;
 
 export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const t = useTranslations();
@@ -36,6 +47,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement | null>(null);
   const posterPollingAnimeIdRef = useRef<number | null>(null);
+  const relatedDiscoveryJobIdRef = useRef<string | null>(null);
   const [dropConfirm, setDropConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDiscoveringSeasons, setIsDiscoveringSeasons] = useState(false);
@@ -49,6 +61,23 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [providerSwitchOpen, setProviderSwitchOpen] = useState(false);
   const [providerSwitchTargetAnimeId, setProviderSwitchTargetAnimeId] = useState<number | null>(null);
   const [providerSwitchConflicts, setProviderSwitchConflicts] = useState<EpisodeConflict[]>([]);
+
+  const applyRelatedAnimeDiscoveryJob = useCallback(async (job: LibraryRefreshJob) => {
+    const result = relatedAnimeDiscoverySummary(job.summary);
+    if (!result) {
+      throw new Error(t("library.relatedAnimeDiscoveryFailed"));
+    }
+    const refreshed = await getAnimeDetail(animeId);
+    setData(refreshed);
+    setEpisodeRefreshKey((current) => current + 1);
+    if (result.skippedReason === "related_status_not_eligible") {
+      setSeasonDiscoveryMessage(t(RELATED_ANIME_DISCOVERY_MESSAGES.skippedByStatus));
+    } else if (result.importedAnimeIds.length > 0) {
+      setSeasonDiscoveryMessage(t(RELATED_ANIME_DISCOVERY_MESSAGES.imported, { count: result.importedAnimeIds.length }));
+    } else {
+      setSeasonDiscoveryMessage(t(RELATED_ANIME_DISCOVERY_MESSAGES.noNew));
+    }
+  }, [animeId, setData, t]);
 
   useEffect(() => {
     if (!summaryDialogOpen) {
@@ -123,6 +152,50 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
     };
   }, [animeId, data, setData]);
 
+  useEffect(() => {
+    if (!data || !data.features?.seasonDiscovery || !RELATED_ANIME_DISCOVERY_BY_PROVIDER[data.anime.provider as keyof typeof RELATED_ANIME_DISCOVERY_BY_PROVIDER] || isDiscoveringSeasons) {
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    getCurrentRelatedAnimeDiscoveryJob(animeId, controller.signal)
+      .then((job) => {
+        if (cancelled || !job || !["queued", "running"].includes(job.status) || relatedDiscoveryJobIdRef.current === job.jobId) {
+          return;
+        }
+        relatedDiscoveryJobIdRef.current = job.jobId;
+        setIsDiscoveringSeasons(true);
+        setSyncError(null);
+        setSeasonDiscoveryMessage(null);
+        return waitForRelatedAnimeDiscovery(animeId, job.jobId)
+          .then((completedJob) => {
+            if (!cancelled) {
+              return applyRelatedAnimeDiscoveryJob(completedJob);
+            }
+          })
+          .catch((err: unknown) => {
+            if (!cancelled) {
+              setSyncError(err instanceof Error ? err.message : t("library.relatedAnimeDiscoveryFailed"));
+            }
+          })
+          .finally(() => {
+            if (!cancelled) {
+              relatedDiscoveryJobIdRef.current = null;
+              setIsDiscoveringSeasons(false);
+            }
+          });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled && !(err instanceof DOMException && err.name === "AbortError")) {
+          setSyncError(err instanceof Error ? err.message : t("library.relatedAnimeDiscoveryFailed"));
+        }
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [animeId, applyRelatedAnimeDiscoveryJob, data, isDiscoveringSeasons, t]);
+
   async function setStatus(status: UserAnimeStatus) {
     if (!data || status === data.progress.status) {
       return;
@@ -175,27 +248,22 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }
 
   async function discoverSeasons() {
-    if (isDiscoveringSeasons) {
+    const discoverRelatedAnime = data ? RELATED_ANIME_DISCOVERY_BY_PROVIDER[data.anime.provider as keyof typeof RELATED_ANIME_DISCOVERY_BY_PROVIDER] : undefined;
+    if (!data || !discoverRelatedAnime || isDiscoveringSeasons) {
       return;
     }
     setIsDiscoveringSeasons(true);
     setSyncError(null);
     setSeasonDiscoveryMessage(null);
     try {
-      const result = await discoverTvdbSeasons(animeId);
-      const refreshed = await getAnimeDetail(animeId);
-      setData(refreshed);
-      setEpisodeRefreshKey((current) => current + 1);
-      if (result.skippedReason === "related_status_not_eligible") {
-        setSeasonDiscoveryMessage(t("library.tvdbSeasonDiscoverySkippedByStatus"));
-      } else if (result.importedAnimeIds.length > 0) {
-        setSeasonDiscoveryMessage(t("library.tvdbSeasonDiscoveryImported", { count: result.importedAnimeIds.length }));
-      } else {
-        setSeasonDiscoveryMessage(t("library.tvdbSeasonDiscoveryNoNew"));
-      }
+      const queued = await discoverRelatedAnime(animeId);
+      relatedDiscoveryJobIdRef.current = queued.taskId;
+      const job = await waitForRelatedAnimeDiscovery(animeId, queued.taskId);
+      await applyRelatedAnimeDiscoveryJob(job);
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : t("library.tvdbSeasonDiscoveryFailed"));
+      setSyncError(err instanceof Error ? err.message : t("library.relatedAnimeDiscoveryFailed"));
     } finally {
+      relatedDiscoveryJobIdRef.current = null;
       setIsDiscoveringSeasons(false);
     }
   }
@@ -241,6 +309,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const poster = assetUrl(data.anime.posterUrl);
   const summary = data.anime.summary?.summary?.trim() || t("anime.noSummary");
   const showOriginal = data.anime.originalName !== data.anime.displayName;
+  const canDiscoverRelatedAnime = Boolean(data.features?.seasonDiscovery && RELATED_ANIME_DISCOVERY_BY_PROVIDER[data.anime.provider as keyof typeof RELATED_ANIME_DISCOVERY_BY_PROVIDER]);
 
   return (
     <div className="space-y-8">
@@ -314,7 +383,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                       <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
                       {isSyncing ? t("library.syncing") : t("library.syncAnime")}
                     </Button>
-                    {data.anime.provider === "tvdb" && data.features?.tvdbSeasonDiscovery ? (
+                    {canDiscoverRelatedAnime ? (
                       <Button
                         type="button"
                         size="sm"
@@ -542,6 +611,39 @@ async function waitForPosterRefresh(animeId: number) {
     }
   }
   return null;
+}
+
+async function waitForRelatedAnimeDiscovery(animeId: number, jobId: string) {
+  for (let index = 0; index < DISCOVERY_JOB_POLL_ATTEMPTS; index += 1) {
+    await sleep(DISCOVERY_JOB_POLL_INTERVAL_MS);
+    const job = await getRelatedAnimeDiscoveryJob(animeId, jobId);
+    if (job.status === "completed") {
+      return job;
+    }
+    if (job.status === "failed") {
+      throw new Error(typeof job.summary?.message === "string" ? job.summary.message : "Related anime discovery failed");
+    }
+  }
+  throw new Error("Related anime discovery timed out");
+}
+
+function relatedAnimeDiscoverySummary(summary: LibraryRefreshJob["summary"]): RelatedAnimeDiscoveryResponse | null {
+  if (!summary || !Array.isArray(summary.importedAnimeIds) || !Array.isArray(summary.existingAnimeIds)) {
+    return null;
+  }
+  const checked = summary.checked;
+  const skippedReason = summary.skippedReason;
+  const postersQueued = summary.postersQueued;
+  if (typeof checked !== "boolean" || !(typeof skippedReason === "string" || skippedReason === null) || typeof postersQueued !== "number") {
+    return null;
+  }
+  return {
+    checked,
+    skippedReason,
+    importedAnimeIds: summary.importedAnimeIds.filter((value): value is number => typeof value === "number"),
+    existingAnimeIds: summary.existingAnimeIds.filter((value): value is number => typeof value === "number"),
+    postersQueued,
+  };
 }
 
 function sleep(ms: number) {

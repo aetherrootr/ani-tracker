@@ -27,6 +27,10 @@ def configure_celery_from_env() -> None:
             tvdb_season_discovery_day=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'),
             tvdb_season_discovery_hour=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'),
             tvdb_season_discovery_minute=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE'),
+            bangumi_related_anime_discovery_enabled=env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'),
+            bangumi_related_anime_discovery_day=os.environ.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY'),
+            bangumi_related_anime_discovery_hour=os.environ.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR'),
+            bangumi_related_anime_discovery_minute=os.environ.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE'),
         ),
     )
 
@@ -53,6 +57,10 @@ def configure_celery(config: dict[str, object]) -> None:
             tvdb_season_discovery_day=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'),
             tvdb_season_discovery_hour=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'),
             tvdb_season_discovery_minute=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE'),
+            bangumi_related_anime_discovery_enabled=bool(config.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED')),
+            bangumi_related_anime_discovery_day=config.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY'),
+            bangumi_related_anime_discovery_hour=config.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR'),
+            bangumi_related_anime_discovery_minute=config.get('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE'),
         ),
     )
 
@@ -69,6 +77,10 @@ def _beat_schedule(
     tvdb_season_discovery_day: object = None,
     tvdb_season_discovery_hour: object = None,
     tvdb_season_discovery_minute: object = None,
+    bangumi_related_anime_discovery_enabled: bool = False,
+    bangumi_related_anime_discovery_day: object = None,
+    bangumi_related_anime_discovery_hour: object = None,
+    bangumi_related_anime_discovery_minute: object = None,
 ) -> dict[str, object]:
     schedule: dict[str, object] = {
         'sync-airing-anime': {
@@ -92,12 +104,33 @@ def _beat_schedule(
         schedule['discover-tvdb-seasons'] = {
             'task': 'app.tasks.tvdb_season_discovery.discover_tvdb_seasons_for_all_users',
             'schedule': crontab(
-                day_of_month=safe_int(tvdb_season_discovery_day, default=secrets.randbelow(28) + 1, minimum=1, maximum=28),
-                hour=safe_int(tvdb_season_discovery_hour, default=secrets.randbelow(24), minimum=0, maximum=23),
-                minute=safe_int(tvdb_season_discovery_minute, default=secrets.randbelow(60), minimum=0, maximum=59),
+                day_of_month=safe_int(tvdb_season_discovery_day, default=_random_cron_day(), minimum=1, maximum=28),
+                hour=safe_int(tvdb_season_discovery_hour, default=_random_cron_hour(1, 3), minimum=0, maximum=23),
+                minute=safe_int(tvdb_season_discovery_minute, default=_random_cron_minute(), minimum=0, maximum=59),
+            ),
+        }
+    if bangumi_related_anime_discovery_enabled:
+        schedule['discover-bangumi-related-anime'] = {
+            'task': 'app.tasks.bangumi_related_anime_discovery.discover_bangumi_related_anime_for_all_users',
+            'schedule': crontab(
+                day_of_month=safe_int(bangumi_related_anime_discovery_day, default=_random_cron_day(), minimum=1, maximum=28),
+                hour=safe_int(bangumi_related_anime_discovery_hour, default=_random_cron_hour(3, 5), minimum=0, maximum=23),
+                minute=safe_int(bangumi_related_anime_discovery_minute, default=_random_cron_minute(), minimum=0, maximum=59),
             ),
         }
     return schedule
+
+
+def _random_cron_day() -> int:
+    return secrets.randbelow(28) + 1
+
+
+def _random_cron_hour(start: int, end: int) -> int:
+    return secrets.randbelow(end - start + 1) + start
+
+
+def _random_cron_minute() -> int:
+    return secrets.randbelow(60)
 
 
 configure_celery_from_env()

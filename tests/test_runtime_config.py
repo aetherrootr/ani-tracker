@@ -38,6 +38,57 @@ def test_import_provider_timeout_reads_environment(monkeypatch: pytest.MonkeyPat
     assert app.config['IMPORT_PROVIDER_TIMEOUT'] == pytest.approx(10.5)
 
 
+def test_auto_import_cron_defaults_are_randomized_overnight(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
+    for name in (
+        'AUTO_IMPORT_TVDB_SEASONS_CRON_DAY',
+        'AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR',
+        'AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE',
+        'AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY',
+        'AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR',
+        'AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE',
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    app = create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'cron-defaults.db'}",
+            'MIGRATE_DATABASE': False,
+            'TESTING': True,
+        },
+    )
+
+    assert 1 <= app.config['AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'] <= 28
+    assert 1 <= app.config['AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'] <= 3
+    assert 0 <= app.config['AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE'] <= 59
+    assert 1 <= app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY'] <= 28
+    assert 3 <= app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR'] <= 5
+    assert 0 <= app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE'] <= 59
+
+
+def test_auto_import_cron_environment_overrides_random_defaults(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
+    monkeypatch.setenv('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY', '11')
+    monkeypatch.setenv('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR', '12')
+    monkeypatch.setenv('AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE', '13')
+    monkeypatch.setenv('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY', '14')
+    monkeypatch.setenv('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR', '15')
+    monkeypatch.setenv('AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE', '16')
+
+    app = create_app(
+        {
+            'DATABASE_URL': f"sqlite:///{test_instance_path / 'cron-overrides.db'}",
+            'MIGRATE_DATABASE': False,
+            'TESTING': True,
+        },
+    )
+
+    assert app.config['AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'] == 11
+    assert app.config['AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'] == 12
+    assert app.config['AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE'] == 13
+    assert app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY'] == 14
+    assert app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR'] == 15
+    assert app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE'] == 16
+
+
 def test_instance_path_reads_environment(test_instance_path: Path) -> None:
     app = create_app(
         {

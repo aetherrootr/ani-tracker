@@ -22,6 +22,7 @@ from app.import_provider.types import (
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
+    ImportRelatedAnime,
     ImportSearchPage,
 )
 from app.models.anime import (
@@ -1665,6 +1666,135 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     assert tvdb_season_schedule.minute == {13}
 
 
+def test_celery_beat_schedule_adds_bangumi_related_anime_discovery() -> None:
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED': True,
+            'AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY': 14,
+            'AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR': 15,
+            'AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE': 16,
+        },
+    )
+
+    schedule = celery_app.conf.beat_schedule['discover-bangumi-related-anime']['schedule']
+
+    assert schedule.day_of_month == {14}
+    assert schedule.hour == {15}
+    assert schedule.minute == {16}
+
+
+def test_auto_import_default_cron_runs_randomized_overnight() -> None:
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'AUTO_IMPORT_TVDB_SEASONS_ENABLED': True,
+            'AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED': True,
+        },
+    )
+
+    tvdb_schedule = celery_app.conf.beat_schedule['discover-tvdb-seasons']['schedule']
+    bangumi_schedule = celery_app.conf.beat_schedule['discover-bangumi-related-anime']['schedule']
+
+    assert tvdb_schedule.day_of_month <= set(range(1, 29))
+    assert tvdb_schedule.hour <= {1, 2, 3}
+    assert tvdb_schedule.minute <= set(range(60))
+    assert bangumi_schedule.day_of_month <= set(range(1, 29))
+    assert bangumi_schedule.hour <= {3, 4, 5}
+    assert bangumi_schedule.minute <= set(range(60))
+
+
+def test_bangumi_related_anime_discovery_imports_plan_to_watch(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.related_anime_discovery import discover_related_anime_for_user_anime
+
+    current = add_library_anime(db_session, external_id='current', original_name='Current', names=[('Current', 'en')])
+    related_item = ImportRelatedAnime(
+        provider='bangumi',
+        external_id='related',
+        title='Related',
+        relation_type='same_series_season',
+        season_number=None,
+        air_date=None,
+        episode_count=None,
+        url='https://bgm.tv/subject/related',
+        poster_source_url='https://example.test/related.jpg',
+        raw_data={'id': 'related'},
+    )
+    provider = MutableDetailProvider(
+        {
+            'current': replace(anime_detail('current', title='Current'), related_anime=[related_item]),
+            'related': anime_detail('related', title='Related'),
+        },
+    )
+    monkeypatch.setattr('app.services.related_anime_discovery.enqueue_poster_download', lambda _poster_id: None)
+
+    result = discover_related_anime_for_user_anime(db_session, provider, user_id=1, anime_id=current.id, provider_name='bangumi')
+
+    related = db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.provider_type == 'bangumi', AnimeMetaInfo.external_id == 'related'))
+    assert result.checked is True
+    assert result.skipped_reason is None
+    assert related is not None
+    assert result.imported_anime_ids == [related.id]
+    progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.user_id == 1, UserAnimeProgress.anime_id == related.id))
+    assert progress is not None
+    assert progress.status == UserAnimeStatus.PLAN_TO_WATCH
+
+
+def test_bangumi_related_anime_discovery_endpoint_imports_plan_to_watch(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert register_user(client).status_code == 201
+    app.config['AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'] = True
+    current = add_library_anime(db_session, external_id='current', original_name='Current', names=[('Current', 'en')])
+    related_item = ImportRelatedAnime(
+        provider='bangumi',
+        external_id='related',
+        title='Related',
+        relation_type='same_series_season',
+        season_number=None,
+        air_date=None,
+        episode_count=None,
+        url='https://bgm.tv/subject/related',
+        poster_source_url=None,
+        raw_data={'id': 'related'},
+    )
+    provider = MutableDetailProvider(
+        {
+            'current': replace(anime_detail('current', title='Current'), related_anime=[related_item]),
+            'related': anime_detail('related', title='Related'),
+        },
+    )
+
+    class Factory:
+        @classmethod
+        def from_config(cls, _config):  # type: ignore[no-untyped-def]
+            return ImportProviderFactory({'bangumi': provider})
+
+    monkeypatch.setattr('app.tasks.related_anime_discovery.ImportProviderFactory', Factory)
+    monkeypatch.setattr('app.services.related_anime_discovery.enqueue_poster_download', lambda _poster_id: None)
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.database_url = app.config['DATABASE_URL']
+
+    response = client.post(f'/api/anime/library/{current.id}/discover-related-anime')
+
+    assert response.status_code == 202
+    payload = response.get_json()
+    job_response = client.get(f'/api/anime/library/{current.id}/discover-related-anime/{payload["taskId"]}')
+    assert job_response.status_code == 200
+    job = job_response.get_json()
+    assert job['status'] == 'completed'
+    assert job['summary']['skippedReason'] is None
+    related = db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.provider_type == 'bangumi', AnimeMetaInfo.external_id == 'related'))
+    assert related is not None
+    assert job['summary']['importedAnimeIds'] == [related.id]
+
+
 def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
     configure_celery(
         {
@@ -1684,9 +1814,12 @@ def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
 def test_scheduled_tasks_retry_three_times_after_five_minutes() -> None:
     from app.tasks.anime_cleanup import delete_untracked_anime_task
     from app.tasks.anime_sync import sync_airing_anime
+    from app.tasks.bangumi_related_anime_discovery import (
+        discover_bangumi_related_anime_for_all_users,
+    )
     from app.tasks.tvdb_season_discovery import discover_tvdb_seasons_for_all_users
 
-    for task in (delete_untracked_anime_task, sync_airing_anime, discover_tvdb_seasons_for_all_users):
+    for task in (delete_untracked_anime_task, sync_airing_anime, discover_bangumi_related_anime_for_all_users, discover_tvdb_seasons_for_all_users):
         assert task.autoretry_for == (Exception,)
         assert task.retry_kwargs == {'countdown': 5 * 60, 'max_retries': 3}
         assert task.max_retries == 3

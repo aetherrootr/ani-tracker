@@ -109,22 +109,33 @@ def sync_user_library_anime(user_id: int) -> dict[str, int]:
 @celery_app.task(name='app.tasks.anime_sync.refresh_user_library')
 def refresh_user_library(user_id: int, lock_path: str | None = None, job_dir: str | None = None, job_id: str | None = None) -> dict[str, object]:
     try:
-        _update_refresh_job(job_dir, job_id, status='running', progress=_refresh_progress('syncing', 0, 2, 'Refreshing library metadata'))
+        total_steps = 1 + int(env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED')) + int(env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'))
+        current_step = 0
+        _update_refresh_job(job_dir, job_id, status='running', progress=_refresh_progress('syncing', current_step, total_steps, 'Refreshing library metadata'))
         sync_summary = sync_user_library_anime(user_id)
-        discovery_summary = None
+        current_step += 1
+        tvdb_discovery_summary = None
         if env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'):
             from app.tasks.tvdb_season_discovery import discover_tvdb_seasons_for_user
 
-            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', 1, 2, 'Checking TVDB seasons'))
-            discovery_summary = discover_tvdb_seasons_for_user(user_id)
-        else:
-            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', 1, 2, 'TVDB season discovery is disabled'))
-        summary = {'sync': sync_summary, 'tvdbSeasonDiscovery': discovery_summary}
+            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', current_step, total_steps, 'Checking TVDB seasons'))
+            tvdb_discovery_summary = discover_tvdb_seasons_for_user(user_id)
+            current_step += 1
+        bangumi_discovery_summary = None
+        if env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'):
+            from app.tasks.bangumi_related_anime_discovery import (
+                discover_bangumi_related_anime_for_user,
+            )
+
+            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_bangumi_related_anime', current_step, total_steps, 'Checking Bangumi related anime'))
+            bangumi_discovery_summary = discover_bangumi_related_anime_for_user(user_id)
+            current_step += 1
+        summary = {'sync': sync_summary, 'tvdbSeasonDiscovery': tvdb_discovery_summary, 'bangumiRelatedAnimeDiscovery': bangumi_discovery_summary}
         _update_refresh_job(
             job_dir,
             job_id,
             status='completed',
-            progress=_refresh_progress('completed', 2, 2, 'Library refresh completed'),
+            progress=_refresh_progress('completed', total_steps, total_steps, 'Library refresh completed'),
             summary=summary,
         )
         return summary
