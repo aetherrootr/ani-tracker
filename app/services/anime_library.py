@@ -703,6 +703,7 @@ def _upsert_episodes(session: Session, anime: AnimeMetaInfo, episodes: Sequence[
         if episode is None:
             episode = Episode(anime_id=anime.id, episode_number=item.episode_number)
             session.add(episode)
+            existing[item.episode_number] = episode
         resolved_air_at = item.air_at or fallback_air_at
         resolved_title = item.title or fallback_title
         episode.original_title = resolved_title
