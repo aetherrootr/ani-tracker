@@ -328,6 +328,35 @@ def test_add_to_library_is_idempotent_for_same_user(
     assert len(db_session.scalars(select(UserAnimeProgress)).all()) == 1
 
 
+def test_add_to_library_reuses_episode_when_provider_returns_duplicate_numbers(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    provider = MutableDetailProvider(
+        {
+            '493042': anime_detail(
+                '493042',
+                episodes=[
+                    episode_info(9, title='Episode 9'),
+                    episode_info(9, title='Mini Anime #7'),
+                ],
+                total_episodes=1,
+            ),
+        },
+    )
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+
+    response = client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'})
+
+    assert response.status_code == 201
+    episodes = db_session.scalars(select(Episode)).all()
+    assert len(episodes) == 1
+    assert episodes[0].episode_number == 9
+    assert episodes[0].original_title == 'Mini Anime #7'
+
+
 def test_add_to_library_detects_duplicate_against_existing_anime_alias(
     app: Flask,
     client: FlaskClient,
