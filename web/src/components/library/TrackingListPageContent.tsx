@@ -84,7 +84,7 @@ export function TrackingListPageContent() {
   }
 
   return (
-    <div className="flex h-[calc(100svh-9.25rem)] flex-col space-y-4 overflow-hidden sm:block sm:h-auto sm:overflow-visible sm:space-y-6">
+    <div className="flex h-full flex-col space-y-4 overflow-hidden sm:block sm:h-auto sm:overflow-visible sm:space-y-6">
       <div className="mx-auto max-w-5xl space-y-2 text-center">
         <p className="text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground">{t("tracking.eyebrow")}</p>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("tracking.title")}</h1>

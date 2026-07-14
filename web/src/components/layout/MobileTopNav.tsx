@@ -21,7 +21,7 @@ export function MobileTopNav() {
     pathname.startsWith(`${settingsNavigationItem.href}/`);
 
   return (
-    <header className="glass-surface sticky top-0 z-[60] border-b md:hidden">
+    <header className="glass-surface fixed inset-x-0 top-0 z-[100] h-[var(--mobile-top-nav-height)] border-b md:hidden">
       <div className="flex h-14 items-center justify-between px-4">
         <Link href="/tracking-list" className="font-semibold tracking-tight">
           Ani Tracker
@@ -40,7 +40,7 @@ export function MobileTopNav() {
           </Link>
         </div>
       </div>
-      <nav className="relative mx-3 mb-3 grid grid-cols-4 gap-1 rounded-2xl bg-background/20 p-1">
+      <nav className="relative mx-3 mb-3 grid grid-cols-4 gap-1 rounded-2xl p-1">
         {activeNavigationIndex >= 0 ? (
           <div className="pointer-events-none absolute inset-1 grid grid-cols-4 gap-1" aria-hidden="true">
             <div

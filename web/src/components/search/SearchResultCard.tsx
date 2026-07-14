@@ -173,7 +173,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
       </CardContent>
     </Card>
     {duplicateConflict ? (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="duplicate-anime-title">
+      <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="duplicate-anime-title">
         <div className="glass-dialog flex max-h-[90svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
           <div className="border-b p-5">
             <h2 id="duplicate-anime-title" className="text-lg font-semibold tracking-tight">{t("search.duplicateAnimeTitle")}</h2>

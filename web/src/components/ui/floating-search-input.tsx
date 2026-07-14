@@ -20,7 +20,7 @@ export function FloatingSearchInput({
   ...props
 }: FloatingSearchInputProps) {
   return (
-    <div className={cn("sticky top-[7.25rem] z-30 mx-auto w-full max-w-5xl md:top-3", shellClassName)}>
+    <div className={cn("sticky top-0 z-30 mx-auto w-full max-w-5xl md:top-3", shellClassName)}>
       <div className={cn("glass-surface relative flex items-center gap-2 rounded-full border p-2", barClassName)}>
         {leading}
         <Input

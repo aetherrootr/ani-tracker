@@ -89,8 +89,8 @@ export function EpisodeTitleSettingsMenu({
         </div>
       ) : null}
       {dialogOpen ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/80 px-4 pb-4 pt-[7.5rem] backdrop-blur-sm md:items-center md:p-4" role="dialog" aria-modal="true">
-          <div className="glass-dialog flex max-h-[calc(100dvh-8rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border text-foreground md:max-h-[86vh]">
+        <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-start justify-center bg-background/80 p-4 backdrop-blur-sm md:items-center" role="dialog" aria-modal="true">
+          <div className="glass-dialog flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl border text-foreground md:max-h-[86vh]">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-background/65 p-5 backdrop-blur-xl dark:bg-background/65">
               <div>
                 <h3 className="text-lg font-semibold">{t("library.editEpisodeTitles")}</h3>

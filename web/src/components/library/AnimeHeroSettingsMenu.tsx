@@ -127,7 +127,7 @@ function ChoiceDialog({ open, title, error, children, onClose }: { open: boolean
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/88 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
+    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-center justify-center bg-background/88 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
       <div className="glass-dialog max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border p-5 text-foreground">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{title}</h2>
