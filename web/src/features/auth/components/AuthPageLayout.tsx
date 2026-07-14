@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import type { ReactNode } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
@@ -22,9 +23,14 @@ export function AuthPageLayout({ titleKey, descriptionKey, children }: AuthPageL
           <LanguageToggle />
         </div>
         <div className="mb-10 text-left md:mb-6 md:text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-lg font-semibold text-primary-foreground md:mx-auto">
-            A
-          </div>
+          <Image
+            src="/app-logo.svg"
+            alt="Ani Tracker"
+            width={48}
+            height={48}
+            className="h-12 w-12 rounded-2xl object-cover md:mx-auto"
+            priority
+          />
           <p className="mt-5 text-sm font-medium text-muted-foreground md:mt-4">Ani Tracker</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-2xl">{t(titleKey)}</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground md:mt-2">{t(descriptionKey)}</p>

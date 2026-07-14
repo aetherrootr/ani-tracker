@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -23,7 +24,15 @@ export function MobileTopNav() {
   return (
     <header className="glass-surface fixed inset-x-0 top-0 z-[100] h-[var(--mobile-top-nav-height)] border-b md:hidden">
       <div className="flex h-14 items-center justify-between px-4">
-        <Link href="/tracking-list" className="font-semibold tracking-tight">
+        <Link href="/tracking-list" className="flex items-center gap-2 font-semibold tracking-tight">
+          <Image
+            src="/app-logo.svg"
+            alt="Ani Tracker"
+            width={32}
+            height={32}
+            className="h-8 w-8 rounded-xl object-cover"
+            priority
+          />
           Ani Tracker
         </Link>
         <div className="flex items-center gap-2">
