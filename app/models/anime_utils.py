@@ -184,7 +184,7 @@ def _get_tracking_list_rows(
     section_condition = query_parts['tracking_condition'] if section == 'tracking' else ~query_parts['tracking_condition']
     conditions = [
         UserAnimeProgress.user_id == user_id,
-        UserAnimeProgress.status != UserAnimeStatus.DROPPED,
+        UserAnimeProgress.status.not_in([UserAnimeStatus.DROPPED, UserAnimeStatus.ON_HOLD]),
         section_condition,
     ]
     if not include_unwatched_season_zero:
