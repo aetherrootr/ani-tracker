@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { appLogoUrl } from "@/lib/app-logo";
 import { cn } from "@/lib/utils";
 
 import { navigationItems, settingsNavigationItem } from "./navigation";
@@ -26,12 +27,13 @@ export function MobileTopNav() {
       <div className="flex h-14 items-center justify-between px-4">
         <Link href="/tracking-list" className="flex items-center gap-2 font-semibold tracking-tight">
           <Image
-            src="/app-logo.svg"
+            src={appLogoUrl}
             alt="Ani Tracker"
             width={32}
             height={32}
             className="h-8 w-8 rounded-xl object-cover"
             priority
+            unoptimized
           />
           Ani Tracker
         </Link>

@@ -108,6 +108,58 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED` | Automatically import conservative Bangumi related anime (`续集`/`前传`) for eligible user-library entries. |
 | `OIDC_ENABLED` | Enables optional OIDC / SSO integration. |
 
+### Custom app logo and PWA icons
+
+The default UI logo is self-drawn and stored in `web/public/app-logo.svg`. You can replace the logo at deployment time without rebuilding application code by serving your own static files and setting these runtime environment variables:
+
+| Variable | Description |
+| --- | --- |
+| `APP_LOGO_URL` | Logo shown in the login/register pages and app navigation. SVG, PNG, or WebP are supported. Defaults to `/app-logo.svg`. |
+| `APP_PWA_ICON_192_URL` | 192x192 PNG icon used by the web app manifest. Defaults to `/icon-192x192.png`. |
+| `APP_PWA_ICON_512_URL` | 512x512 PNG icon used by the web app manifest. Defaults to `/icon-512x512.png`. |
+| `APP_PWA_ICON_MASKABLE_URL` | 512x512 maskable PNG icon for Android launchers. Defaults to `/icon-maskable-512x512.png`. |
+| `APP_APPLE_TOUCH_ICON_URL` | 180x180 PNG icon used by iOS when adding the app to the home screen. Defaults to `/apple-touch-icon.png`. |
+
+For self-hosted deployments, mount your files into the web server's public/static path or serve them from your reverse proxy, then point the variables to those same-origin paths. Example values:
+
+```env
+APP_LOGO_URL=/custom/logo.svg
+APP_PWA_ICON_192_URL=/custom/icon-192x192.png
+APP_PWA_ICON_512_URL=/custom/icon-512x512.png
+APP_PWA_ICON_MASKABLE_URL=/custom/icon-maskable-512x512.png
+APP_APPLE_TOUCH_ICON_URL=/custom/apple-touch-icon.png
+```
+
+The app exposes stable internal URLs (`/app-logo`, `/pwa-icon-192`, `/pwa-icon-512`, `/pwa-icon-maskable`, and `/apple-touch-icon-custom`) and redirects them to the configured files at request time, so the variables can be changed in deployment configuration. Use same-origin URLs for PWA icons whenever possible. After changing PWA icons, remove and reinstall the home-screen app or clear site data, because mobile browsers aggressively cache installed app icons.
+
+For the official container image, the Next.js public directory is `/opt/ani-tracker/web/public`. A practical Docker Compose setup is to mount a host directory into `/opt/ani-tracker/web/public/custom` and point the variables to `/custom/...` URLs:
+
+```text
+/opt/ani-tracker-branding/
+  logo.svg
+  icon-192x192.png
+  icon-512x512.png
+  icon-maskable-512x512.png
+  apple-touch-icon.png
+```
+
+```yaml
+services:
+  app:
+    image: ghcr.io/aetherrootr/ani-tracker:latest
+    environment:
+      APP_LOGO_URL: /custom/logo.svg
+      APP_PWA_ICON_192_URL: /custom/icon-192x192.png
+      APP_PWA_ICON_512_URL: /custom/icon-512x512.png
+      APP_PWA_ICON_MASKABLE_URL: /custom/icon-maskable-512x512.png
+      APP_APPLE_TOUCH_ICON_URL: /custom/apple-touch-icon.png
+    volumes:
+      - ani_tracker_data:/var/lib/ani-tracker
+      - /opt/ani-tracker-branding:/opt/ani-tracker/web/public/custom:ro
+```
+
+In this example, the container file `/opt/ani-tracker/web/public/custom/logo.svg` is served to browsers as `/custom/logo.svg`.
+
 ## Non-goals
 
 - ani-tracker does not manage local media files.

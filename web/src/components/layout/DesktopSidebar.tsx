@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useCurrentUser } from "@/features/auth/hooks";
+import { appLogoUrl } from "@/lib/app-logo";
 import { cn } from "@/lib/utils";
 
 import { navigationItems, settingsNavigationItem } from "./navigation";
@@ -29,12 +30,13 @@ export function DesktopSidebar() {
     <aside className="glass-surface hidden w-72 shrink-0 border-r px-4 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto">
       <Link href="/tracking-list" className="mb-8 flex items-center gap-3 px-3">
         <Image
-          src="/app-logo.svg"
+          src={appLogoUrl}
           alt="Ani Tracker"
           width={40}
           height={40}
           className="h-10 w-10 rounded-2xl object-cover"
           priority
+          unoptimized
         />
         <div>
           <p className="font-semibold tracking-tight">Ani Tracker</p>

@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import type { TranslationKey } from "@/i18n";
+import { appLogoUrl } from "@/lib/app-logo";
 
 type AuthPageLayoutProps = {
   titleKey: TranslationKey;
@@ -24,12 +25,13 @@ export function AuthPageLayout({ titleKey, descriptionKey, children }: AuthPageL
         </div>
         <div className="mb-10 text-left md:mb-6 md:text-center">
           <Image
-            src="/app-logo.svg"
+            src={appLogoUrl}
             alt="Ani Tracker"
             width={48}
             height={48}
             className="h-12 w-12 rounded-2xl object-cover md:mx-auto"
             priority
+            unoptimized
           />
           <p className="mt-5 text-sm font-medium text-muted-foreground md:mt-4">Ani Tracker</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-2xl">{t(titleKey)}</h1>

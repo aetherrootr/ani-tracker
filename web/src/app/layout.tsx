@@ -5,6 +5,7 @@ import "./globals.css";
 import { MobileScrollRestorer } from "@/components/layout/MobileScrollRestorer";
 import { ServiceWorkerRegistrar } from "@/components/layout/ServiceWorkerRegistrar";
 import { translations } from "@/i18n";
+import { appleTouchIconUrl, pwaIcon192Url, pwaIcon512Url } from "@/lib/app-branding";
 
 import { Providers } from "./providers";
 
@@ -19,11 +20,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icon-512x512.png", sizes: "512x512", type: "image/png" },
+      { url: pwaIcon192Url, sizes: "192x192", type: "image/png" },
+      { url: pwaIcon512Url, sizes: "512x512", type: "image/png" },
     ],
     apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      { url: appleTouchIconUrl, sizes: "180x180", type: "image/png" },
     ],
   },
 };
