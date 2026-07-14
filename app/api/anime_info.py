@@ -42,6 +42,7 @@ from app.api.utils.serializers import (
     serialize_import_search_result,
     serialize_library_progress,
     serialize_progress,
+    serialize_related_anime,
     serialize_summary,
 )
 from app.import_provider.exceptions import (
@@ -59,7 +60,9 @@ from app.models.anime import (
 from app.models.anime_utils import season_zero_anime_condition, tracking_list_query_parts
 from app.models.progress import (
     UserAnimeProgress,
+    UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
+    UserManualAnimeRelation,
     UserAnimeStatus,
     UserEpisodeProgress,
 )
@@ -67,6 +70,7 @@ from app.models.user import User
 from app.services.anime_library import (
     DuplicateAnimeConflict,
     add_anime_to_user_library,
+    _fallback_related_relations,
     get_user_progress,
     set_anime_name_preference,
     set_summary_preference,
@@ -292,8 +296,288 @@ def switch_library_anime_provider(db: Session, user: User, anime_id: int) -> Res
             'progress': serialize_progress(result.progress, include_anime_id=True),
             'previousAnimeId': result.previous_anime_id,
             'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
+            'relatedAnimeMode': result.related_anime_mode,
+            'autoMappedCount': result.related_auto_mapped_count,
+            'manualMappingRequiredCount': result.related_manual_mapping_required_count,
+            'fallbackRelationCount': result.related_fallback_relation_count,
         },
     )
+
+
+@anime_info_bp.patch('/library/<int:anime_id>/related-anime/<int:relation_id>/override')
+@require_auth_user
+def update_related_anime_override(db: Session, user: User, anime_id: int, relation_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or ('relatedAnimeId' not in payload and 'allowProviderImport' not in payload):
+        return jsonify({'message': 'relatedAnimeId or allowProviderImport is required'}), 400
+    related_anime_id = payload.get('relatedAnimeId')
+    if related_anime_id is not None and not isinstance(related_anime_id, int):
+        return jsonify({'message': 'relatedAnimeId is invalid'}), 400
+    allow_provider_import = payload.get('allowProviderImport')
+    if allow_provider_import is not None and not isinstance(allow_provider_import, bool):
+        return jsonify({'message': 'allowProviderImport is invalid'}), 400
+    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    relation = db.get(AnimeRelation, relation_id)
+    if relation is None or not _relation_visible_to_user(db, user_id=user.id, anime_id=anime_id, relation=relation):
+        return jsonify({'message': 'Related anime relation not found'}), 404
+    if 'relatedAnimeId' in payload and related_anime_id is None:
+        override = db.scalar(
+            select(UserAnimeRelationOverride).where(
+                UserAnimeRelationOverride.user_id == user.id,
+                UserAnimeRelationOverride.anime_relation_id == relation_id,
+            ),
+        )
+        if override is not None:
+            db.delete(override)
+        db.commit()
+        return jsonify({'override': None})
+    override = db.scalar(
+        select(UserAnimeRelationOverride).where(
+            UserAnimeRelationOverride.user_id == user.id,
+            UserAnimeRelationOverride.anime_relation_id == relation_id,
+        ),
+    )
+    if 'relatedAnimeId' in payload:
+        if related_anime_id is None:
+            return jsonify({'message': 'relatedAnimeId is invalid'}), 400
+        if get_user_progress(db, user_id=user.id, anime_id=related_anime_id) is None:
+            return jsonify({'message': 'relatedAnimeId is not in your library'}), 400
+        if override is None:
+            override = UserAnimeRelationOverride(user_id=user.id, anime_relation_id=relation_id, related_anime_id=related_anime_id)
+            db.add(override)
+        else:
+            override.related_anime_id = related_anime_id
+    elif override is None:
+        return jsonify({'message': 'Override not found'}), 404
+    if allow_provider_import is not None:
+        override.allow_provider_import = allow_provider_import
+    db.commit()
+    return jsonify({'override': {'relationId': relation_id, 'relatedAnimeId': override.related_anime_id, 'allowProviderImport': override.allow_provider_import}})
+
+
+@anime_info_bp.get('/library/<int:anime_id>/manual-related-anime')
+@require_auth_user
+def list_manual_related_anime(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    relations = _manual_relations_for_anime(db, user_id=user.id, anime_id=anime_id)
+    return jsonify({'manualRelatedAnime': [_serialize_manual_relation_management_item(relation, current_anime_id=anime_id, user=user) for relation in relations]})
+
+
+@anime_info_bp.post('/library/<int:anime_id>/manual-related-anime')
+@require_auth_user
+def create_manual_related_anime(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'message': 'Request body must be a JSON object'}), 400
+    related_anime_id = payload.get('relatedAnimeId')
+    if not isinstance(related_anime_id, int):
+        return jsonify({'message': 'relatedAnimeId is required'}), 400
+    relation_type = payload.get('relationType', 'same_series_manual')
+    if not isinstance(relation_type, str) or not relation_type.strip():
+        return jsonify({'message': 'relationType is invalid'}), 400
+    note = payload.get('note')
+    if note is not None and not isinstance(note, str):
+        return jsonify({'message': 'note is invalid'}), 400
+    if anime_id == related_anime_id:
+        return jsonify({'message': 'relatedAnimeId must differ from animeId'}), 400
+    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None or get_user_progress(db, user_id=user.id, anime_id=related_anime_id) is None:
+        return jsonify({'message': 'Both anime must be in your library'}), 400
+    low_id, high_id = sorted((anime_id, related_anime_id))
+    relation = db.scalar(
+        select(UserManualAnimeRelation).where(
+            UserManualAnimeRelation.user_id == user.id,
+            UserManualAnimeRelation.anime_id_low == low_id,
+            UserManualAnimeRelation.anime_id_high == high_id,
+            UserManualAnimeRelation.relation_type == relation_type.strip(),
+        ),
+    )
+    if relation is None:
+        relation = UserManualAnimeRelation(
+            user_id=user.id,
+            anime_id_low=low_id,
+            anime_id_high=high_id,
+            relation_type=relation_type.strip(),
+            note=note.strip() if isinstance(note, str) else None,
+        )
+        db.add(relation)
+    else:
+        relation.note = note.strip() if isinstance(note, str) else relation.note
+    db.commit()
+    return jsonify({'manualRelation': _serialize_manual_relation_management_item(relation, current_anime_id=anime_id, user=user)}), 201
+
+
+@anime_info_bp.patch('/library/<int:anime_id>/manual-related-anime/<int:manual_relation_id>')
+@require_auth_user
+def update_manual_related_anime(db: Session, user: User, anime_id: int, manual_relation_id: int) -> ResponseReturnValue:
+    relation = _get_owned_manual_relation(db, user_id=user.id, anime_id=anime_id, manual_relation_id=manual_relation_id)
+    if relation is None:
+        return jsonify({'message': 'Manual related anime relation not found'}), 404
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'message': 'Request body must be a JSON object'}), 400
+    note = payload.get('note')
+    relation_type = payload.get('relationType')
+    if note is not None:
+        if not isinstance(note, str):
+            return jsonify({'message': 'note is invalid'}), 400
+        relation.note = note.strip() or None
+    if relation_type is not None:
+        if not isinstance(relation_type, str) or not relation_type.strip():
+            return jsonify({'message': 'relationType is invalid'}), 400
+        relation.relation_type = relation_type.strip()
+    db.commit()
+    return jsonify({'manualRelation': _serialize_manual_relation_management_item(relation, current_anime_id=anime_id, user=user)})
+
+
+@anime_info_bp.delete('/library/<int:anime_id>/manual-related-anime/<int:manual_relation_id>')
+@require_auth_user
+def delete_manual_related_anime(db: Session, user: User, anime_id: int, manual_relation_id: int) -> ResponseReturnValue:
+    relation = _get_owned_manual_relation(db, user_id=user.id, anime_id=anime_id, manual_relation_id=manual_relation_id)
+    if relation is None:
+        return jsonify({'message': 'Manual related anime relation not found'}), 404
+    db.delete(relation)
+    db.commit()
+    return '', 204
+
+
+@anime_info_bp.post('/library/<int:anime_id>/related-anime/deletion-prompts/<int:prompt_id>/keep')
+@require_auth_user
+def keep_deleted_related_anime(db: Session, user: User, anime_id: int, prompt_id: int) -> ResponseReturnValue:
+    prompt = _get_owned_deletion_prompt(db, user_id=user.id, anime_id=anime_id, prompt_id=prompt_id)
+    if prompt is None:
+        return jsonify({'message': 'Deletion prompt not found'}), 404
+    if prompt.status != 'pending':
+        return jsonify({'message': 'Deletion prompt is already resolved'}), 409
+    if prompt.related_anime_id is None or get_user_progress(db, user_id=user.id, anime_id=prompt.related_anime_id) is None:
+        return jsonify({'message': 'Related anime is not in your library'}), 400
+    if get_user_progress(db, user_id=user.id, anime_id=prompt.anime_id) is None:
+        return jsonify({'message': 'Anime is not in your library'}), 400
+    low_id, high_id = sorted((prompt.anime_id, prompt.related_anime_id))
+    relation = db.scalar(
+        select(UserManualAnimeRelation).where(
+            UserManualAnimeRelation.user_id == user.id,
+            UserManualAnimeRelation.anime_id_low == low_id,
+            UserManualAnimeRelation.anime_id_high == high_id,
+            UserManualAnimeRelation.relation_type == prompt.relation_type,
+        ),
+    )
+    if relation is None:
+        relation = UserManualAnimeRelation(
+            user_id=user.id,
+            anime_id_low=low_id,
+            anime_id_high=high_id,
+            relation_type=prompt.relation_type,
+            created_from_anime_relation_id=prompt.anime_relation_id,
+            created_from_provider=prompt.provider,
+            created_from_external_id=prompt.external_id,
+            snapshot_title=prompt.title,
+            snapshot_air_date=prompt.air_date,
+            snapshot_episode_count=prompt.episode_count,
+        )
+        db.add(relation)
+    prompt.status = 'kept'
+    db.commit()
+    return jsonify({'manualRelation': _serialize_manual_relation_management_item(relation, current_anime_id=anime_id, user=user)})
+
+
+@anime_info_bp.delete('/library/<int:anime_id>/related-anime/deletion-prompts/<int:prompt_id>')
+@require_auth_user
+def dismiss_deleted_related_anime(db: Session, user: User, anime_id: int, prompt_id: int) -> ResponseReturnValue:
+    prompt = _get_owned_deletion_prompt(db, user_id=user.id, anime_id=anime_id, prompt_id=prompt_id)
+    if prompt is None:
+        return jsonify({'message': 'Deletion prompt not found'}), 404
+    if prompt.status != 'pending':
+        return '', 204
+    prompt.status = 'dismissed'
+    if prompt.anime_relation_id is not None:
+        override = db.scalar(
+            select(UserAnimeRelationOverride).where(
+                UserAnimeRelationOverride.user_id == user.id,
+                UserAnimeRelationOverride.anime_relation_id == prompt.anime_relation_id,
+            ),
+        )
+        if override is not None:
+            db.delete(override)
+    db.commit()
+    return '', 204
+
+
+def _relation_visible_to_user(db: Session, *, user_id: int, anime_id: int, relation: AnimeRelation) -> bool:
+    if relation.is_active and relation.anime_id == anime_id:
+        return True
+    reverse_override = db.scalar(
+        select(UserAnimeRelationOverride.id).where(
+            UserAnimeRelationOverride.user_id == user_id,
+            UserAnimeRelationOverride.anime_relation_id == relation.id,
+            UserAnimeRelationOverride.related_anime_id == anime_id,
+        ),
+    )
+    if reverse_override is not None:
+        return True
+    return any(item.id == relation.id for item in _fallback_related_relations(db, user_id=user_id, anime_id=anime_id))
+
+
+def _manual_relations_for_anime(db: Session, *, user_id: int, anime_id: int) -> list[UserManualAnimeRelation]:
+    return list(db.scalars(
+        select(UserManualAnimeRelation)
+        .options(
+            selectinload(UserManualAnimeRelation.anime_low).selectinload(AnimeMetaInfo.names),
+            selectinload(UserManualAnimeRelation.anime_high).selectinload(AnimeMetaInfo.names),
+        )
+        .where(
+            UserManualAnimeRelation.user_id == user_id,
+            (UserManualAnimeRelation.anime_id_low == anime_id) | (UserManualAnimeRelation.anime_id_high == anime_id),
+        )
+        .order_by(UserManualAnimeRelation.id),
+    ).all())
+
+
+def _get_owned_manual_relation(db: Session, *, user_id: int, anime_id: int, manual_relation_id: int) -> UserManualAnimeRelation | None:
+    relation = db.scalar(
+        select(UserManualAnimeRelation).where(
+            UserManualAnimeRelation.id == manual_relation_id,
+            UserManualAnimeRelation.user_id == user_id,
+            (UserManualAnimeRelation.anime_id_low == anime_id) | (UserManualAnimeRelation.anime_id_high == anime_id),
+        ),
+    )
+    return relation
+
+
+def _get_pending_deletion_prompt(db: Session, *, user_id: int, anime_id: int, prompt_id: int) -> UserAnimeRelationDeletionPrompt | None:
+    return db.scalar(
+        select(UserAnimeRelationDeletionPrompt).where(
+            UserAnimeRelationDeletionPrompt.id == prompt_id,
+            UserAnimeRelationDeletionPrompt.user_id == user_id,
+            UserAnimeRelationDeletionPrompt.anime_id == anime_id,
+            UserAnimeRelationDeletionPrompt.status == 'pending',
+        ),
+    )
+
+
+def _get_owned_deletion_prompt(db: Session, *, user_id: int, anime_id: int, prompt_id: int) -> UserAnimeRelationDeletionPrompt | None:
+    return db.scalar(
+        select(UserAnimeRelationDeletionPrompt).where(
+            UserAnimeRelationDeletionPrompt.id == prompt_id,
+            UserAnimeRelationDeletionPrompt.user_id == user_id,
+            (UserAnimeRelationDeletionPrompt.anime_id == anime_id) | (UserAnimeRelationDeletionPrompt.related_anime_id == anime_id),
+        ),
+    )
+
+
+def _serialize_manual_relation_management_item(relation: UserManualAnimeRelation, *, current_anime_id: int, user: User) -> dict[str, object]:
+    related_anime = relation.anime_high if relation.anime_id_low == current_anime_id else relation.anime_low
+    selected_name = select_anime_name_for_user(sorted(related_anime.names, key=lambda item: item.id), UserAnimeProgress(user_id=user.id, anime_id=related_anime.id), user)
+    return {
+        'id': relation.id,
+        'animeId': current_anime_id,
+        'relatedAnimeId': related_anime.id,
+        'relatedAnimeTitle': selected_name.name if selected_name is not None else related_anime.original_name,
+        'relationType': relation.relation_type,
+        'note': relation.note,
+        'createdFromAnimeRelationId': relation.created_from_anime_relation_id,
+    }
 
 
 def _provider_label(name: str) -> str:
@@ -612,9 +896,14 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
     )
     if anime is None:
         return jsonify({'message': 'Anime not found'}), 404
-    related_anime_ids = [relation.related_anime_id for relation in anime.related_anime if relation.related_anime_id is not None]
-    relation_ids = [relation.id for relation in anime.related_anime]
+    provider_relations = [relation for relation in anime.related_anime if relation.is_active and relation.relation_type == 'same_series_season']
+    fallback_relations = [] if provider_relations else _fallback_related_relations(db, user_id=user.id, anime_id=anime.id)
+    effective_relations = provider_relations or fallback_relations
+    source_by_relation_id = {relation.id: ('provider' if provider_relations else 'fallback') for relation in effective_relations}
+    relation_ids = [relation.id for relation in effective_relations]
+    related_anime_ids = [relation.related_anime_id for relation in effective_relations if relation.related_anime_id is not None]
     related_anime_overrides = {}
+    related_anime_override_provider_import = {}
     if relation_ids:
         overrides = db.scalars(
             select(UserAnimeRelationOverride)
@@ -625,9 +914,61 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
             ),
         ).all()
         related_anime_overrides = {override.anime_relation_id: override.related_anime for override in overrides}
+        related_anime_override_provider_import = {override.anime_relation_id: override.allow_provider_import for override in overrides}
         related_anime_ids.extend(override.related_anime_id for override in overrides)
+    reverse_overrides = db.scalars(
+        select(UserAnimeRelationOverride)
+        .options(
+            selectinload(UserAnimeRelationOverride.anime_relation).selectinload(AnimeRelation.anime).selectinload(AnimeMetaInfo.names),
+            selectinload(UserAnimeRelationOverride.anime_relation).selectinload(AnimeRelation.anime).selectinload(AnimeMetaInfo.posters),
+        )
+        .where(
+            UserAnimeRelationOverride.user_id == user.id,
+            UserAnimeRelationOverride.related_anime_id == anime.id,
+        ),
+    ).all()
+    reverse_overrides = [override for override in reverse_overrides if override.anime_relation.is_active]
+    reverse_override_relation_ids = {override.anime_relation_id for override in reverse_overrides}
+    related_anime_ids.extend(override.anime_relation.anime_id for override in reverse_overrides)
     related_library_anime_ids = set()
     related_anime_progresses = {}
+    manual_relations = db.scalars(
+        select(UserManualAnimeRelation)
+        .options(
+            selectinload(UserManualAnimeRelation.anime_low).selectinload(AnimeMetaInfo.names),
+            selectinload(UserManualAnimeRelation.anime_high).selectinload(AnimeMetaInfo.names),
+            selectinload(UserManualAnimeRelation.anime_low).selectinload(AnimeMetaInfo.posters),
+            selectinload(UserManualAnimeRelation.anime_high).selectinload(AnimeMetaInfo.posters),
+        )
+        .where(
+            UserManualAnimeRelation.user_id == user.id,
+            (UserManualAnimeRelation.anime_id_low == anime.id) | (UserManualAnimeRelation.anime_id_high == anime.id),
+        ),
+    ).all()
+    related_anime_ids.extend(
+        relation.anime_id_high if relation.anime_id_low == anime.id else relation.anime_id_low
+        for relation in manual_relations
+    )
+    pending_prompts = db.scalars(
+        select(UserAnimeRelationDeletionPrompt)
+        .options(
+            selectinload(UserAnimeRelationDeletionPrompt.anime).selectinload(AnimeMetaInfo.names),
+            selectinload(UserAnimeRelationDeletionPrompt.anime).selectinload(AnimeMetaInfo.posters),
+            selectinload(UserAnimeRelationDeletionPrompt.related_anime).selectinload(AnimeMetaInfo.names),
+            selectinload(UserAnimeRelationDeletionPrompt.related_anime).selectinload(AnimeMetaInfo.posters),
+        )
+        .where(
+            UserAnimeRelationDeletionPrompt.user_id == user.id,
+            (UserAnimeRelationDeletionPrompt.anime_id == anime.id) | (UserAnimeRelationDeletionPrompt.related_anime_id == anime.id),
+            UserAnimeRelationDeletionPrompt.status == 'pending',
+        ),
+    ).all()
+    pending_prompt_relation_ids = {prompt.anime_relation_id for prompt in pending_prompts if prompt.anime_relation_id is not None}
+    related_anime_ids.extend(
+        prompt.related_anime_id if prompt.anime_id == anime.id else prompt.anime_id
+        for prompt in pending_prompts
+        if prompt.related_anime_id is not None
+    )
     if related_anime_ids:
         related_progresses = db.scalars(
             select(UserAnimeProgress)
@@ -639,6 +980,45 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
         ).all()
         related_anime_progresses = {progress.anime_id: progress for progress in related_progresses}
         related_library_anime_ids = set(related_anime_progresses)
+    manual_target_ids = {
+        relation.anime_id_high if relation.anime_id_low == anime.id else relation.anime_id_low
+        for relation in manual_relations
+    }
+    related_anime_items = []
+    for relation in sorted(effective_relations, key=lambda item: (item.season_number is None, item.season_number or 0, item.id)):
+        if relation.id in reverse_override_relation_ids and relation.anime_id != anime.id:
+            continue
+        override_anime = related_anime_overrides.get(relation.id)
+        effective_related_id = override_anime.id if override_anime is not None else relation.related_anime_id
+        if effective_related_id in manual_target_ids:
+            continue
+        related_anime_items.append(
+            serialize_related_anime(
+                relation,
+                user=user,
+                library_anime_ids=related_library_anime_ids,
+                override_anime=override_anime,
+                allow_provider_import=related_anime_override_provider_import.get(relation.id),
+                related_anime_progresses=related_anime_progresses,
+                source=source_by_relation_id[relation.id],
+                pending_upstream_deletion=relation.id in pending_prompt_relation_ids,
+            ),
+        )
+    related_anime_items.extend(
+        _serialize_manual_related_anime(relation, current_anime_id=anime.id, related_anime_progresses=related_anime_progresses, user=user)
+        for relation in sorted(manual_relations, key=lambda item: item.id)
+    )
+    related_anime_items.extend(
+        _serialize_reverse_override_related_anime(override, related_anime_progresses=related_anime_progresses, user=user)
+        for override in sorted(reverse_overrides, key=lambda item: item.id)
+        if override.anime_relation.anime_id not in manual_target_ids
+    )
+    visible_relation_ids = {item['relationId'] for item in related_anime_items if item.get('relationId') is not None}
+    related_anime_items.extend(
+        _serialize_deletion_prompt_related_anime(prompt, current_anime_id=anime.id, related_anime_progresses=related_anime_progresses, user=user)
+        for prompt in sorted(pending_prompts, key=lambda item: item.id)
+        if prompt.anime_relation_id not in visible_relation_ids and prompt.related_anime_id not in manual_target_ids
+    )
     return jsonify(
         {
             'anime': serialize_anime(
@@ -651,7 +1031,9 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
                 include_related_anime=True,
                 related_library_anime_ids=related_library_anime_ids,
                 related_anime_overrides=related_anime_overrides,
+                related_anime_override_provider_import=related_anime_override_provider_import,
                 related_anime_progresses=related_anime_progresses,
+                related_anime_items=related_anime_items,
             ),
             'progress': serialize_progress(progress),
             'features': {
@@ -659,6 +1041,126 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
             },
         },
     )
+
+
+def _serialize_manual_related_anime(
+    relation: UserManualAnimeRelation,
+    *,
+    current_anime_id: int,
+    related_anime_progresses: dict[int, UserAnimeProgress],
+    user: User,
+) -> dict[str, object]:
+    related_anime = relation.anime_high if relation.anime_id_low == current_anime_id else relation.anime_low
+    progress = related_anime_progresses.get(related_anime.id)
+    title = relation.snapshot_title or related_anime.original_name
+    if progress is not None:
+        selected_name = select_anime_name_for_user(sorted(related_anime.names, key=lambda item: item.id), progress, user)
+        title = selected_name.name if selected_name is not None else related_anime.original_name
+    poster = min(related_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+    poster_url = None
+    if poster is not None:
+        poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}?v={poster.id}-{poster.status}'
+    return {
+        'provider': 'manual',
+        'externalId': f'manual:{relation.id}',
+        'animeId': related_anime.id,
+        'inLibrary': progress is not None,
+        'title': title,
+        'relationType': relation.relation_type,
+        'seasonNumber': None,
+        'airDate': relation.snapshot_air_date.isoformat() if relation.snapshot_air_date is not None else related_anime.air_date.isoformat() if related_anime.air_date is not None else None,
+        'episodeCount': relation.snapshot_episode_count if relation.snapshot_episode_count is not None else related_anime.total_episodes,
+        'url': related_anime.url,
+        'posterUrl': poster_url,
+        'source': 'manual',
+        'mappedByOverride': False,
+        'needsManualMapping': False,
+        'pendingUpstreamDeletion': False,
+        'relationId': None,
+        'manualRelationId': relation.id,
+    }
+
+
+def _serialize_reverse_override_related_anime(
+    override: UserAnimeRelationOverride,
+    *,
+    related_anime_progresses: dict[int, UserAnimeProgress],
+    user: User,
+) -> dict[str, object]:
+    relation = override.anime_relation
+    source_anime = relation.anime
+    source_progress = related_anime_progresses.get(source_anime.id)
+    title = source_anime.original_name
+    if source_progress is not None:
+        selected_name = select_anime_name_for_user(sorted(source_anime.names, key=lambda item: item.id), source_progress, user)
+        title = selected_name.name if selected_name is not None else source_anime.original_name
+    poster = min(source_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+    poster_url = None
+    if poster is not None:
+        poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}?v={poster.id}-{poster.status}'
+    return {
+        'provider': source_anime.provider_type,
+        'externalId': source_anime.external_id,
+        'animeId': source_anime.id,
+        'inLibrary': source_progress is not None,
+        'title': title,
+        'relationType': relation.relation_type,
+        'seasonNumber': relation.season_number,
+        'airDate': source_anime.air_date.isoformat() if source_anime.air_date is not None else None,
+        'episodeCount': source_anime.total_episodes,
+        'url': source_anime.url,
+        'posterUrl': poster_url,
+        'source': 'provider',
+        'mappedByOverride': True,
+        'needsManualMapping': False,
+        'pendingUpstreamDeletion': False,
+        'relationId': relation.id,
+        'manualRelationId': None,
+        'allowProviderImport': override.allow_provider_import,
+    }
+
+
+def _serialize_deletion_prompt_related_anime(
+    prompt: UserAnimeRelationDeletionPrompt,
+    *,
+    current_anime_id: int,
+    related_anime_progresses: dict[int, UserAnimeProgress],
+    user: User,
+) -> dict[str, object]:
+    target_anime = prompt.related_anime if prompt.anime_id == current_anime_id else prompt.anime
+    target_anime_id = target_anime.id if target_anime is not None else prompt.related_anime_id
+    related_progress = related_anime_progresses.get(target_anime_id) if target_anime_id is not None else None
+    title = prompt.title
+    if related_progress is not None:
+        selected_name = select_anime_name_for_user(sorted(related_progress.anime.names, key=lambda item: item.id), related_progress, user)
+        title = selected_name.name if selected_name is not None else related_progress.anime.original_name
+    elif target_anime is not None:
+        title = target_anime.original_name
+    poster_url = None
+    if target_anime is not None:
+        poster = min(target_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+        if poster is not None:
+            poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}?v={poster.id}-{poster.status}'
+    return {
+        'provider': prompt.provider,
+        'externalId': prompt.external_id,
+        'animeId': target_anime_id,
+        'inLibrary': related_progress is not None,
+        'title': title,
+        'relationType': prompt.relation_type,
+        'seasonNumber': prompt.season_number,
+        'airDate': prompt.air_date.isoformat() if prompt.air_date is not None else None,
+        'episodeCount': prompt.episode_count,
+        'url': None,
+        'posterUrl': poster_url,
+        'source': 'provider',
+        'mappedByOverride': False,
+        'needsManualMapping': target_anime_id is None or related_progress is None,
+        'pendingUpstreamDeletion': True,
+        'relationId': prompt.anime_relation_id,
+        'manualRelationId': None,
+        'deletionPromptId': prompt.id,
+    }
 
 
 def _season_discovery_enabled(provider_type: str) -> bool:

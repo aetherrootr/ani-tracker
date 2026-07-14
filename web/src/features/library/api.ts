@@ -12,6 +12,7 @@ import type {
   LibraryResponse,
   LibraryRefreshJob,
   LibraryRefreshResponse,
+  ManualRelatedAnime,
   ProviderSwitchResponse,
   ResolveEpisodeConflictsResponse,
   LibraryListFilter,
@@ -237,4 +238,52 @@ export function updateEpisodeNamePreference(animeId: number, episodeId: number, 
     `/api/anime/library/${animeId}/episodes/${episodeId}/name-preference`,
     { method: "PATCH", body: JSON.stringify({ nameId }) },
   );
+}
+
+export function updateRelatedAnimeOverride(animeId: number, relationId: number, relatedAnimeId: number | null, allowProviderImport?: boolean) {
+  const body: { relatedAnimeId: number | null; allowProviderImport?: boolean } = { relatedAnimeId };
+  if (allowProviderImport !== undefined) {
+    body.allowProviderImport = allowProviderImport;
+  }
+  return apiFetch<{ override: { relationId: number; relatedAnimeId: number } | null }>(
+    `/api/anime/library/${animeId}/related-anime/${relationId}/override`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}
+
+export function updateRelatedAnimeProviderImport(animeId: number, relationId: number, allowProviderImport: boolean) {
+  return apiFetch<{ override: { relationId: number; relatedAnimeId: number; allowProviderImport: boolean } }>(
+    `/api/anime/library/${animeId}/related-anime/${relationId}/override`,
+    { method: "PATCH", body: JSON.stringify({ allowProviderImport }) },
+  );
+}
+
+export function getManualRelatedAnime(animeId: number, signal?: AbortSignal) {
+  return apiFetch<{ manualRelatedAnime: ManualRelatedAnime[] }>(`/api/anime/library/${animeId}/manual-related-anime`, { signal });
+}
+
+export function createManualRelatedAnime(animeId: number, relatedAnimeId: number, relationType = "same_series_manual", note?: string) {
+  return apiFetch<{ manualRelation: ManualRelatedAnime }>(
+    `/api/anime/library/${animeId}/manual-related-anime`,
+    { method: "POST", body: JSON.stringify({ relatedAnimeId, relationType, note }) },
+  );
+}
+
+export function updateManualRelatedAnime(animeId: number, manualRelationId: number, input: { relationType?: string; note?: string | null }) {
+  return apiFetch<{ manualRelation: ManualRelatedAnime }>(
+    `/api/anime/library/${animeId}/manual-related-anime/${manualRelationId}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function deleteManualRelatedAnime(animeId: number, manualRelationId: number) {
+  return apiFetch<void>(`/api/anime/library/${animeId}/manual-related-anime/${manualRelationId}`, { method: "DELETE" });
+}
+
+export function keepDeletedRelatedAnime(animeId: number, promptId: number) {
+  return apiFetch<{ manualRelation: ManualRelatedAnime }>(`/api/anime/library/${animeId}/related-anime/deletion-prompts/${promptId}/keep`, { method: "POST" });
+}
+
+export function dismissDeletedRelatedAnime(animeId: number, promptId: number) {
+  return apiFetch<void>(`/api/anime/library/${animeId}/related-anime/deletion-prompts/${promptId}`, { method: "DELETE" });
 }

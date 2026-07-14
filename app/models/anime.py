@@ -204,6 +204,8 @@ class AnimeRelation(TimestampedBase):
     episode_count: Mapped[int | None] = mapped_column(Integer)
     url: Mapped[str | None] = mapped_column(String(2048))
     poster_source_url: Mapped[str | None] = mapped_column(String(2048))
+    is_active: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     anime: Mapped[AnimeMetaInfo] = relationship(
         back_populates="related_anime",

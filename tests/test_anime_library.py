@@ -37,7 +37,9 @@ from app.models.anime import (
 )
 from app.models.progress import (
     UserAnimeProgress,
+    UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
+    UserManualAnimeRelation,
     UserAnimeStatus,
     UserEpisodeProgress,
 )
@@ -420,6 +422,7 @@ def test_provider_switch_retargets_existing_related_anime_links(
         poster_id=source_poster.id,
     )
     db_session.add(relation)
+    db_session.flush()
     db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
     db_session.add(UserAnimeProgress(user_id=1, anime_id=source.id, status=UserAnimeStatus.PLAN_TO_WATCH))
     db_session.commit()
@@ -491,6 +494,400 @@ def test_related_anime_uses_library_display_name(
     related_item = response.get_json()['anime']['relatedAnime'][0]
     assert related_item['title'] == '用户选择的相关动画名'
     assert related_item['inLibrary'] is True
+
+
+def test_provider_switch_without_target_related_falls_back_to_old_provider_relation(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    old_related = AnimeMetaInfo(provider_type='bangumi', external_id='old-related', original_name='Old Related')
+    old_related_next = AnimeMetaInfo(provider_type='bangumi', external_id='old-related-next', original_name='Old Related Next')
+    db_session.add_all([current, old_related, old_related_next])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='old-related',
+        relation_type='same_series_season',
+        title='Old Provider Related',
+        related_anime_id=old_related.id,
+    )
+    outgoing_relation = AnimeRelation(
+        anime_id=old_related.id,
+        provider_type='bangumi',
+        external_id='old-related-next',
+        relation_type='same_series_season',
+        title='Old Provider Next Season',
+        related_anime_id=old_related_next.id,
+    )
+    db_session.add_all([relation, outgoing_relation])
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=old_related.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=old_related_next.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+    provider = NamedMutableDetailProvider('tvdb', {'new-related': replace(anime_detail('new-related', title='Target TVDB'), provider='tvdb', related_anime=[])})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': FakeProvider(), 'tvdb': provider})
+
+    switch_response = client.post(
+        f'/api/anime/library/{old_related.id}/provider-switch',
+        json={'provider': 'tvdb', 'externalId': 'new-related'},
+    )
+
+    assert switch_response.status_code == 200
+    payload = switch_response.get_json()
+    assert payload['relatedAnimeMode'] == 'fallback'
+    target_id = payload['anime']['id']
+    detail_response = client.get(f'/api/anime/{target_id}')
+    related = detail_response.get_json()['anime']['relatedAnime'][0]
+    assert related['source'] == 'fallback'
+    assert related['provider'] == 'bangumi'
+    assert related['animeId'] == old_related_next.id
+
+
+def test_related_anime_override_endpoint_updates_user_mapping(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='tvdb', external_id='current', original_name='Current Anime')
+    target = AnimeMetaInfo(provider_type='bangumi', external_id='target', original_name='Target Anime')
+    db_session.add_all([current, target])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='tvdb',
+        external_id='target-tvdb',
+        relation_type='same_series_season',
+        title='Needs Mapping',
+    )
+    db_session.add(relation)
+    db_session.flush()
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=target.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+
+    response = client.patch(
+        f'/api/anime/library/{current.id}/related-anime/{relation.id}/override',
+        json={'relatedAnimeId': target.id},
+    )
+
+    assert response.status_code == 200
+    override = db_session.scalar(select(UserAnimeRelationOverride).where(UserAnimeRelationOverride.anime_relation_id == relation.id))
+    assert override is not None
+    assert override.related_anime_id == target.id
+    detail_response = client.get(f'/api/anime/{current.id}')
+    related = detail_response.get_json()['anime']['relatedAnime'][0]
+    assert related['animeId'] == target.id
+    assert related['mappedByOverride'] is True
+
+
+def test_related_anime_override_is_visible_from_mapped_target_side(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='tvdb', external_id='current', original_name='Current Anime')
+    target = AnimeMetaInfo(provider_type='bangumi', external_id='target', original_name='Target Anime')
+    db_session.add_all([current, target])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='tvdb',
+        external_id='target-tvdb',
+        relation_type='same_series_season',
+        title='Needs Mapping',
+    )
+    db_session.add(relation)
+    db_session.flush()
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=target.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeRelationOverride(user_id=1, anime_relation_id=relation.id, related_anime_id=target.id))
+    db_session.commit()
+
+    response = client.get(f'/api/anime/{target.id}')
+
+    assert response.status_code == 200
+    related = response.get_json()['anime']['relatedAnime'][0]
+    assert related['animeId'] == current.id
+    assert related['title'] == 'Current Anime'
+    assert related['mappedByOverride'] is True
+    assert related['relationId'] == relation.id
+
+    clear_response = client.patch(
+        f'/api/anime/library/{target.id}/related-anime/{relation.id}/override',
+        json={'relatedAnimeId': None},
+    )
+    assert clear_response.status_code == 200
+    assert db_session.scalar(select(UserAnimeRelationOverride).where(UserAnimeRelationOverride.anime_relation_id == relation.id)) is None
+
+
+def test_manual_related_anime_displays_from_both_sides(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    first = AnimeMetaInfo(provider_type='bangumi', external_id='first', original_name='First')
+    second = AnimeMetaInfo(provider_type='bangumi', external_id='second', original_name='Second')
+    db_session.add_all([first, second])
+    db_session.flush()
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=first.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=second.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+
+    create_response = client.post(
+        f'/api/anime/library/{first.id}/manual-related-anime',
+        json={'relatedAnimeId': second.id, 'relationType': 'same_series_manual', 'note': 'manual'},
+    )
+
+    assert create_response.status_code == 201
+    manual_relation_id = create_response.get_json()['manualRelation']['id']
+    first_related = client.get(f'/api/anime/{first.id}').get_json()['anime']['relatedAnime'][0]
+    second_related = client.get(f'/api/anime/{second.id}').get_json()['anime']['relatedAnime'][0]
+    assert first_related['source'] == 'manual'
+    assert first_related['animeId'] == second.id
+    assert second_related['source'] == 'manual'
+    assert second_related['animeId'] == first.id
+    assert db_session.get(UserManualAnimeRelation, manual_relation_id) is not None
+
+
+def test_dropping_anime_deletes_user_related_anime_state(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current')
+    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related')
+    mapped = AnimeMetaInfo(provider_type='tvdb', external_id='mapped', original_name='Mapped')
+    db_session.add_all([current, related, mapped])
+    db_session.flush()
+    source_relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='related',
+        relation_type='same_series_season',
+        title='Related',
+        related_anime_id=related.id,
+    )
+    incoming_relation = AnimeRelation(
+        anime_id=related.id,
+        provider_type='bangumi',
+        external_id='current',
+        relation_type='same_series_season',
+        title='Current',
+        related_anime_id=current.id,
+    )
+    db_session.add_all([source_relation, incoming_relation])
+    db_session.flush()
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=related.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=mapped.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeRelationOverride(user_id=1, anime_relation_id=source_relation.id, related_anime_id=mapped.id))
+    db_session.add(UserAnimeRelationOverride(user_id=1, anime_relation_id=incoming_relation.id, related_anime_id=current.id))
+    low_id, high_id = sorted((current.id, related.id))
+    db_session.add(UserManualAnimeRelation(user_id=1, anime_id_low=low_id, anime_id_high=high_id))
+    db_session.add(
+        UserAnimeRelationDeletionPrompt(
+            user_id=1,
+            anime_id=current.id,
+            related_anime_id=related.id,
+            anime_relation_id=source_relation.id,
+            provider='bangumi',
+            external_id='related',
+            title='Related',
+            relation_type='same_series_season',
+        ),
+    )
+    db_session.commit()
+
+    response = client.patch(f'/api/anime/library/{current.id}/status', json={'status': 'dropped'})
+
+    assert response.status_code == 200
+    assert db_session.scalar(select(UserAnimeRelationOverride)) is None
+    assert db_session.scalar(select(UserManualAnimeRelation)) is None
+    assert db_session.scalar(select(UserAnimeRelationDeletionPrompt)) is None
+    assert db_session.get(AnimeRelation, source_relation.id) is not None
+    assert db_session.get(AnimeRelation, incoming_relation.id) is not None
+
+
+def test_sync_removed_related_anime_creates_prompt_and_keep_creates_manual_relation(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    from app.services.anime_sync import sync_anime_from_provider
+
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related Anime')
+    db_session.add_all([current, related])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='related',
+        relation_type='same_series_season',
+        title='Removed Related',
+        related_anime_id=related.id,
+    )
+    db_session.add(relation)
+    db_session.flush()
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=related.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+    provider = MutableDetailProvider({'current': replace(anime_detail('current', title='Current Anime'), related_anime=[])})
+
+    sync_anime_from_provider(db_session, provider, anime_id=current.id, user_id=1)
+    db_session.commit()
+
+    db_session.refresh(relation)
+    assert relation.is_active is False
+    prompt = db_session.scalar(select(UserAnimeRelationDeletionPrompt).where(UserAnimeRelationDeletionPrompt.anime_relation_id == relation.id))
+    assert prompt is not None
+    detail_related = client.get(f'/api/anime/{current.id}').get_json()['anime']['relatedAnime'][0]
+    assert detail_related['pendingUpstreamDeletion'] is True
+    keep_response = client.post(f'/api/anime/library/{current.id}/related-anime/deletion-prompts/{prompt.id}/keep')
+    assert keep_response.status_code == 200
+    manual = db_session.scalar(select(UserManualAnimeRelation).where(UserManualAnimeRelation.created_from_anime_relation_id == relation.id))
+    assert manual is not None
+    kept_related = client.get(f'/api/anime/{current.id}').get_json()['anime']['relatedAnime'][0]
+    assert kept_related['source'] == 'manual'
+
+
+def test_dismiss_deleted_related_anime_prompt_is_idempotent_and_visible_from_related_side(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related Anime')
+    db_session.add_all([current, related])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='related',
+        relation_type='same_series_season',
+        title='Removed Related',
+        related_anime_id=related.id,
+        is_active=False,
+    )
+    db_session.add(relation)
+    db_session.flush()
+    prompt = UserAnimeRelationDeletionPrompt(
+        user_id=1,
+        anime_id=current.id,
+        related_anime_id=related.id,
+        anime_relation_id=relation.id,
+        provider='bangumi',
+        external_id='related',
+        title='Removed Related',
+        relation_type='same_series_season',
+    )
+    db_session.add(prompt)
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=related.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+
+    response = client.delete(f'/api/anime/library/{related.id}/related-anime/deletion-prompts/{prompt.id}')
+    assert response.status_code == 204
+
+
+def test_deleted_related_anime_prompt_is_serialized_from_related_side(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related Anime')
+    db_session.add_all([current, related])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='related',
+        relation_type='same_series_season',
+        title='Removed Related',
+        related_anime_id=related.id,
+        is_active=False,
+    )
+    db_session.add(relation)
+    db_session.flush()
+    prompt = UserAnimeRelationDeletionPrompt(
+        user_id=1,
+        anime_id=current.id,
+        related_anime_id=related.id,
+        anime_relation_id=relation.id,
+        provider='bangumi',
+        external_id='related',
+        title='Removed Related',
+        relation_type='same_series_season',
+    )
+    db_session.add(prompt)
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=related.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+
+    response = client.get(f'/api/anime/{related.id}')
+
+    assert response.status_code == 200
+    item = response.get_json()['anime']['relatedAnime'][0]
+    assert item['animeId'] == current.id
+    assert item['title'] == 'Current Anime'
+    assert item['pendingUpstreamDeletion'] is True
+    assert item['deletionPromptId'] == prompt.id
+
+
+def test_keep_deleted_related_anime_prompt_from_related_side_creates_manual_relation(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related Anime')
+    db_session.add_all([current, related])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='related',
+        relation_type='same_series_season',
+        title='Removed Related',
+        related_anime_id=related.id,
+        is_active=False,
+    )
+    db_session.add(relation)
+    db_session.flush()
+    prompt = UserAnimeRelationDeletionPrompt(
+        user_id=1,
+        anime_id=current.id,
+        related_anime_id=related.id,
+        anime_relation_id=relation.id,
+        provider='bangumi',
+        external_id='related',
+        title='Removed Related',
+        relation_type='same_series_season',
+    )
+    db_session.add(prompt)
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=related.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.commit()
+
+    response = client.post(f'/api/anime/library/{related.id}/related-anime/deletion-prompts/{prompt.id}/keep')
+
+    assert response.status_code == 200
+    db_session.refresh(prompt)
+    assert prompt.status == 'kept'
+    low_id, high_id = sorted((current.id, related.id))
+    manual = db_session.scalar(
+        select(UserManualAnimeRelation).where(
+            UserManualAnimeRelation.user_id == 1,
+            UserManualAnimeRelation.anime_id_low == low_id,
+            UserManualAnimeRelation.anime_id_high == high_id,
+        ),
+    )
+    assert manual is not None
 
 
 def test_add_to_library_restores_dropped_progress(
@@ -1970,7 +2367,63 @@ def test_bangumi_related_anime_discovery_imports_plan_to_watch(
     assert result.imported_anime_ids == [related.id]
     progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.user_id == 1, UserAnimeProgress.anime_id == related.id))
     assert progress is not None
-    assert progress.status == UserAnimeStatus.PLAN_TO_WATCH
+
+
+def test_related_anime_discovery_skips_overridden_relation_until_provider_import_allowed(
+    db_session: Session,
+) -> None:
+    from app.services.related_anime_discovery import discover_related_anime_for_user_anime
+
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current')
+    mapped = AnimeMetaInfo(provider_type='tvdb', external_id='mini', original_name='Mapped Mini Anime')
+    db_session.add_all([current, mapped])
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='bangumi',
+        external_id='season-0',
+        relation_type='same_series_season',
+        title='Season 0',
+    )
+    db_session.add(relation)
+    db_session.flush()
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=mapped.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    override = UserAnimeRelationOverride(user_id=1, anime_relation_id=relation.id, related_anime_id=mapped.id)
+    db_session.add(override)
+    db_session.commit()
+    related_item = ImportRelatedAnime(
+        provider='bangumi',
+        external_id='season-0',
+        relation_type='same_series_season',
+        title='Season 0',
+        season_number=0,
+        air_date=None,
+        episode_count=1,
+        url='https://bgm.tv/subject/season-0',
+        poster_source_url=None,
+        raw_data={'id': 'season-0'},
+    )
+    provider = MutableDetailProvider(
+        {
+            'current': replace(anime_detail('current', title='Current'), related_anime=[related_item]),
+            'season-0': anime_detail('season-0', title='Season 0'),
+        },
+    )
+
+    result = discover_related_anime_for_user_anime(db_session, provider, user_id=1, anime_id=current.id, provider_name='bangumi')
+
+    assert result.imported_anime_ids == []
+    assert result.existing_anime_ids == [mapped.id]
+    assert db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.provider_type == 'bangumi', AnimeMetaInfo.external_id == 'season-0')) is None
+
+    override.allow_provider_import = True
+    db_session.commit()
+    result = discover_related_anime_for_user_anime(db_session, provider, user_id=1, anime_id=current.id, provider_name='bangumi')
+
+    imported = db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.provider_type == 'bangumi', AnimeMetaInfo.external_id == 'season-0'))
+    assert imported is not None
+    assert result.imported_anime_ids == [imported.id]
 
 
 def test_bangumi_related_anime_discovery_endpoint_imports_plan_to_watch(

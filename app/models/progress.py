@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import enum
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Index,
     Integer,
+    String,
     UniqueConstraint,
     and_,
     func,
@@ -117,10 +119,64 @@ class UserAnimeRelationOverride(TimestampedBase):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     anime_relation_id: Mapped[int] = mapped_column(ForeignKey("anime_relation.id", ondelete="CASCADE"), nullable=False)
     related_anime_id: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+    allow_provider_import: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     user: Mapped[User] = relationship()
     anime_relation: Mapped[AnimeRelation] = relationship()
     related_anime: Mapped[AnimeMetaInfo] = relationship()
+
+
+class UserManualAnimeRelation(TimestampedBase):
+    __tablename__ = "user_manual_anime_relation"
+    __table_args__ = (
+        UniqueConstraint("user_id", "anime_id_low", "anime_id_high", "relation_type", name="uq_user_manual_anime_relation_pair"),
+        Index("ix_user_manual_anime_relation_user_low", "user_id", "anime_id_low"),
+        Index("ix_user_manual_anime_relation_user_high", "user_id", "anime_id_high"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    anime_id_low: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+    anime_id_high: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(64), default="same_series_manual", server_default="same_series_manual", nullable=False)
+    note: Mapped[str | None] = mapped_column(String(1024))
+    created_from_anime_relation_id: Mapped[int | None] = mapped_column(ForeignKey("anime_relation.id", ondelete="SET NULL"))
+    created_from_provider: Mapped[str | None] = mapped_column(String(64))
+    created_from_external_id: Mapped[str | None] = mapped_column(String(255))
+    snapshot_title: Mapped[str | None] = mapped_column(String(255))
+    snapshot_air_date: Mapped[date | None] = mapped_column(Date)
+    snapshot_episode_count: Mapped[int | None] = mapped_column(Integer)
+
+    user: Mapped[User] = relationship()
+    anime_low: Mapped[AnimeMetaInfo] = relationship(foreign_keys=[anime_id_low])
+    anime_high: Mapped[AnimeMetaInfo] = relationship(foreign_keys=[anime_id_high])
+
+
+class UserAnimeRelationDeletionPrompt(TimestampedBase):
+    __tablename__ = "user_anime_relation_deletion_prompt"
+    __table_args__ = (
+        UniqueConstraint("user_id", "anime_relation_id", name="uq_user_anime_relation_deletion_prompt_user_relation"),
+        Index("ix_user_anime_relation_deletion_prompt_user_anime", "user_id", "anime_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    anime_id: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+    related_anime_id: Mapped[int | None] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="SET NULL"))
+    anime_relation_id: Mapped[int | None] = mapped_column(ForeignKey("anime_relation.id", ondelete="SET NULL"))
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    season_number: Mapped[int | None] = mapped_column(Integer)
+    air_date: Mapped[date | None] = mapped_column(Date)
+    episode_count: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="pending", server_default="pending", nullable=False)
+
+    user: Mapped[User] = relationship()
+    anime: Mapped[AnimeMetaInfo] = relationship(foreign_keys=[anime_id])
+    related_anime: Mapped[AnimeMetaInfo | None] = relationship(foreign_keys=[related_anime_id])
+    anime_relation: Mapped[AnimeRelation | None] = relationship()
 
 
 def get_user_watchlist(

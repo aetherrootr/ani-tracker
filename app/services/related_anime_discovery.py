@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
 from app.models.anime import AnimeMetaInfo, AnimePoster, AnimeRelation
-from app.models.progress import UserAnimeProgress, UserAnimeStatus
+from app.models.progress import UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus
 from app.models.user import User
 from app.services.anime_library import import_anime_from_provider
 from app.services.anime_poster import enqueue_poster_download
@@ -81,6 +81,15 @@ def discover_related_anime_for_user_anime(
     poster_ids = list(sync_result.poster_ids_to_enqueue)
     language = user.language_preference if user is not None else None
     for relation in relations:
+        override = session.scalar(
+            select(UserAnimeRelationOverride).where(
+                UserAnimeRelationOverride.user_id == user_id,
+                UserAnimeRelationOverride.anime_relation_id == relation.id,
+            ),
+        )
+        if override is not None and not override.allow_provider_import:
+            existing_ids.append(override.related_anime_id)
+            continue
         related_progress = _progress_for_relation(session, user_id=user_id, relation=relation)
         if related_progress is not None:
             existing_ids.append(related_progress.anime_id)
