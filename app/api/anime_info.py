@@ -627,15 +627,18 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
         related_anime_overrides = {override.anime_relation_id: override.related_anime for override in overrides}
         related_anime_ids.extend(override.related_anime_id for override in overrides)
     related_library_anime_ids = set()
+    related_anime_progresses = {}
     if related_anime_ids:
-        related_library_anime_ids = set(
-            db.scalars(
-                select(UserAnimeProgress.anime_id).where(
-                    UserAnimeProgress.user_id == user.id,
-                    UserAnimeProgress.anime_id.in_(related_anime_ids),
-                ),
-            ).all(),
-        )
+        related_progresses = db.scalars(
+            select(UserAnimeProgress)
+            .options(selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names))
+            .where(
+                UserAnimeProgress.user_id == user.id,
+                UserAnimeProgress.anime_id.in_(related_anime_ids),
+            ),
+        ).all()
+        related_anime_progresses = {progress.anime_id: progress for progress in related_progresses}
+        related_library_anime_ids = set(related_anime_progresses)
     return jsonify(
         {
             'anime': serialize_anime(
@@ -648,6 +651,7 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
                 include_related_anime=True,
                 related_library_anime_ids=related_library_anime_ids,
                 related_anime_overrides=related_anime_overrides,
+                related_anime_progresses=related_anime_progresses,
             ),
             'progress': serialize_progress(progress),
             'features': {

@@ -207,6 +207,7 @@ def serialize_anime(
     include_related_anime: bool = False,
     related_library_anime_ids: set[int] | None = None,
     related_anime_overrides: dict[int, AnimeMetaInfo] | None = None,
+    related_anime_progresses: dict[int, UserAnimeProgress] | None = None,
 ) -> dict[str, Any]:
     summaries = sorted(anime.summaries, key=lambda item: item.id)
     names = sorted(anime.names, key=lambda item: item.id)
@@ -252,8 +253,10 @@ def serialize_anime(
         data['relatedAnime'] = [
             serialize_related_anime(
                 item,
+                user=user,
                 library_anime_ids=related_library_anime_ids,
                 override_anime=(related_anime_overrides or {}).get(item.id),
+                related_anime_progresses=related_anime_progresses,
             )
             for item in sorted(anime.related_anime, key=lambda item: (item.season_number is None, item.season_number or 0, item.id))
         ]
@@ -263,8 +266,10 @@ def serialize_anime(
 def serialize_related_anime(
     relation: AnimeRelation,
     *,
+    user: User,
     library_anime_ids: set[int] | None = None,
     override_anime: AnimeMetaInfo | None = None,
+    related_anime_progresses: dict[int, UserAnimeProgress] | None = None,
 ) -> dict[str, Any]:
     related_anime_id = relation.related_anime_id
     poster_url = relation.poster_source_url
@@ -280,12 +285,17 @@ def serialize_related_anime(
     in_library = related_anime_id is not None
     if library_anime_ids is not None:
         in_library = related_anime_id in library_anime_ids
+    title = relation.title
+    related_progress = (related_anime_progresses or {}).get(related_anime_id) if related_anime_id is not None else None
+    if related_progress is not None:
+        selected_name = select_anime_name_for_user(sorted(related_progress.anime.names, key=lambda item: item.id), related_progress, user)
+        title = selected_name.name if selected_name is not None else related_progress.anime.original_name
     return {
         'provider': relation.provider_type,
         'externalId': relation.external_id,
         'animeId': related_anime_id,
         'inLibrary': in_library,
-        'title': relation.title,
+        'title': title,
         'relationType': relation.relation_type,
         'seasonNumber': relation.season_number,
         'airDate': relation.air_date.isoformat() if relation.air_date is not None else None,

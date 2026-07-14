@@ -452,6 +452,47 @@ def test_provider_switch_retargets_existing_related_anime_links(
     assert override.related_anime_id == target_id
 
 
+def test_related_anime_uses_library_display_name(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
+    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related Original')
+    db_session.add_all([current, related])
+    db_session.flush()
+    preferred_name = AnimeName(anime_id=related.id, language='zh', name='用户选择的相关动画名')
+    db_session.add(preferred_name)
+    db_session.flush()
+    db_session.add(
+        AnimeRelation(
+            anime_id=current.id,
+            provider_type='bangumi',
+            external_id='related',
+            relation_type='same_series_season',
+            title='Provider Related Title',
+            related_anime_id=related.id,
+        ),
+    )
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(
+        UserAnimeProgress(
+            user_id=1,
+            anime_id=related.id,
+            status=UserAnimeStatus.PLAN_TO_WATCH,
+            preferred_name_id=preferred_name.id,
+        ),
+    )
+    db_session.commit()
+
+    response = client.get(f'/api/anime/{current.id}')
+
+    assert response.status_code == 200
+    related_item = response.get_json()['anime']['relatedAnime'][0]
+    assert related_item['title'] == '用户选择的相关动画名'
+    assert related_item['inLibrary'] is True
+
+
 def test_add_to_library_restores_dropped_progress(
     app: Flask,
     client: FlaskClient,
