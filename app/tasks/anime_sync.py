@@ -77,47 +77,49 @@ def sync_user_library_anime(user_id: int, anime_ids: list[int] | None = None, pr
     try:
         with session_factory() as session:
             if anime_ids is None:
-                anime_ids = session.scalars(
+                library_anime_ids = list(session.scalars(
                     select(UserAnimeProgress.anime_id).where(UserAnimeProgress.user_id == user_id).order_by(UserAnimeProgress.anime_id),
-                ).all()
-            summary['checked'] = len(anime_ids)
-            for index, anime_id in enumerate(anime_ids, start=1):
+                ).all())
+            else:
+                library_anime_ids = anime_ids
+            summary['checked'] = len(library_anime_ids)
+            for index, anime_id in enumerate(library_anime_ids, start=1):
                 anime_title = None
                 try:
                     anime = session.get(AnimeMetaInfo, anime_id)
                     if anime is None:
                         if progress_callback is not None:
-                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=None, processed=index, total=len(anime_ids)))
+                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=None, processed=index, total=len(library_anime_ids)))
                         continue
                     anime_title = anime.original_name
                     if progress_callback is not None:
-                        progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index - 1, total=len(anime_ids)))
+                        progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index - 1, total=len(library_anime_ids)))
                     provider = provider_factory.get_provider(anime.provider_type)
                     result = sync_anime_from_provider(session, provider, anime_id=anime_id, user_id=user_id)
                     if result is None:
                         if progress_callback is not None:
-                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(anime_ids)))
+                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(library_anime_ids)))
                         continue
                     poster_ids = result.poster_ids_to_enqueue
                     conflict_count = len(result.episode_conflicts)
                     session.commit()
                 except Exception as exc:
                     session.rollback()
-                    summary['failed'] = int(summary['failed']) + 1
+                    summary['failed'] = _summary_int(summary, 'failed') + 1
                     failed_anime = summary['failedAnime']
                     if isinstance(failed_anime, list):
                         failed_anime.append({'animeId': anime_id, 'title': anime_title or f'#{anime_id}', 'error': str(exc) or type(exc).__name__})
                     logger.warning('Failed to sync user %s anime %s', user_id, anime_id, exc_info=True)
                     if progress_callback is not None:
-                        progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(anime_ids)))
+                        progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(library_anime_ids)))
                     continue
                 for poster_id in poster_ids:
                     _enqueue_poster_download(database_url, poster_id)
-                summary['synced'] = int(summary['synced']) + 1
-                summary['episodeConflicts'] = int(summary['episodeConflicts']) + conflict_count
-                summary['postersQueued'] = int(summary['postersQueued']) + len(poster_ids)
+                summary['synced'] = _summary_int(summary, 'synced') + 1
+                summary['episodeConflicts'] = _summary_int(summary, 'episodeConflicts') + conflict_count
+                summary['postersQueued'] = _summary_int(summary, 'postersQueued') + len(poster_ids)
                 if progress_callback is not None:
-                    progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(anime_ids)))
+                    progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(library_anime_ids)))
     finally:
         engine.dispose()
     return summary
@@ -196,12 +198,17 @@ def _sync_progress_details(summary: dict[str, object], *, anime_id: int, anime_t
         'processed': processed,
         'total': total,
         'currentAnime': {'animeId': anime_id, 'title': anime_title or f'#{anime_id}'},
-        'synced': int(summary['synced']),
-        'failed': int(summary['failed']),
-        'episodeConflicts': int(summary['episodeConflicts']),
-        'postersQueued': int(summary['postersQueued']),
+        'synced': _summary_int(summary, 'synced'),
+        'failed': _summary_int(summary, 'failed'),
+        'episodeConflicts': _summary_int(summary, 'episodeConflicts'),
+        'postersQueued': _summary_int(summary, 'postersQueued'),
         'failedAnime': summary.get('failedAnime', []),
     }
+
+
+def _summary_int(summary: dict[str, object], key: str) -> int:
+    value = summary.get(key)
+    return value if isinstance(value, int) else 0
 
 
 def _refresh_progress(stage: str, processed: int, total: int, message: str, details: dict[str, object] | None = None) -> dict[str, object]:
