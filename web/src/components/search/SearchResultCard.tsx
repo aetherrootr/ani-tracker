@@ -1,13 +1,13 @@
 import Link from "next/link";
 import Image from "next/image";
-import { BookOpenCheck, ChevronDown, ChevronRight, ExternalLink, ImageOff, Plus } from "lucide-react";
+import { BookOpenCheck, ChevronDown, ChevronRight, ExternalLink, Eye, ImageOff, Plus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { addSearchResultToLibrary } from "@/features/search/api";
+import { addSearchResultToLibrary, getTvdbSeasons } from "@/features/search/api";
 import type { AnimeSearchResult, DuplicateAnimeConflict, DuplicateResolution } from "@/features/search/types";
 import { ApiError } from "@/lib/api-client";
 
@@ -26,22 +26,74 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [duplicateConflict, setDuplicateConflict] = useState<DuplicateAnimeConflict | null>(null);
+  const [duplicateTarget, setDuplicateTarget] = useState<AnimeSearchResult | null>(null);
+  const [showTvdbSeasons, setShowTvdbSeasons] = useState(false);
+  const [tvdbSeasons, setTvdbSeasons] = useState<AnimeSearchResult[] | null>(null);
+  const [tvdbSeasonsError, setTvdbSeasonsError] = useState<string | null>(null);
+  const [isLoadingTvdbSeasons, setIsLoadingTvdbSeasons] = useState(false);
+  const [addingExternalId, setAddingExternalId] = useState<string | null>(null);
+  const [isAddingAllSeasons, setIsAddingAllSeasons] = useState(false);
+  const isTvdbResult = result.provider === "tvdb";
 
-  async function addToLibrary(duplicateResolution?: DuplicateResolution) {
+  async function addToLibrary(target: AnimeSearchResult = result, duplicateResolution?: DuplicateResolution): Promise<boolean> {
     setIsAdding(true);
+    setAddingExternalId(target.externalId);
     setAddError(null);
     try {
-      const response = await addSearchResultToLibrary(result.provider, result.externalId, duplicateResolution);
+      const response = await addSearchResultToLibrary(target.provider, target.externalId, duplicateResolution);
       setDuplicateConflict(null);
-      onLibraryAdded(result.provider, result.externalId, response.anime.id, response.progress.status);
+      setDuplicateTarget(null);
+      onLibraryAdded(target.provider, target.externalId, response.anime.id, response.progress.status);
+      setTvdbSeasons((current) => current?.map((season) => season.externalId === target.externalId ? { ...season, inLibrary: true, animeId: response.anime.id, libraryStatus: response.progress.status } : season) ?? null);
+      return true;
     } catch (err) {
       if (err instanceof ApiError && err.status === 409 && isDuplicateConflictBody(err.body)) {
         setDuplicateConflict(err.body.conflict);
-        return;
+        setDuplicateTarget(target);
+        return false;
       }
       setAddError(err instanceof Error ? err.message : t("search.addToLibraryFailed"));
+      return false;
     } finally {
       setIsAdding(false);
+      setAddingExternalId(null);
+    }
+  }
+
+  async function openTvdbSeasons() {
+    setShowTvdbSeasons(true);
+    if (tvdbSeasons !== null || isLoadingTvdbSeasons) {
+      return;
+    }
+    setIsLoadingTvdbSeasons(true);
+    setTvdbSeasonsError(null);
+    try {
+      const response = await getTvdbSeasons(result.externalId);
+      setTvdbSeasons(response.results);
+    } catch (err) {
+      setTvdbSeasonsError(err instanceof Error ? err.message : t("search.tvdbSeasonsFailed"));
+    } finally {
+      setIsLoadingTvdbSeasons(false);
+    }
+  }
+
+  async function addAllTvdbSeasons() {
+    if (!tvdbSeasons) {
+      return;
+    }
+    setIsAddingAllSeasons(true);
+    try {
+      for (const season of tvdbSeasons) {
+        if (season.inLibrary) {
+          continue;
+        }
+        const added = await addToLibrary(season);
+        if (!added) {
+          break;
+        }
+      }
+    } finally {
+      setIsAddingAllSeasons(false);
     }
   }
 
@@ -144,7 +196,19 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
 
         <div className="flex items-center md:border-l md:pl-4">
           <div className="flex w-full flex-col items-center justify-center gap-2 md:min-h-44 md:rounded-2xl md:bg-muted/25 md:p-3">
-            {result.inLibrary && result.animeId ? (
+            {isTvdbResult ? (
+              <Button
+                type="button"
+                className="h-11 w-11 rounded-full px-0 text-xs md:h-[46px] md:w-full md:rounded-xl md:px-3 sm:text-sm"
+                disabled={isLoadingTvdbSeasons}
+                aria-label={isLoadingTvdbSeasons ? t("search.loadingTvdbSeasons") : t("search.viewTvdbSeasons")}
+                title={isLoadingTvdbSeasons ? t("search.loadingTvdbSeasons") : t("search.viewTvdbSeasons")}
+                onClick={() => void openTvdbSeasons()}
+              >
+                <Eye className="h-4 w-4" />
+                <span className="hidden md:inline">{isLoadingTvdbSeasons ? t("search.loadingTvdbSeasons") : t("search.viewTvdbSeasons")}</span>
+              </Button>
+            ) : result.inLibrary && result.animeId ? (
               <Link
                 href={`/library/${result.animeId}`}
                 className="inline-flex h-11 w-11 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border bg-background/60 px-0 text-[11px] font-medium shadow-sm backdrop-blur transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-[46px] md:w-full md:rounded-xl md:px-2.5 lg:text-xs"
@@ -164,7 +228,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
                 onClick={() => void addToLibrary()}
               >
                 <Plus className="h-4 w-4" />
-                <span className="hidden md:inline">{isAdding ? t("search.addingToLibrary") : t("search.addToLibrary")}</span>
+                <span className="hidden md:inline">{addingExternalId === result.externalId ? t("search.addingToLibrary") : t("search.addToLibrary")}</span>
               </Button>
             )}
             {addError ? <p className="text-center text-xs text-destructive">{addError}</p> : null}
@@ -172,15 +236,94 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
         </div>
       </CardContent>
     </Card>
+    {showTvdbSeasons ? (
+      <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-stretch justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="tvdb-seasons-title" onClick={() => setShowTvdbSeasons(false)}>
+        <div className="glass-dialog flex h-[100svh] w-full flex-col overflow-hidden border pt-[env(safe-area-inset-top)] text-foreground sm:h-auto sm:max-h-[90svh] sm:max-w-3xl sm:rounded-2xl sm:pt-0" onClick={(event) => event.stopPropagation()}>
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b bg-background/70 p-4 backdrop-blur sm:p-5">
+            <div>
+              <h2 id="tvdb-seasons-title" className="text-lg font-semibold tracking-tight">{t("search.tvdbSeasonsTitle")}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{t("search.tvdbSeasonsDescription")}</p>
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-muted/40 p-3">
+                <p className="min-w-0 flex-1 truncate text-sm">{result.title}</p>
+                <Button type="button" size="sm" className="shrink-0 sm:hidden" disabled={isAdding || isAddingAllSeasons || !tvdbSeasons?.some((season) => !season.inLibrary)} onClick={() => void addAllTvdbSeasons()}>{isAddingAllSeasons ? t("search.addingToLibrary") : t("search.addAllSeasons")}</Button>
+              </div>
+            </div>
+            <Button type="button" variant="ghost" size="icon" aria-label={t("library.cancel")} onClick={() => setShowTvdbSeasons(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            {isLoadingTvdbSeasons ? <p className="text-sm text-muted-foreground">{t("search.loadingTvdbSeasons")}</p> : null}
+            {tvdbSeasonsError ? <p className="text-sm text-destructive">{tvdbSeasonsError}</p> : null}
+            {tvdbSeasons?.map((season) => (
+              <div key={season.externalId} className="rounded-2xl border bg-card p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 flex-1 gap-3">
+                    <div className="relative flex h-24 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted text-muted-foreground sm:h-28 sm:w-20">
+                      {season.imageUrl ? (
+                        <Image
+                          src={season.imageUrl}
+                          alt={t("anime.coverAlt", { title: season.title })}
+                          fill
+                          unoptimized
+                          sizes="80px"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center gap-1 text-[10px]">
+                          <ImageOff className="h-4 w-4" />
+                          {t("anime.noCover")}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{season.provider}</Badge>
+                      {season.episodeCount !== null ? <Badge variant="secondary">{t("anime.episodeCount", { count: season.episodeCount })}</Badge> : null}
+                      {season.airDate ? <Badge variant="secondary">{t("anime.airDate")}: {season.airDate}</Badge> : null}
+                    </div>
+                    <p className="font-medium">{season.title}</p>
+                    <a className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline" href={season.url} target="_blank" rel="noreferrer">
+                      {t("anime.viewOnProvider", { provider: season.provider })}<ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                    </div>
+                  </div>
+                  {season.inLibrary && season.animeId ? (
+                    <Link href={`/library/${season.animeId}`} className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
+                      <BookOpenCheck className="h-4 w-4" />
+                      {t("search.viewInLibrary")}
+                    </Link>
+                  ) : (
+                    <Button type="button" className="shrink-0 whitespace-nowrap" disabled={isAdding || isAddingAllSeasons} onClick={() => void addToLibrary(season)}>
+                      <Plus className="h-4 w-4" />
+                      {addingExternalId === season.externalId ? t("search.addingToLibrary") : t("search.addToLibrary")}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" disabled={isAdding} onClick={() => setShowTvdbSeasons(false)}>{t("library.cancel")}</Button>
+            <Button type="button" disabled={isAdding || isAddingAllSeasons || !tvdbSeasons?.some((season) => !season.inLibrary)} onClick={() => void addAllTvdbSeasons()}>{isAddingAllSeasons ? t("search.addingToLibrary") : t("search.addAllSeasons")}</Button>
+          </div>
+        </div>
+      </div>
+    ) : null}
     {duplicateConflict ? (
-      <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="duplicate-anime-title">
-        <div className="glass-dialog flex max-h-[90svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
-          <div className="border-b p-5">
-            <h2 id="duplicate-anime-title" className="text-lg font-semibold tracking-tight">{t("search.duplicateAnimeTitle")}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{t("search.duplicateAnimeDescription")}</p>
-            <p className="mt-3 rounded-xl bg-muted/40 p-3 text-sm">
-              {duplicateConflict.provider} · {duplicateConflict.externalId} · {duplicateConflict.title}
-            </p>
+      <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-stretch justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="duplicate-anime-title" onClick={() => setDuplicateConflict(null)}>
+        <div className="glass-dialog flex h-[100svh] w-full flex-col overflow-hidden border pt-[env(safe-area-inset-top)] text-foreground sm:h-auto sm:max-h-[90svh] sm:max-w-2xl sm:rounded-2xl sm:pt-0" onClick={(event) => event.stopPropagation()}>
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b bg-background/70 p-4 backdrop-blur sm:p-5">
+            <div>
+              <h2 id="duplicate-anime-title" className="text-lg font-semibold tracking-tight">{t("search.duplicateAnimeTitle")}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{t("search.duplicateAnimeDescription")}</p>
+              <p className="mt-3 rounded-xl bg-muted/40 p-3 text-sm">
+                {duplicateConflict.provider} · {duplicateConflict.externalId} · {duplicateConflict.title}
+              </p>
+            </div>
+            <Button type="button" variant="ghost" size="icon" aria-label={t("library.cancel")} onClick={() => setDuplicateConflict(null)}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
             {duplicateConflict.candidates.map((candidate) => (
@@ -196,7 +339,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
                     <p className="text-sm text-muted-foreground">{candidate.originalName}</p>
                     {candidate.url ? <a className="text-sm font-medium text-primary hover:underline" href={candidate.url} target="_blank" rel="noreferrer">{t("anime.viewOnProvider", { provider: candidate.provider })}</a> : null}
                   </div>
-                  <Button type="button" disabled={isAdding} onClick={() => void addToLibrary({ useExistingAnimeId: candidate.animeId })}>
+                  <Button type="button" disabled={isAdding} onClick={() => void addToLibrary(duplicateTarget ?? result, { useExistingAnimeId: candidate.animeId })}>
                     {t("search.useExistingProvider")}
                   </Button>
                 </div>
@@ -205,7 +348,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
           </div>
           <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" disabled={isAdding} onClick={() => setDuplicateConflict(null)}>{t("library.cancel")}</Button>
-            <Button type="button" disabled={isAdding} onClick={() => void addToLibrary({ useCurrentProvider: true })}>{t("search.useCurrentProvider")}</Button>
+            <Button type="button" disabled={isAdding} onClick={() => void addToLibrary(duplicateTarget ?? result, { useCurrentProvider: true })}>{t("search.useCurrentProvider")}</Button>
           </div>
         </div>
       </div>

@@ -43,7 +43,9 @@ class TVDBImportProvider(ImportProvider):
     _search_series_limit = 20
     _required_detail_languages = ('eng', 'jpn')
     _chinese_detail_languages = ('zho', 'zhtw')
+    _search_series_workers = 4
     _episode_translation_workers = 8
+    _detail_fetch_workers = 3
 
     def __init__(
         self,
@@ -76,20 +78,12 @@ class TVDBImportProvider(ImportProvider):
             page_body = self._request_json('/search', params={**request_params, 'offset': source_offset})
             search_results = self._response_data_list(page_body, 'TVDB search response is invalid')
             page_has_next = self._has_next_page(page_body)
-            for item_index, item in enumerate(search_results):
+            expanded_items = self._expand_search_series(search_results)
+            for item_index, item_and_series in enumerate(expanded_items):
                 if len(results) >= target_count:
                     has_more = True
                     break
-                if not isinstance(item, dict):
-                    continue
-                series_id = self._series_id(item)
-                if series_id is None:
-                    continue
-                try:
-                    series = self._get_series_extended(series_id)
-                except ImportProviderResponseError:
-                    logger.warning('Skipping TVDB search result because series %s could not be expanded', series_id)
-                    continue
+                item, series = item_and_series
                 season = self._search_season(series)
                 if season is None:
                     continue
@@ -109,6 +103,16 @@ class TVDBImportProvider(ImportProvider):
         total = offset + len(page_results) + 1 if has_more else len(results)
         return ImportSearchPage(total=total, limit=limit, offset=offset, results=page_results)
 
+    def get_series_seasons(self, external_id: str, *, language: str | None = None) -> list[ImportSearchResult]:
+        series_id, _season_number = parse_external_id(external_id)
+        request_language = tvdb_language(language)
+        series = self._get_series_extended(series_id)
+        search_result = {'id': series_id, 'name': series.get('name')}
+        return [
+            self._map_season_search(search_result, series, season, None, language=request_language, include_season_in_title=True)
+            for season in self._importable_seasons(series, include_specials=True)
+        ]
+
     def get_anime_detail(self, external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
         series_id, season_number = parse_external_id(external_id)
         series = self._get_series_extended(series_id)
@@ -122,10 +126,14 @@ class TVDBImportProvider(ImportProvider):
             season = {**season, 'number': season_number}
         request_language = tvdb_language(language)
         detail_languages = self._detail_languages(language)
-        series_translations = self._fetch_translations(f'/series/{series_id}/translations', detail_languages)
-        season_translations = self._fetch_translations(f'/seasons/{season_id}/translations', detail_languages)
         episode_items = self._episode_items(season, season_number)
-        episode_translations = self._fetch_episode_translations_page(episode_items, detail_languages)
+        with ThreadPoolExecutor(max_workers=self._detail_fetch_workers) as executor:
+            series_translations_future = executor.submit(self._fetch_translations, f'/series/{series_id}/translations', detail_languages)
+            season_translations_future = executor.submit(self._fetch_translations, f'/seasons/{season_id}/translations', detail_languages)
+            episode_translations_future = executor.submit(self._fetch_episode_translations_page, episode_items, detail_languages)
+            series_translations = series_translations_future.result()
+            season_translations = season_translations_future.result()
+            episode_translations = episode_translations_future.result()
         episodes = [
             self._map_episode(
                 series_id,
@@ -236,6 +244,38 @@ class TVDBImportProvider(ImportProvider):
     def _get_season_extended(self, season_id: int | str) -> dict[str, Any]:
         body = self._request_json(f'/seasons/{season_id}/extended')
         return self._response_data_dict(body, 'TVDB season response is invalid')
+
+    def _expand_search_series(self, search_results: list[Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        items: list[tuple[dict[str, Any], int | str]] = []
+        for item in search_results:
+            if not isinstance(item, dict):
+                continue
+            series_id = self._series_id(item)
+            if series_id is not None:
+                items.append((item, series_id))
+        if not items:
+            return []
+
+        self._token = self._token or self._login()
+        workers = min(self._search_series_workers, len(items))
+        if workers <= 1:
+            expanded: list[tuple[dict[str, Any], dict[str, Any]]] = []
+            for item, series_id in items:
+                try:
+                    expanded.append((item, self._get_series_extended(series_id)))
+                except ImportProviderResponseError:
+                    logger.warning('Skipping TVDB search result because series %s could not be expanded', series_id)
+            return expanded
+
+        expanded = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [(item, series_id, executor.submit(self._get_series_extended, series_id)) for item, series_id in items]
+            for item, series_id, future in futures:
+                try:
+                    expanded.append((item, future.result()))
+                except ImportProviderResponseError:
+                    logger.warning('Skipping TVDB search result because series %s could not be expanded', series_id)
+        return expanded
 
     def _fetch_translations(self, path: str, languages: list[str]) -> dict[str, dict[str, Any]]:
         translations: dict[str, dict[str, Any]] = {}
@@ -376,6 +416,7 @@ class TVDBImportProvider(ImportProvider):
         season_detail: dict[str, Any] | None,
         *,
         language: str | None,
+        include_season_in_title: bool = False,
     ) -> ImportSearchResult:
         series_id = series.get('id') or self._series_id(search_result)
         if not isinstance(series_id, int | str):
@@ -386,14 +427,14 @@ class TVDBImportProvider(ImportProvider):
         return ImportSearchResult(
             provider=self.name,
             external_id=build_external_id(series_id, season_number),
-            title=self._search_title(search_result, series, language=language),
+            title=self._season_title(series, {**season, **{key: value for key, value in detail.items() if value is not None}}, language=language) if include_season_in_title else self._search_title(search_result, series, language=language),
             original_title=first_non_empty(series.get('name'), search_result.get('name'), search_result.get('title')),
             summary=self._localized_summary(detail, language) or self._localized_summary(series, language) or first_non_empty(detail.get('overview'), season.get('overview'), series.get('overview'), search_result.get('overview')),
             air_date=self._search_air_date(season, detail),
             platform='tv',
             episode_count=self._season_episode_count(detail) or self._season_episode_count(season),
             image_url=self._poster_url(season) or self._poster_url(search_result) or self._poster_url(series),
-            url=self._season_url(series, season_number),
+            url=self._season_url(series, season_number) if include_season_in_title else self._series_url(series),
             raw_data={'search_result': search_result, 'series': self._series_summary(series), 'season': season},
         )
 
@@ -446,12 +487,24 @@ class TVDBImportProvider(ImportProvider):
         series_id = series.get('id')
         if not isinstance(series_id, int | str):
             return []
+        seasons = [
+            season
+            for season in self._importable_seasons(series, include_specials=True)
+            if (season_number := coerce_int(season.get('number'))) is not None and season_number != current_season_number
+        ]
+        if not seasons:
+            return []
+        workers = min(self._detail_fetch_workers, len(seasons))
+        if workers <= 1:
+            season_details = [self._season_detail_for_summary(season) or {} for season in seasons]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                season_details = list(executor.map(lambda season: self._season_detail_for_summary(season) or {}, seasons))
         related: list[ImportRelatedAnime] = []
-        for season in self._importable_seasons(series, include_specials=True):
+        for season, season_detail in zip(seasons, season_details, strict=True):
             season_number = coerce_int(season.get('number'))
-            if season_number is None or season_number == current_season_number:
+            if season_number is None:
                 continue
-            season_detail = self._season_detail_for_summary(season) or {}
             merged_season = {**season, **{key: value for key, value in season_detail.items() if value is not None}}
             related.append(
                 ImportRelatedAnime(
@@ -502,10 +555,17 @@ class TVDBImportProvider(ImportProvider):
         series_path = first_non_empty(series.get('slug')) or str(series.get('id'))
         return f'{self._web_base_url}/series/{series_path}/seasons/official/{season_number}'
 
+    def _series_url(self, series: dict[str, Any]) -> str:
+        series_path = first_non_empty(series.get('slug')) or str(series.get('id'))
+        return f'{self._web_base_url}/series/{series_path}'
+
     def _search_air_date(self, season: dict[str, Any], season_detail: dict[str, Any]) -> str | None:
         first_episode_date = self._first_episode_air_date(season_detail)
         if first_episode_date is not None:
             return first_episode_date.isoformat()
+        season_date = parse_date(first_non_empty(season.get('firstAired'), season.get('aired'), season.get('airDate'), season.get('releaseDate')))
+        if season_date is not None:
+            return season_date.isoformat()
         season_year = coerce_int(season.get('year'))
         if season_year is not None and season_year > 0:
             return f'{season_year:04d}-01-01'

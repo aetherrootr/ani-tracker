@@ -5,6 +5,10 @@ export type AnimeSearchResponse = {
   results: AnimeSearchResult[];
 };
 
+export type TvdbSeasonsResponse = {
+  results: AnimeSearchResult[];
+};
+
 export type AnimeSearchResult = {
   provider: string;
   externalId: string;

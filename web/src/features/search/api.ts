@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api-client";
 
-import type { AnimeSearchResponse, DuplicateResolution, SearchAnimeInput } from "./types";
+import type { AnimeSearchResponse, DuplicateResolution, SearchAnimeInput, TvdbSeasonsResponse } from "./types";
 
 type AddToLibraryResponse = {
   anime: { id: number };
@@ -32,6 +32,14 @@ export function addSearchResultToLibrary(provider: string, externalId: string, d
   return apiFetch<AddToLibraryResponse>("/api/anime/library", {
     method: "POST",
     body: JSON.stringify({ provider, externalId, duplicateResolution }),
+    timeoutMs: ADD_TO_LIBRARY_TIMEOUT_MS,
+  });
+}
+
+export function getTvdbSeasons(externalId: string): Promise<TvdbSeasonsResponse> {
+  const params = new URLSearchParams({ externalId });
+
+  return apiFetch<TvdbSeasonsResponse>(`/api/anime/tvdb/seasons?${params.toString()}`, {
     timeoutMs: ADD_TO_LIBRARY_TIMEOUT_MS,
   });
 }

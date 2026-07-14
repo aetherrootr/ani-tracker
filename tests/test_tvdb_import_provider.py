@@ -215,7 +215,7 @@ def test_search_maps_each_series_to_season_one_without_expanding_seasons() -> No
     assert page.results[0].summary == '中文简介'
     assert page.results[0].air_date is None
     assert page.results[0].image_url == 'https://artworks.thetvdb.com/s1.jpg'
-    assert page.results[0].url == 'https://thetvdb.com/series/example-anime/seasons/official/1'
+    assert page.results[0].url == 'https://thetvdb.com/series/example-anime'
     assert not any('/seasons/' in call['url'] for call in session.calls)
 
 
@@ -241,6 +241,35 @@ def test_search_stops_before_fetching_next_tvdb_page_when_limit_is_satisfied() -
     assert search_offsets == [0]
     assert page.total == 2
     assert [item.external_id for item in page.results] == ['321:1']
+    assert not any('/seasons/' in call['url'] for call in session.calls)
+
+
+def test_get_series_seasons_returns_all_importable_seasons_without_expanding_them() -> None:
+    tvdb_series = {
+        **series(),
+        'seasons': [
+            {'id': 1, 'number': 0, 'name': 'Specials', 'type': {'type': 'official'}, 'image': 'https://artworks.thetvdb.com/specials.jpg', 'firstAired': '2020-02-01'},
+            {'id': 11, 'number': 1, 'name': 'Season 1', 'type': {'type': 'official'}, 'episodeCount': 2, 'image': 'https://artworks.thetvdb.com/s1.jpg', 'firstAired': '2020-04-01'},
+            {'id': 12, 'number': 2, 'name': 'Second Season', 'type': {'name': 'Aired Order'}, 'episodeCount': 2, 'image': 'https://artworks.thetvdb.com/s2-related.jpg', 'firstAired': '2021-07-01'},
+        ],
+    }
+    session = FakeSession(
+        {
+            'https://api4.thetvdb.com/v4/login': login_response(),
+            'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': tvdb_series}),
+        },
+    )
+
+    results = provider(session).get_series_seasons('321:1', language='zh-CN')
+
+    assert [item.external_id for item in results] == ['321:0', '321:1', '321:2']
+    assert [item.title for item in results] == ['示例动画: Specials', '示例动画 Season 1', '示例动画: Second Season']
+    assert [item.url for item in results] == [
+        'https://thetvdb.com/series/example-anime/seasons/official/0',
+        'https://thetvdb.com/series/example-anime/seasons/official/1',
+        'https://thetvdb.com/series/example-anime/seasons/official/2',
+    ]
+    assert [item.air_date for item in results] == ['2020-02-01', '2020-04-01', '2021-07-01']
     assert not any('/seasons/' in call['url'] for call in session.calls)
 
 

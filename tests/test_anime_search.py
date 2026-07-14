@@ -63,6 +63,15 @@ class SlowSearchProvider(FakeProvider):
         return super().search_anime(keyword, limit=limit, offset=offset, language=language)
 
 
+class FakeTvdbSeasonProvider(FakeProvider):
+    name = 'tvdb'
+
+    def get_series_seasons(self, external_id: str, *, language: str | None = None) -> list[ImportSearchResult]:
+        _ = language
+        assert external_id == '321:1'
+        return self.page.results
+
+
 class FakeResponse:
     def __init__(self, status_code: int, body: object) -> None:
         self.status_code = status_code
@@ -213,6 +222,44 @@ def test_search_deadline_maps_blocked_provider_to_timeout(client: FlaskClient, a
 
     assert response.status_code == 504
     assert response.get_json() == {'message': 'Import provider request timed out'}
+
+
+def test_tvdb_seasons_endpoint_serializes_season_results(client: FlaskClient, app: Flask) -> None:
+    assert register_user(client).status_code == 201
+    app.extensions['import_provider_factory'] = ImportProviderFactory(
+        {
+            'tvdb': FakeTvdbSeasonProvider(
+                ImportSearchPage(
+                    total=1,
+                    limit=1,
+                    offset=0,
+                    results=[
+                        ImportSearchResult(
+                            provider='tvdb',
+                            external_id='321:1',
+                            title='Example Anime Season 1',
+                            original_title='Example Anime',
+                            summary='summary',
+                            air_date=None,
+                            platform='tv',
+                            episode_count=12,
+                            image_url=None,
+                            url='https://thetvdb.com/series/example/seasons/official/1',
+                            raw_data={},
+                        ),
+                    ],
+                ),
+            ),
+        },
+    )
+
+    response = client.get('/api/anime/tvdb/seasons?externalId=321:1')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['results'][0]['externalId'] == '321:1'
+    assert body['results'][0]['title'] == 'Example Anime Season 1'
+    assert body['results'][0]['inLibrary'] is False
 
 
 def test_bangumi_provider_maps_response_to_import_search_results() -> None:
