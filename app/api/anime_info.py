@@ -188,6 +188,42 @@ def list_import_providers(_db: Session, _user: User) -> ResponseReturnValue:
     )
 
 
+@anime_info_bp.get('/tvdb/seasons')
+@require_auth_user
+def get_tvdb_seasons(db: Session, user: User) -> ResponseReturnValue:
+    external_id = request.args.get('externalId', '').strip()
+    if not external_id:
+        return jsonify({'message': 'Anime externalId is required'}), 400
+
+    try:
+        provider = get_import_provider_factory().get_provider('tvdb')
+        get_series_seasons = getattr(provider, 'get_series_seasons', None)
+        if not callable(get_series_seasons):
+            return jsonify({'message': 'TVDB provider does not support season discovery'}), 400
+        with provider_search_deadline(float(current_app.config['IMPORT_SEARCH_TIMEOUT'])):
+            results = get_series_seasons(external_id, language=user.language_preference)
+    except ValueError as exc:
+        return jsonify({'message': str(exc)}), 400
+    except ImportProviderTimeoutError:
+        return jsonify({'message': 'Import provider request timed out'}), 504
+    except ImportProviderResponseError:
+        return jsonify({'message': 'Import provider response error'}), 502
+
+    markers = get_search_library_markers(db, user_id=user.id, results=results)
+    return jsonify(
+        {
+            'results': [
+                serialize_import_search_result(
+                    result,
+                    anime_id=markers[result.provider, result.external_id][0],
+                    library_status=markers[result.provider, result.external_id][1],
+                )
+                for result in results
+            ],
+        },
+    )
+
+
 @anime_info_bp.post('/library')
 @require_auth_user
 def add_to_library(db: Session, user: User) -> ResponseReturnValue:
