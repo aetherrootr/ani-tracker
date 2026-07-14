@@ -179,8 +179,10 @@ export function SearchPageContent() {
     loadMore();
   }
 
+  const hasResultCards = results.length > 0;
+
   return (
-    <div className="space-y-6">
+    <div className={hasResultCards ? "space-y-6" : "search-page-no-results space-y-6"}>
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">{t("search.title")}</h1>
       </div>
@@ -299,7 +301,7 @@ export function SearchPageContent() {
         resultCount={results.length}
       />
 
-      {results.length > 0 ? (
+      {hasResultCards ? (
         <div className="space-y-4">
           <div className="grid gap-4">
             {results.map((result) => (

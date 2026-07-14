@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import "./globals.css";
 
+import { MobileScrollRestorer } from "@/components/layout/MobileScrollRestorer";
 import { translations } from "@/i18n";
 
 import { Providers } from "./providers";
@@ -32,7 +33,10 @@ export default function RootLayout({
     >
       <body className="min-h-full bg-background text-foreground">
         <NextIntlClientProvider locale="zh-CN" messages={translations["zh-CN"]}>
-          <Providers>{children}</Providers>
+          <Providers>
+            <MobileScrollRestorer />
+            {children}
+          </Providers>
         </NextIntlClientProvider>
       </body>
     </html>
