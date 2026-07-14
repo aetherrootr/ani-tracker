@@ -927,7 +927,7 @@ def test_library_list_air_date_anchors_include_unknown(
     ]
 
 
-def test_tracking_list_returns_next_episodes_recently_watched_and_excludes_dropped(
+def test_tracking_list_returns_next_episodes_recently_watched_and_excludes_dropped_or_on_hold(
     client: FlaskClient,
     db_session: Session,
 ) -> None:
@@ -988,6 +988,28 @@ def test_tracking_list_returns_next_episodes_recently_watched_and_excludes_dropp
     )
     add_episode(db_session, dropped, number=1, air_at=now - timedelta(days=1))
     dropped_ep2 = add_episode(db_session, dropped, number=2, air_at=now, title='Dropped 2')
+
+    on_hold_tracking = add_library_anime(
+        db_session,
+        external_id='on-hold-tracking',
+        original_name='On Hold Tracking',
+        names=[('On Hold Tracking', 'en')],
+        status=UserAnimeStatus.ON_HOLD,
+        air_date=date(2026, 7, 4),
+    )
+    add_episode(db_session, on_hold_tracking, number=1, air_at=now - timedelta(days=1))
+    add_episode(db_session, on_hold_tracking, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=5))
+
+    on_hold_backlog = add_library_anime(
+        db_session,
+        external_id='on-hold-backlog',
+        original_name='On Hold Backlog',
+        names=[('On Hold Backlog', 'en')],
+        status=UserAnimeStatus.ON_HOLD,
+        air_date=date(2020, 5, 1),
+    )
+    on_hold_backlog.total_episodes = 1
+    add_episode(db_session, on_hold_backlog, number=1, air_at=now - timedelta(days=100))
 
     db_session.add_all(
         [
