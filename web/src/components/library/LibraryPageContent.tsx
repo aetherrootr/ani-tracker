@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { BackToTopButton } from "@/components/layout/BackToTopButton";
+import { addPageScrollListener, scrollPageTo } from "@/components/layout/mobile-scroll-container";
 import { Button } from "@/components/ui/button";
 import {
   calculateLibraryPageSize,
@@ -148,7 +149,7 @@ export function LibraryPageContent() {
       previousPageRef.current = query.page;
       if (pendingAnchorKeyRef.current === null) {
         if (window.innerWidth < 640) {
-          window.scrollTo({ top: 0, behavior: "smooth" });
+          scrollPageTo({ top: 0, behavior: "smooth" });
           return;
         }
         listTopRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -223,8 +224,7 @@ export function LibraryPageContent() {
     }
 
     updateActiveAnchor();
-    window.addEventListener("scroll", updateActiveAnchor, { passive: true });
-    return () => window.removeEventListener("scroll", updateActiveAnchor);
+    return addPageScrollListener(updateActiveAnchor);
   }, [activeAnchorKey, navigationAnchors, query.page, query.pageSize]);
 
   function updatePage(page: number) {

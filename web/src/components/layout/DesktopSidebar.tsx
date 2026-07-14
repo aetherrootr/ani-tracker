@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -27,9 +28,14 @@ export function DesktopSidebar() {
   return (
     <aside className="glass-surface hidden w-72 shrink-0 border-r px-4 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto">
       <Link href="/tracking-list" className="mb-8 flex items-center gap-3 px-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          A
-        </div>
+        <Image
+          src="/app-logo.svg"
+          alt="Ani Tracker"
+          width={40}
+          height={40}
+          className="h-10 w-10 rounded-2xl object-cover"
+          priority
+        />
         <div>
           <p className="font-semibold tracking-tight">Ani Tracker</p>
         </div>

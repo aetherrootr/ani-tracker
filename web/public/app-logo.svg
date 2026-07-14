@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ani Tracker logo">
+  <circle cx="256" cy="256" r="244" fill="#000000"/>
+  <path d="M256 122 389 352H123L256 122Z" fill="#ffffff"/>
+  <path d="M184 218h144v52h-46v118h-52V270h-46v-52Z" fill="#000000"/>
+</svg>

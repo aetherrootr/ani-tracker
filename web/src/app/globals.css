@@ -3,6 +3,8 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --mobile-top-nav-height: 7.25rem;
+  --mobile-sticky-top: 0.25rem;
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -124,9 +126,40 @@ body.dialog-scroll-lock {
   backdrop-filter: blur(18px) saturate(140%);
 }
 
+.mobile-fixed-below-top-nav {
+  top: var(--mobile-top-nav-height) !important;
+}
+
+.mobile-sticky-below-top-nav {
+  top: var(--mobile-sticky-top);
+}
+
+@media (min-width: 768px) {
+  .mobile-fixed-below-top-nav {
+    top: 0 !important;
+  }
+
+  .mobile-sticky-below-top-nav {
+    top: 0.75rem;
+  }
+}
+
 .mobile-top-popover-enter {
   animation: mobile-top-popover-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
   transform-origin: top center;
+}
+
+@media (max-width: 767px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  #app-mobile-scroll-container:has(.search-page-no-results) {
+    overflow-y: hidden;
+  }
 }
 
 @media (max-width: 639px) {

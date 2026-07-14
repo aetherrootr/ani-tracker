@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { BackToTopButton } from "@/components/layout/BackToTopButton";
+import { getPageScrollTop, scrollPageTo } from "@/components/layout/mobile-scroll-container";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
@@ -120,7 +121,7 @@ export function SearchPageContent() {
       return;
     }
 
-    window.scrollTo({ top: restoreScrollYRef.current });
+    scrollPageTo({ top: restoreScrollYRef.current });
     restoreScrollYRef.current = null;
   }, [results.length]);
 
@@ -146,7 +147,7 @@ export function SearchPageContent() {
 
         if (canAutoLoadRef.current) {
           canAutoLoadRef.current = false;
-          restoreScrollYRef.current = window.scrollY;
+          restoreScrollYRef.current = getPageScrollTop();
           loadMore();
         }
       },
@@ -174,12 +175,14 @@ export function SearchPageContent() {
   }
 
   function handleLoadMore() {
-    restoreScrollYRef.current = window.scrollY;
+    restoreScrollYRef.current = getPageScrollTop();
     loadMore();
   }
 
+  const hasResultCards = results.length > 0;
+
   return (
-    <div className="space-y-6">
+    <div className={hasResultCards ? "space-y-6" : "search-page-no-results space-y-6"}>
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">{t("search.title")}</h1>
       </div>
@@ -246,7 +249,7 @@ export function SearchPageContent() {
 
       {isProviderDialogOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-background/80 p-4 backdrop-blur-sm md:hidden"
+          className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-end bg-background/80 p-4 backdrop-blur-sm md:hidden"
           role="dialog"
           aria-modal="true"
           aria-labelledby="provider-dialog-title"
@@ -298,7 +301,7 @@ export function SearchPageContent() {
         resultCount={results.length}
       />
 
-      {results.length > 0 ? (
+      {hasResultCards ? (
         <div className="space-y-4">
           <div className="grid gap-4">
             {results.map((result) => (

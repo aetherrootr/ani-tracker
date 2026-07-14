@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { scrollPageTo } from "@/components/layout/mobile-scroll-container";
 import { Button } from "@/components/ui/button";
 import { getTrackingList, getTrackingListPage, updateEpisodeWatchState } from "@/features/library/api";
 import type { TrackingListKey } from "@/features/library/api";
@@ -22,6 +23,7 @@ export function TrackingListPageContent() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [loadingMoreKey, setLoadingMoreKey] = useState<TrackingListKey | null>(null);
   const [activeMobileTab, setActiveMobileTab] = useState<TrackingListKey>("tracking");
+  const tabSwitchTimeoutRef = useRef<number | null>(null);
   const isDesktop = useDesktopLayout();
   const tracking = data?.tracking.items ?? [];
   const backlog = data?.backlog.items ?? [];
@@ -29,14 +31,27 @@ export function TrackingListPageContent() {
   const hasQueueItems = tracking.length > 0 || backlog.length > 0;
   const activeMobileTabIndex = TRACKING_TABS.indexOf(activeMobileTab);
 
-  useEffect(() => {
-    document.documentElement.classList.add("tracking-list-scroll-lock");
-    document.body.classList.add("tracking-list-scroll-lock");
-    return () => {
-      document.documentElement.classList.remove("tracking-list-scroll-lock");
-      document.body.classList.remove("tracking-list-scroll-lock");
-    };
+  useEffect(() => () => {
+    if (tabSwitchTimeoutRef.current !== null) {
+      window.clearTimeout(tabSwitchTimeoutRef.current);
+    }
   }, []);
+
+  function handleMobileTabChange(tab: TrackingListKey) {
+    if (tab === activeMobileTab) {
+      return;
+    }
+
+    if (tabSwitchTimeoutRef.current !== null) {
+      window.clearTimeout(tabSwitchTimeoutRef.current);
+    }
+
+    scrollPageTo({ top: 0, behavior: "smooth" });
+    tabSwitchTimeoutRef.current = window.setTimeout(() => {
+      setActiveMobileTab(tab);
+      tabSwitchTimeoutRef.current = null;
+    }, 260);
+  }
 
   async function handleWatchChange(listKey: TrackingListKey, item: TrackingListItem, watched: boolean) {
     if (!data) {
@@ -84,7 +99,7 @@ export function TrackingListPageContent() {
   }
 
   return (
-    <div className="flex h-[calc(100svh-9.25rem)] flex-col space-y-4 overflow-hidden sm:block sm:h-auto sm:overflow-visible sm:space-y-6">
+    <div className="space-y-6">
       <div className="mx-auto max-w-5xl space-y-2 text-center">
         <p className="text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground">{t("tracking.eyebrow")}</p>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("tracking.title")}</h1>
@@ -99,32 +114,34 @@ export function TrackingListPageContent() {
       ) : null}
 
       {!error ? (
-        <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col rounded-3xl border bg-card/70 p-3 shadow-sm sm:block sm:p-5">
+        <main className="mx-auto w-full max-w-5xl space-y-4 sm:block sm:rounded-3xl sm:border sm:bg-card/70 sm:p-5 sm:shadow-sm">
           {!isLoading && !hasQueueItems ? (
             <div className="mb-4 rounded-2xl bg-background/60 p-6 text-center font-medium sm:mb-6 sm:p-8">
               {t("tracking.emptyAll")}
             </div>
           ) : null}
 
-          <div className="relative mb-3 grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1 sm:hidden">
-            <div
-              className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-0.5rem)/3)] rounded-xl bg-background shadow-sm transition-transform duration-300 ease-out"
-              style={{ transform: `translateX(calc(${activeMobileTabIndex} * (100% + 0.25rem)))` }}
-              aria-hidden="true"
-            />
-            {TRACKING_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className={cn(
-                  "relative z-10 rounded-xl px-2 py-2 text-sm font-medium text-muted-foreground transition-colors duration-300",
-                  activeMobileTab === tab && "text-foreground",
-                )}
-                onClick={() => setActiveMobileTab(tab)}
-              >
-                {tab === "tracking" ? t("tracking.trackingSection") : tab === "backlog" ? t("tracking.backlogSection") : t("tracking.recentlyWatchedSection")}
-              </button>
-            ))}
+          <div className="mobile-sticky-below-top-nav sticky z-30 mx-auto w-full max-w-5xl sm:hidden">
+            <div className="glass-surface relative grid grid-cols-3 gap-1 rounded-2xl border p-1">
+              <div
+                className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-0.5rem)/3)] rounded-xl bg-primary shadow-md transition-transform duration-300 ease-out"
+                style={{ transform: `translateX(calc(${activeMobileTabIndex} * (100% + 0.25rem)))` }}
+                aria-hidden="true"
+              />
+              {TRACKING_TABS.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={cn(
+                    "relative z-10 rounded-xl px-2 py-2 text-sm font-medium text-muted-foreground transition-colors duration-300",
+                    activeMobileTab === tab && "text-primary-foreground",
+                  )}
+                  onClick={() => handleMobileTabChange(tab)}
+                >
+                  {tab === "tracking" ? t("tracking.trackingSection") : tab === "backlog" ? t("tracking.backlogSection") : t("tracking.recentlyWatchedSection")}
+                </button>
+              ))}
+            </div>
           </div>
 
           {isDesktop ? (
@@ -176,7 +193,7 @@ export function TrackingListPageContent() {
           ) : null}
 
           {!isDesktop ? (
-          <div className="min-h-0 flex-1">
+          <div className="pt-1">
             {activeMobileTab === "tracking" ? (
               <TrackingSection
                 title={t("tracking.trackingSection")}
@@ -188,7 +205,6 @@ export function TrackingListPageContent() {
                 emptyText={t("tracking.emptyTracking")}
                 savingKey={savingKey}
                 listKey="tracking"
-                fillAvailableHeight
                 hideHeaderOnMobile
                 onWatchChange={handleWatchChange}
                 onLoadMore={handleLoadMore}
@@ -206,7 +222,6 @@ export function TrackingListPageContent() {
                 emptyText={t("tracking.emptyBacklog")}
                 savingKey={savingKey}
                 listKey="backlog"
-                fillAvailableHeight
                 hideHeaderOnMobile
                 onWatchChange={handleWatchChange}
                 onLoadMore={handleLoadMore}
@@ -226,7 +241,6 @@ export function TrackingListPageContent() {
                 emptyText={t("tracking.emptyRecentlyWatched")}
                 savingKey={savingKey}
                 listKey="recentlyWatched"
-                fillAvailableHeight
                 hideHeaderOnMobile
                 onWatchChange={handleWatchChange}
                 onLoadMore={handleLoadMore}
@@ -353,7 +367,7 @@ function TrackingSection({
         {canScrollUp ? (
           <button
             type="button"
-            className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center bg-gradient-to-b from-card/80 to-transparent pb-5 pt-2 sm:pointer-events-auto"
+            className="pointer-events-none absolute inset-x-0 top-0 z-20 hidden justify-center bg-gradient-to-b from-card/80 to-transparent pb-5 pt-2 sm:flex sm:pointer-events-auto"
             aria-label={t("tracking.scrollUp")}
             onClick={() => scrollList("up")}
           >
@@ -363,14 +377,14 @@ function TrackingSection({
         {canScrollDown ? (
           <button
             type="button"
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center bg-gradient-to-t from-card/80 to-transparent pb-2 pt-5 sm:pointer-events-auto"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden justify-center bg-gradient-to-t from-card/80 to-transparent pb-2 pt-5 sm:flex sm:pointer-events-auto"
             aria-label={t("tracking.scrollDown")}
             onClick={() => scrollList("down")}
           >
             <ChevronDown className="h-7 w-7 text-foreground/45" />
           </button>
         ) : null}
-        <div ref={scrollRef} className={fillAvailableHeight ? "tracking-section-scroll scrollbar-none h-full overflow-y-auto overscroll-contain" : "tracking-section-scroll scrollbar-none max-h-[34rem] overflow-y-auto"} onScroll={updateScrollHints}>
+        <div ref={scrollRef} className={fillAvailableHeight ? "tracking-section-scroll scrollbar-none h-full overflow-y-auto overscroll-contain" : "tracking-section-scroll scrollbar-none overflow-visible sm:max-h-[34rem] sm:overflow-y-auto"} onScroll={updateScrollHints}>
         <div className="space-y-3 pb-1">
           {isLoading ? (
             Array.from({ length: 4 }).map((_, index) => <SkeletonBlock key={index} className="h-28 rounded-2xl" />)

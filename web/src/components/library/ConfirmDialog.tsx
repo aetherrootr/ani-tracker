@@ -36,7 +36,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, danger, 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div className="glass-dialog w-full max-w-sm rounded-2xl border p-5 text-foreground">
         <h2 id="confirm-title" className="text-lg font-semibold tracking-tight">{title}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{description}</p>

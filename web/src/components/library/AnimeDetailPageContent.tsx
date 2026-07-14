@@ -550,7 +550,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       />
       {summaryDialogOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+          className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-labelledby="summary-dialog-title"
@@ -792,7 +792,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
       </div>
       </div>
       {selectedItem ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="related-anime-action-title" onClick={closeDialog}>
+        <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="related-anime-action-title" onClick={closeDialog}>
           <div className="glass-dialog flex max-h-[90svh] w-full max-w-xl flex-col rounded-2xl border text-foreground" onClick={(event) => event.stopPropagation()}>
             <div className="border-b p-5">
               <h2 id="related-anime-action-title" className="text-lg font-semibold tracking-tight">{t("library.relatedAnimeActionTitle")}</h2>
