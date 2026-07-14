@@ -2369,6 +2369,49 @@ def test_bangumi_related_anime_discovery_imports_plan_to_watch(
     assert progress is not None
 
 
+def test_bangumi_related_anime_discovery_skips_already_matched_related_anime(
+    app: Flask,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.tasks.bangumi_related_anime_discovery import discover_bangumi_related_anime_for_user
+
+    current = add_library_anime(db_session, external_id='current', original_name='Current', names=[('Current', 'en')])
+    related = add_library_anime(db_session, external_id='related', original_name='Related', names=[('Related', 'en')])
+    db_session.add(
+        AnimeRelation(
+            anime_id=current.id,
+            related_anime_id=related.id,
+            provider_type='bangumi',
+            external_id='related',
+            relation_type='same_series_season',
+            title='Related',
+        ),
+    )
+    db_session.commit()
+    provider = MutableDetailProvider(
+        {
+            'current': anime_detail('current', title='Current'),
+            'related': anime_detail('related', title='Related'),
+        },
+    )
+
+    class Factory:
+        @classmethod
+        def from_config(cls, _config):  # type: ignore[no-untyped-def]
+            return ImportProviderFactory({'bangumi': provider})
+
+    monkeypatch.setenv('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED', 'true')
+    monkeypatch.setattr('app.tasks.bangumi_related_anime_discovery.ImportProviderFactory', Factory)
+    monkeypatch.setattr('app.services.related_anime_discovery.enqueue_poster_download', lambda _poster_id: None)
+    celery_app.conf.database_url = app.config['DATABASE_URL']
+
+    summary = discover_bangumi_related_anime_for_user(1)
+
+    assert summary['checked'] == 1
+    assert provider.detail_calls == ['current']
+
+
 def test_related_anime_discovery_skips_overridden_relation_until_provider_import_allowed(
     db_session: Session,
 ) -> None:

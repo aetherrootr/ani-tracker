@@ -15,8 +15,8 @@ import { Label } from "@/components/ui/label";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { getOidcConfig, updatePassword } from "@/features/auth/api";
 import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateIncludeUnwatchedSeasonZeroInStatistics, useUpdateIncludeUnwatchedSeasonZeroInTracking, useUpdateWeekStartDay } from "@/features/auth/hooks";
-import { getCurrentLibraryRefreshJob, getImportProviders, getLibraryRefreshJob, syncAllLibraryAnime } from "@/features/library/api";
-import type { ImportProvider, LibraryRefreshJob } from "@/features/library/types";
+import { getCurrentLibraryRefreshJob, getImportProviders, getLibraryRefreshJob, syncAllLibraryAnime, syncFailedLibraryAnime } from "@/features/library/api";
+import type { ImportProvider, LibraryRefreshFailedAnime, LibraryRefreshJob } from "@/features/library/types";
 import { getApiUrl } from "@/lib/api-client";
 
 const WEEK_START_OPTIONS = ["0", "1", "2", "3", "4", "5", "6"] as const;
@@ -179,8 +179,25 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSyncFailedLibrary() {
+    setIsSyncingLibrary(true);
+    setSyncLibraryMessage(null);
+
+    try {
+      const response = await syncFailedLibraryAnime();
+      setLibraryRefreshJob(response.job);
+      setSyncLibraryMessage(response.queued ? t("settings.librarySync.retryQueued") : t("settings.librarySync.alreadyRunning"));
+    } catch {
+      setSyncLibraryMessage(t("settings.librarySync.retryFailed"));
+    } finally {
+      setIsSyncingLibrary(false);
+    }
+  }
+
   const hasActiveLibraryRefreshJob = libraryRefreshJob?.status === "queued" || libraryRefreshJob?.status === "running";
   const libraryRefreshProgress = libraryRefreshJob?.progress;
+  const failedAnime = failedAnimeFromSummary(libraryRefreshJob?.summary);
+  const canRetryFailedLibraryRefresh = failedAnime.length > 0 && !hasActiveLibraryRefreshJob;
 
   function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -310,9 +327,16 @@ export default function SettingsPage() {
             <p>{t("settings.librarySync.description")}</p>
             {syncLibraryMessage ? <p className="font-medium text-foreground">{syncLibraryMessage}</p> : null}
           </div>
-          <Button variant="outline" onClick={handleSyncAllLibrary} disabled={isSyncingLibrary || isLoadingLibraryRefreshJob || hasActiveLibraryRefreshJob}>
-            {hasActiveLibraryRefreshJob ? t("settings.librarySync.running") : isSyncingLibrary ? t("settings.librarySync.syncing") : t("settings.librarySync.button")}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={handleSyncAllLibrary} disabled={isSyncingLibrary || isLoadingLibraryRefreshJob || hasActiveLibraryRefreshJob}>
+              {hasActiveLibraryRefreshJob ? t("settings.librarySync.running") : isSyncingLibrary ? t("settings.librarySync.syncing") : t("settings.librarySync.button")}
+            </Button>
+            {canRetryFailedLibraryRefresh ? (
+              <Button variant="outline" onClick={handleSyncFailedLibrary} disabled={isSyncingLibrary || isLoadingLibraryRefreshJob}>
+                {isSyncingLibrary ? t("settings.librarySync.syncing") : t("settings.librarySync.retryFailedButton", { count: failedAnime.length })}
+              </Button>
+            ) : null}
+          </div>
           </div>
           {libraryRefreshProgress ? (
             <div className="space-y-3 rounded-lg border p-4">
@@ -324,9 +348,11 @@ export default function SettingsPage() {
                 <div className="h-full bg-primary transition-all" style={{ width: `${libraryRefreshProgress.percent}%` }} />
               </div>
               <p>{libraryRefreshProgress.message}</p>
+              {libraryRefreshProgress.details ? <LibraryRefreshProgressDetails details={libraryRefreshProgress.details} /> : null}
             </div>
           ) : null}
           {libraryRefreshJob?.summary ? <LibraryRefreshSummary summary={libraryRefreshJob.summary} /> : null}
+          {failedAnime.length > 0 && libraryRefreshJob ? <LibraryRefreshFailures job={libraryRefreshJob} failedAnime={failedAnime} /> : null}
         </CardContent>
       </Card>
       <TvtimeImportCard />
@@ -449,21 +475,116 @@ function ProviderLink({ href, children }: { href: string; children: ReactNode })
   );
 }
 
-function LibraryRefreshSummary({ summary }: { summary: Record<string, unknown> }) {
+function LibraryRefreshProgressDetails({ details }: { details: NonNullable<LibraryRefreshJob["progress"]>["details"] }) {
   const t = useTranslations();
-  const sync = isRecord(summary.sync) ? summary.sync : null;
-  const discovery = isRecord(summary.tvdbSeasonDiscovery) ? summary.tvdbSeasonDiscovery : null;
-  if (!sync && !discovery) {
+  if (!details) {
     return null;
   }
   return (
-    <div className="grid gap-2 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Metric label={t("settings.librarySync.summary.checked")} value={numberField(sync, "checked")} />
-      <Metric label={t("settings.librarySync.summary.synced")} value={numberField(sync, "synced")} />
-      <Metric label={t("settings.librarySync.summary.importedSeasons")} value={numberField(discovery, "imported")} />
-      <Metric label={t("settings.librarySync.summary.failed")} value={numberField(sync, "failed") + numberField(discovery, "failed")} />
+    <div className="grid gap-2 border-t pt-3 sm:grid-cols-2 lg:grid-cols-4">
+      {typeof details.synced === "number" ? <Metric label={t("settings.librarySync.summary.synced")} value={details.synced} /> : null}
+      {typeof details.imported === "number" ? <Metric label={t("settings.librarySync.summary.imported")} value={details.imported} /> : null}
+      {typeof details.existing === "number" ? <Metric label={t("settings.librarySync.summary.existing")} value={details.existing} /> : null}
+      {typeof details.skipped === "number" ? <Metric label={t("settings.librarySync.summary.skipped")} value={details.skipped} /> : null}
+      <Metric label={t("settings.librarySync.summary.failed")} value={details.failed} />
+      {typeof details.episodeConflicts === "number" ? <Metric label={t("settings.librarySync.summary.episodeConflicts")} value={details.episodeConflicts} /> : null}
+      <Metric label={t("settings.librarySync.summary.postersQueued")} value={details.postersQueued} />
+      {details.currentAnime ? (
+        <div className="sm:col-span-2 lg:col-span-4">
+          <div className="text-xs uppercase tracking-wide">{t("settings.librarySync.currentAnime")}</div>
+          <div className="font-medium text-foreground">{details.currentAnime.title}</div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function LibraryRefreshSummary({ summary }: { summary: Record<string, unknown> }) {
+  const t = useTranslations();
+  const sync = isRecord(summary.sync) ? summary.sync : null;
+  const tvdbDiscovery = isRecord(summary.tvdbSeasonDiscovery) ? summary.tvdbSeasonDiscovery : null;
+  const bangumiDiscovery = isRecord(summary.bangumiRelatedAnimeDiscovery) ? summary.bangumiRelatedAnimeDiscovery : null;
+  if (!sync && !tvdbDiscovery && !bangumiDiscovery) {
+    return null;
+  }
+  return (
+    <div className="space-y-4 rounded-lg border p-4">
+      <SummarySection title={t("settings.librarySync.summary.metadata")}> 
+        <Metric label={t("settings.librarySync.summary.checked")} value={numberField(sync, "checked")} />
+        <Metric label={t("settings.librarySync.summary.synced")} value={numberField(sync, "synced")} />
+        <Metric label={t("settings.librarySync.summary.episodeConflicts")} value={numberField(sync, "episodeConflicts")} />
+        <Metric label={t("settings.librarySync.summary.failed")} value={numberField(sync, "failed")} />
+      </SummarySection>
+      {tvdbDiscovery ? (
+        <SummarySection title={t("settings.librarySync.summary.tvdbSeasons")}>
+          <Metric label={t("settings.librarySync.summary.checked")} value={numberField(tvdbDiscovery, "checked")} />
+          <Metric label={t("settings.librarySync.summary.imported")} value={numberField(tvdbDiscovery, "imported")} />
+          <Metric label={t("settings.librarySync.summary.existing")} value={numberField(tvdbDiscovery, "existing")} />
+          <Metric label={t("settings.librarySync.summary.failed")} value={numberField(tvdbDiscovery, "failed")} />
+        </SummarySection>
+      ) : null}
+      {bangumiDiscovery ? (
+        <SummarySection title={t("settings.librarySync.summary.bangumiRelatedAnime")}>
+          <Metric label={t("settings.librarySync.summary.checked")} value={numberField(bangumiDiscovery, "checked")} />
+          <Metric label={t("settings.librarySync.summary.imported")} value={numberField(bangumiDiscovery, "imported")} />
+          <Metric label={t("settings.librarySync.summary.existing")} value={numberField(bangumiDiscovery, "existing")} />
+          <Metric label={t("settings.librarySync.summary.failed")} value={numberField(bangumiDiscovery, "failed")} />
+        </SummarySection>
+      ) : null}
+    </div>
+  );
+}
+
+function SummarySection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="font-medium text-foreground">{title}</h3>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{children}</div>
+    </section>
+  );
+}
+
+function LibraryRefreshFailures({ job, failedAnime }: { job: LibraryRefreshJob; failedAnime: LibraryRefreshFailedAnime[] }) {
+  const t = useTranslations();
+  return (
+    <div className="space-y-2 rounded-lg border border-destructive/30 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="font-medium text-foreground">{t("settings.librarySync.failedAnimeTitle", { count: failedAnime.length })}</div>
+        <Button type="button" variant="outline" size="sm" onClick={() => downloadLibraryRefreshErrorReport(job, failedAnime)}>
+          {t("settings.librarySync.downloadErrorReport")}
+        </Button>
+      </div>
+      <div className="max-h-48 space-y-2 overflow-auto pr-1">
+        {failedAnime.map((anime) => (
+          <div key={anime.animeId} className="rounded-md bg-secondary px-3 py-2">
+            <div className="font-medium text-secondary-foreground">{anime.title}</div>
+            {anime.error ? <div className="text-xs text-muted-foreground">{anime.error}</div> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function downloadLibraryRefreshErrorReport(job: LibraryRefreshJob, failedAnime: LibraryRefreshFailedAnime[]) {
+  const report = {
+    generatedAt: new Date().toISOString(),
+    jobId: job.jobId,
+    status: job.status,
+    retryFailedOnly: job.retryFailedOnly === true,
+    progress: job.progress,
+    summary: job.summary,
+    failedAnime,
+  };
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `library-refresh-errors-${job.jobId}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
@@ -482,6 +603,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function numberField(value: Record<string, unknown> | null, key: string) {
   const field = value?.[key];
   return typeof field === "number" ? field : 0;
+}
+
+function failedAnimeFromSummary(summary: Record<string, unknown> | null | undefined): LibraryRefreshFailedAnime[] {
+  const sync = isRecord(summary?.sync) ? summary.sync : null;
+  const failedAnime = sync?.failedAnime;
+  if (!Array.isArray(failedAnime)) {
+    return [];
+  }
+  return failedAnime.flatMap((item) => {
+    if (!isRecord(item) || typeof item.animeId !== "number" || typeof item.title !== "string") {
+      return [];
+    }
+    return [{ animeId: item.animeId, title: item.title, error: typeof item.error === "string" ? item.error : undefined }];
+  });
 }
 
 function BadgeLikeStatus({ children }: { children: ReactNode }) {

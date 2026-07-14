@@ -857,6 +857,21 @@ def get_current_related_anime_discovery_job(db: Session, user: User, anime_id: i
 @anime_info_bp.post('/library/sync-all')
 @require_auth_user
 def sync_all_library_anime(_db: Session, user: User) -> ResponseReturnValue:
+    return _queue_library_refresh(user)
+
+
+@anime_info_bp.post('/library/sync-all/failed')
+@require_auth_user
+def sync_failed_library_anime(_db: Session, user: User) -> ResponseReturnValue:
+    job_dir = str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'])
+    previous_job = current_library_refresh_job(job_dir, user.id)
+    anime_ids = _failed_library_refresh_anime_ids(previous_job)
+    if not anime_ids:
+        return jsonify({'message': 'No failed anime to retry'}), 400
+    return _queue_library_refresh(user, anime_ids=anime_ids)
+
+
+def _queue_library_refresh(user: User, anime_ids: list[int] | None = None) -> ResponseReturnValue:
     task_id = uuid4().hex
     job_dir = str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'])
     lock = acquire_library_refresh_lock(
@@ -871,10 +886,10 @@ def sync_all_library_anime(_db: Session, user: User) -> ResponseReturnValue:
     store_library_refresh_job(
         job_dir,
         task_id,
-        {'jobId': task_id, 'userId': user.id, 'status': 'queued', 'progress': progress, 'summary': None},
+        {'jobId': task_id, 'userId': user.id, 'status': 'queued', 'progress': progress, 'summary': None, 'retryFailedOnly': anime_ids is not None},
     )
     try:
-        task = refresh_user_library.apply_async(args=(user.id, lock.lock_path, job_dir, task_id), task_id=task_id)
+        task = refresh_user_library.apply_async(args=(user.id, lock.lock_path, job_dir, task_id, anime_ids), task_id=task_id)
     except Exception:
         release_library_refresh_lock(lock.lock_path)
         raise
@@ -910,7 +925,30 @@ def _library_refresh_job_response(job: dict[str, object] | None) -> dict[str, ob
         'status': job.get('status'),
         'progress': job.get('progress'),
         'summary': job.get('summary'),
+        'retryFailedOnly': job.get('retryFailedOnly') is True,
     }
+
+
+def _failed_library_refresh_anime_ids(job: dict[str, object] | None) -> list[int]:
+    if job is None:
+        return []
+    summary = job.get('summary')
+    if not isinstance(summary, dict):
+        return []
+    sync_summary = summary.get('sync')
+    if not isinstance(sync_summary, dict):
+        return []
+    failed_anime = sync_summary.get('failedAnime')
+    if not isinstance(failed_anime, list):
+        return []
+    anime_ids: list[int] = []
+    for item in failed_anime:
+        if not isinstance(item, dict):
+            continue
+        anime_id = item.get('animeId')
+        if isinstance(anime_id, int) and anime_id not in anime_ids:
+            anime_ids.append(anime_id)
+    return anime_ids
 
 
 @anime_info_bp.get('/<int:anime_id>')
