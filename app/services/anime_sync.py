@@ -22,7 +22,11 @@ from app.models.anime import (
     Episode,
     EpisodeName,
 )
-from app.models.progress import UserAnimeProgress, UserAnimeRelationDeletionPrompt, UserEpisodeProgress
+from app.models.progress import (
+    UserAnimeProgress,
+    UserAnimeRelationDeletionPrompt,
+    UserEpisodeProgress,
+)
 from app.models.user import User
 from app.services.anime_library import populate_anime_from_detail, recalculate_user_anime_progress
 

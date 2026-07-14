@@ -39,9 +39,9 @@ from app.models.progress import (
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
-    UserManualAnimeRelation,
     UserAnimeStatus,
     UserEpisodeProgress,
+    UserManualAnimeRelation,
 )
 from app.tasks.celery_config import configure_celery
 from tests.test_auth import register_user

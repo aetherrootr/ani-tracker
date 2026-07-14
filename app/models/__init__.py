@@ -15,9 +15,9 @@ from app.models.progress import (
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
-    UserManualAnimeRelation,
     UserAnimeStatus,
     UserEpisodeProgress,
+    UserManualAnimeRelation,
 )
 from app.models.user import User, UserOidcIdentity
 
@@ -37,8 +37,8 @@ __all__ = [
     "UserAnimeProgress",
     "UserAnimeRelationDeletionPrompt",
     "UserAnimeRelationOverride",
-    "UserManualAnimeRelation",
     "UserAnimeStatus",
     "UserEpisodeProgress",
+    "UserManualAnimeRelation",
     "UserOidcIdentity",
 ]

@@ -32,9 +32,9 @@ from app.models.progress import (
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
-    UserManualAnimeRelation,
     UserAnimeStatus,
     UserEpisodeProgress,
+    UserManualAnimeRelation,
 )
 from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
@@ -293,7 +293,6 @@ def switch_user_anime_provider(
             user_id=user_id,
             previous_anime_id=anime_id,
             target_anime_id=target_anime.id,
-            target_provider=provider.name,
         )
         session.flush()
         poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == target_anime.id))
@@ -322,7 +321,6 @@ def reconcile_related_anime_after_provider_switch(
     user_id: int,
     previous_anime_id: int,
     target_anime_id: int,
-    target_provider: str,
 ) -> ProviderSwitchRelatedAnimeResult:
     _retarget_user_related_anime_links(
         session,

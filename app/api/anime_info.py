@@ -62,15 +62,15 @@ from app.models.progress import (
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
-    UserManualAnimeRelation,
     UserAnimeStatus,
     UserEpisodeProgress,
+    UserManualAnimeRelation,
 )
 from app.models.user import User
 from app.services.anime_library import (
     DuplicateAnimeConflict,
-    add_anime_to_user_library,
     _fallback_related_relations,
+    add_anime_to_user_library,
     get_user_progress,
     set_anime_name_preference,
     set_summary_preference,
