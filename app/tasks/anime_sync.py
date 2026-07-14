@@ -17,6 +17,7 @@ from app.services.library_refresh_jobs import (
     update_library_refresh_job,
 )
 from app.tasks.anime_poster import download_anime_poster
+from app.tasks.progress import ProgressCallback
 from app.utils import configured_instance_path, env_bool, env_float, safe_float, safe_int
 
 logger = logging.getLogger(__name__)
@@ -65,70 +66,108 @@ def sync_airing_anime() -> dict[str, int]:
 
 
 @celery_app.task(name='app.tasks.anime_sync.sync_user_library_anime')
-def sync_user_library_anime(user_id: int) -> dict[str, int]:
+def sync_user_library_anime(user_id: int, anime_ids: list[int] | None = None, progress_callback: ProgressCallback | None = None) -> dict[str, object]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
     ensure_database_current(database_url)
     connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
     engine = create_engine(database_url, connect_args=connect_args)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     provider_factory = ImportProviderFactory.from_config(_provider_config())
-    summary = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0}
+    summary: dict[str, object] = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0, 'failedAnime': []}
     try:
         with session_factory() as session:
-            anime_ids = session.scalars(
-                select(UserAnimeProgress.anime_id).where(UserAnimeProgress.user_id == user_id).order_by(UserAnimeProgress.anime_id),
-            ).all()
+            if anime_ids is None:
+                anime_ids = session.scalars(
+                    select(UserAnimeProgress.anime_id).where(UserAnimeProgress.user_id == user_id).order_by(UserAnimeProgress.anime_id),
+                ).all()
             summary['checked'] = len(anime_ids)
-            for anime_id in anime_ids:
+            for index, anime_id in enumerate(anime_ids, start=1):
+                anime_title = None
                 try:
                     anime = session.get(AnimeMetaInfo, anime_id)
                     if anime is None:
+                        if progress_callback is not None:
+                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=None, processed=index, total=len(anime_ids)))
                         continue
+                    anime_title = anime.original_name
+                    if progress_callback is not None:
+                        progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index - 1, total=len(anime_ids)))
                     provider = provider_factory.get_provider(anime.provider_type)
                     result = sync_anime_from_provider(session, provider, anime_id=anime_id, user_id=user_id)
                     if result is None:
+                        if progress_callback is not None:
+                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(anime_ids)))
                         continue
                     poster_ids = result.poster_ids_to_enqueue
                     conflict_count = len(result.episode_conflicts)
                     session.commit()
-                except Exception:
+                except Exception as exc:
                     session.rollback()
-                    summary['failed'] += 1
+                    summary['failed'] = int(summary['failed']) + 1
+                    failed_anime = summary['failedAnime']
+                    if isinstance(failed_anime, list):
+                        failed_anime.append({'animeId': anime_id, 'title': anime_title or f'#{anime_id}', 'error': str(exc) or type(exc).__name__})
                     logger.warning('Failed to sync user %s anime %s', user_id, anime_id, exc_info=True)
+                    if progress_callback is not None:
+                        progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(anime_ids)))
                     continue
                 for poster_id in poster_ids:
                     _enqueue_poster_download(database_url, poster_id)
-                summary['synced'] += 1
-                summary['episodeConflicts'] += conflict_count
-                summary['postersQueued'] += len(poster_ids)
+                summary['synced'] = int(summary['synced']) + 1
+                summary['episodeConflicts'] = int(summary['episodeConflicts']) + conflict_count
+                summary['postersQueued'] = int(summary['postersQueued']) + len(poster_ids)
+                if progress_callback is not None:
+                    progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=anime_title, processed=index, total=len(anime_ids)))
     finally:
         engine.dispose()
     return summary
 
 
 @celery_app.task(name='app.tasks.anime_sync.refresh_user_library')
-def refresh_user_library(user_id: int, lock_path: str | None = None, job_dir: str | None = None, job_id: str | None = None) -> dict[str, object]:
+def refresh_user_library(user_id: int, lock_path: str | None = None, job_dir: str | None = None, job_id: str | None = None, anime_ids: list[int] | None = None) -> dict[str, object]:
     try:
-        total_steps = 1 + int(env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED')) + int(env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'))
+        total_steps = 1 if anime_ids is not None else 1 + int(env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED')) + int(env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'))
         current_step = 0
         _update_refresh_job(job_dir, job_id, status='running', progress=_refresh_progress('syncing', current_step, total_steps, 'Refreshing library metadata'))
-        sync_summary = sync_user_library_anime(user_id)
+        sync_summary = sync_user_library_anime(
+            user_id,
+            anime_ids=anime_ids,
+            progress_callback=lambda details: _update_refresh_job(
+                job_dir,
+                job_id,
+                progress=_refresh_progress('syncing', int(details['processed']), int(details['total']), 'Refreshing library metadata', details=details),
+            ),
+        )
         current_step += 1
         tvdb_discovery_summary = None
-        if env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'):
+        if anime_ids is None and env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'):
             from app.tasks.tvdb_season_discovery import discover_tvdb_seasons_for_user
 
-            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', current_step, total_steps, 'Checking TVDB seasons'))
-            tvdb_discovery_summary = discover_tvdb_seasons_for_user(user_id)
+            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_tvdb_seasons', 0, 1, 'Checking TVDB seasons'))
+            tvdb_discovery_summary = discover_tvdb_seasons_for_user(
+                user_id,
+                progress_callback=lambda details: _update_refresh_job(
+                    job_dir,
+                    job_id,
+                    progress=_refresh_progress('discovering_tvdb_seasons', int(details['processed']), int(details['total']), 'Checking TVDB seasons', details=details),
+                ),
+            )
             current_step += 1
         bangumi_discovery_summary = None
-        if env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'):
+        if anime_ids is None and env_bool('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED'):
             from app.tasks.bangumi_related_anime_discovery import (
                 discover_bangumi_related_anime_for_user,
             )
 
-            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_bangumi_related_anime', current_step, total_steps, 'Checking Bangumi related anime'))
-            bangumi_discovery_summary = discover_bangumi_related_anime_for_user(user_id)
+            _update_refresh_job(job_dir, job_id, progress=_refresh_progress('discovering_bangumi_related_anime', 0, 1, 'Checking Bangumi related anime'))
+            bangumi_discovery_summary = discover_bangumi_related_anime_for_user(
+                user_id,
+                progress_callback=lambda details: _update_refresh_job(
+                    job_dir,
+                    job_id,
+                    progress=_refresh_progress('discovering_bangumi_related_anime', int(details['processed']), int(details['total']), 'Checking Bangumi related anime', details=details),
+                ),
+            )
             current_step += 1
         summary = {'sync': sync_summary, 'tvdbSeasonDiscovery': tvdb_discovery_summary, 'bangumiRelatedAnimeDiscovery': bangumi_discovery_summary}
         _update_refresh_job(
@@ -152,9 +191,25 @@ def refresh_user_library(user_id: int, lock_path: str | None = None, job_dir: st
         release_library_refresh_lock(lock_path)
 
 
-def _refresh_progress(stage: str, processed: int, total: int, message: str) -> dict[str, object]:
+def _sync_progress_details(summary: dict[str, object], *, anime_id: int, anime_title: str | None, processed: int, total: int) -> dict[str, object]:
+    return {
+        'processed': processed,
+        'total': total,
+        'currentAnime': {'animeId': anime_id, 'title': anime_title or f'#{anime_id}'},
+        'synced': int(summary['synced']),
+        'failed': int(summary['failed']),
+        'episodeConflicts': int(summary['episodeConflicts']),
+        'postersQueued': int(summary['postersQueued']),
+        'failedAnime': summary.get('failedAnime', []),
+    }
+
+
+def _refresh_progress(stage: str, processed: int, total: int, message: str, details: dict[str, object] | None = None) -> dict[str, object]:
     percent = round(processed / total * 100) if total > 0 else 0
-    return {'stage': stage, 'processed': processed, 'total': total, 'percent': percent, 'message': message}
+    payload: dict[str, object] = {'stage': stage, 'processed': processed, 'total': total, 'percent': percent, 'message': message}
+    if details is not None:
+        payload['details'] = details
+    return payload
 
 
 def _update_refresh_job(job_dir: str | None, job_id: str | None, **fields: object) -> None:

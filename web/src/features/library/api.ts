@@ -189,6 +189,10 @@ export function syncAllLibraryAnime() {
   return apiFetch<LibraryRefreshResponse>("/api/anime/library/sync-all", { method: "POST" });
 }
 
+export function syncFailedLibraryAnime() {
+  return apiFetch<LibraryRefreshResponse>("/api/anime/library/sync-all/failed", { method: "POST" });
+}
+
 export async function getCurrentLibraryRefreshJob(signal?: AbortSignal) {
   const response = await apiFetch<{ job: LibraryRefreshJob | null }>("/api/anime/library/sync-all", { signal });
   return response.job;

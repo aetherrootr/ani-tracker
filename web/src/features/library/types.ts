@@ -190,6 +190,26 @@ export type LibraryRefreshProgress = {
   total: number;
   percent: number;
   message: string;
+  details?: {
+    processed: number;
+    total: number;
+    currentAnime?: { animeId: number; title: string };
+    checked?: number;
+    synced?: number;
+    failed: number;
+    episodeConflicts?: number;
+    imported?: number;
+    existing?: number;
+    skipped?: number;
+    postersQueued: number;
+    failedAnime?: LibraryRefreshFailedAnime[];
+  };
+};
+
+export type LibraryRefreshFailedAnime = {
+  animeId: number;
+  title: string;
+  error?: string;
 };
 
 export type LibraryRefreshJob = {
@@ -197,6 +217,7 @@ export type LibraryRefreshJob = {
   status: "completed" | "failed" | "running" | "queued";
   progress: LibraryRefreshProgress | null;
   summary: Record<string, unknown> | null;
+  retryFailedOnly?: boolean;
 };
 
 export type LibraryRefreshResponse = {
