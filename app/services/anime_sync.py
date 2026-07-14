@@ -17,11 +17,16 @@ from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
     AnimePoster,
+    AnimeRelation,
     AnimeSummary,
     Episode,
     EpisodeName,
 )
-from app.models.progress import UserAnimeProgress, UserEpisodeProgress
+from app.models.progress import (
+    UserAnimeProgress,
+    UserAnimeRelationDeletionPrompt,
+    UserEpisodeProgress,
+)
 from app.models.user import User
 from app.services.anime_library import populate_anime_from_detail, recalculate_user_anime_progress
 
@@ -58,11 +63,54 @@ def sync_anime_from_provider(
     user = session.get(User, user_id) if user_id is not None else None
     detail = provider.get_anime_detail(anime.external_id, language=user.language_preference if user is not None else None)
     poster = populate_anime_from_detail(session, anime, detail)
+    if user_id is not None:
+        _create_related_anime_deletion_prompts(session, user_id=user_id, anime_id=anime.id)
     _prune_summaries(session, anime_id=anime.id, summaries=detail.summaries)
     _prune_names(session, anime_id=anime.id, names=detail.names, original_title=detail.original_title)
     conflicts = _prune_episodes(session, anime=anime, episodes=detail.episodes, user_id=user_id)
     poster_ids = _poster_ids_to_enqueue(session, anime_id=anime.id, poster=poster)
     return AnimeSyncResult(anime=anime, episode_conflicts=conflicts, poster_ids_to_enqueue=poster_ids)
+
+
+def _create_related_anime_deletion_prompts(session: Session, *, user_id: int, anime_id: int) -> None:
+    stale_relations = session.scalars(
+        select(AnimeRelation).where(
+            AnimeRelation.anime_id == anime_id,
+            AnimeRelation.relation_type == 'same_series_season',
+            AnimeRelation.is_active.is_(False),
+        ),
+    ).all()
+    for relation in stale_relations:
+        existing = session.scalar(
+            select(UserAnimeRelationDeletionPrompt).where(
+                UserAnimeRelationDeletionPrompt.user_id == user_id,
+                UserAnimeRelationDeletionPrompt.anime_relation_id == relation.id,
+            ),
+        )
+        if existing is not None:
+            continue
+        if relation.related_anime_id is not None and session.scalar(
+            select(UserAnimeProgress.id).where(
+                UserAnimeProgress.user_id == user_id,
+                UserAnimeProgress.anime_id == relation.related_anime_id,
+            ),
+        ) is None:
+            continue
+        session.add(
+            UserAnimeRelationDeletionPrompt(
+                user_id=user_id,
+                anime_id=anime_id,
+                related_anime_id=relation.related_anime_id,
+                anime_relation_id=relation.id,
+                provider=relation.provider_type,
+                external_id=relation.external_id,
+                title=relation.title,
+                relation_type=relation.relation_type,
+                season_number=relation.season_number,
+                air_date=relation.air_date,
+                episode_count=relation.episode_count,
+            ),
+        )
 
 
 def resolve_episode_conflicts(

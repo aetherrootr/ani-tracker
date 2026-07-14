@@ -3,15 +3,16 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Repeat2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Repeat2, Search, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { assetUrl, discoverRelatedAnime, getAnimeDetail, getCurrentRelatedAnimeDiscoveryJob, getRelatedAnimeDiscoveryJob, resolveEpisodeConflicts, syncAnime, updateAnimeStatus } from "@/features/library/api";
+import { Input } from "@/components/ui/input";
+import { assetUrl, createManualRelatedAnime, deleteManualRelatedAnime, dismissDeletedRelatedAnime, discoverRelatedAnime, getAnimeDetail, getCurrentRelatedAnimeDiscoveryJob, getLibrary, getManualRelatedAnime, getRelatedAnimeDiscoveryJob, keepDeletedRelatedAnime, resolveEpisodeConflicts, syncAnime, updateAnimeStatus, updateManualRelatedAnime, updateRelatedAnimeOverride, updateRelatedAnimeProviderImport } from "@/features/library/api";
 import { useAnimeDetail } from "@/features/library/hooks";
-import type { Anime, AnimeProgress, EpisodeConflict, LibraryRefreshJob, RelatedAnime, RelatedAnimeDiscoveryResponse, UserAnimeStatus } from "@/features/library/types";
+import type { Anime, AnimeProgress, EpisodeConflict, LibraryItem, LibraryRefreshJob, ManualRelatedAnime, RelatedAnime, RelatedAnimeDiscoveryResponse, UserAnimeStatus } from "@/features/library/types";
 import { addSearchResultToLibrary } from "@/features/search/api";
 import type { DuplicateAnimeConflict, DuplicateResolution } from "@/features/search/types";
 import { ApiError } from "@/lib/api-client";
@@ -59,6 +60,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [isPosterRefreshing, setIsPosterRefreshing] = useState(false);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [providerSwitchOpen, setProviderSwitchOpen] = useState(false);
+  const [manualRelatedOpen, setManualRelatedOpen] = useState(false);
   const [providerSwitchTargetAnimeId, setProviderSwitchTargetAnimeId] = useState<number | null>(null);
   const [providerSwitchConflicts, setProviderSwitchConflicts] = useState<EpisodeConflict[]>([]);
 
@@ -214,6 +216,11 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
 
   function updateAnime(anime: Anime) {
     setData((current) => current ? { ...current, anime } : current);
+  }
+
+  async function refreshDetail() {
+    const refreshed = await getAnimeDetail(animeId);
+    setData(refreshed);
   }
 
   async function syncCurrentAnime() {
@@ -400,7 +407,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                     {isPosterRefreshing ? <span>{t("library.posterRefreshing")}</span> : null}
                   </div>
                 </div>
-                <AnimeHeroSettingsMenu anime={data.anime} onAnimeChange={updateAnime} />
+                <AnimeHeroSettingsMenu anime={data.anime} onAnimeChange={updateAnime} onManageManualRelated={() => setManualRelatedOpen(true)} />
               </div>
               {showOriginal ? <p className="mt-2 text-muted-foreground">{data.anime.originalName}</p> : null}
             </div>
@@ -501,7 +508,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         </div>
       </section>
 
-      <RelatedAnimeSection provider={data.anime.provider} items={data.anime.relatedAnime ?? []} />
+      <RelatedAnimeSection animeId={animeId} provider={data.anime.provider} items={data.anime.relatedAnime ?? []} onRefresh={() => void refreshDetail()} />
+
+      <ManualRelatedAnimeDialog open={manualRelatedOpen} animeId={animeId} currentAnimeTitle={data.anime.displayName} relatedItems={data.anime.relatedAnime ?? []} existingRelatedAnimeIds={(data.anime.relatedAnime ?? []).filter((item) => item.source === "manual" && item.animeId !== null).map((item) => item.animeId as number)} onClose={() => setManualRelatedOpen(false)} onChanged={() => void refreshDetail()} />
 
       <EpisodeList animeId={animeId} refreshKey={episodeRefreshKey} onProgressChange={updateProgress} />
 
@@ -659,7 +668,7 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RelatedAnimeSection({ provider, items }: { provider: string; items: RelatedAnime[] }) {
+function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId: number; provider: string; items: RelatedAnime[]; onRefresh: () => void }) {
   const t = useTranslations();
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -668,7 +677,9 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
   const [selectedItem, setSelectedItem] = useState<RelatedAnime | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [isResolvingDeletion, setIsResolvingDeletion] = useState(false);
   const [duplicateConflict, setDuplicateConflict] = useState<DuplicateAnimeConflict | null>(null);
+  const hasFallback = items.some((item) => item.source === "fallback");
 
   function updateScrollHints() {
     const element = scrollRef.current;
@@ -720,6 +731,40 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
     }
   }
 
+  async function keepRemovedRelation(item: RelatedAnime) {
+    if (item.deletionPromptId === undefined) {
+      return;
+    }
+    setIsResolvingDeletion(true);
+    setAddError(null);
+    try {
+      await keepDeletedRelatedAnime(animeId, item.deletionPromptId);
+      closeDialog();
+      onRefresh();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsResolvingDeletion(false);
+    }
+  }
+
+  async function dismissRemovedRelation(item: RelatedAnime) {
+    if (item.deletionPromptId === undefined) {
+      return;
+    }
+    setIsResolvingDeletion(true);
+    setAddError(null);
+    try {
+      await dismissDeletedRelatedAnime(animeId, item.deletionPromptId);
+      closeDialog();
+      onRefresh();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsResolvingDeletion(false);
+    }
+  }
+
   useEffect(() => {
     updateScrollHints();
     const element = scrollRef.current;
@@ -743,6 +788,7 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
         <h2 className="text-xl font-semibold tracking-tight">{t("library.relatedAnimeTitle")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeDescription", { provider })}</p>
       </div>
+      {hasFallback ? <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">{t("library.relatedAnimeFallbackNotice")}</p> : null}
       <div className="relative">
         {canScrollLeft ? (
           <button
@@ -765,8 +811,16 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
           </button>
         ) : null}
       <div ref={scrollRef} className="scrollbar-none flex gap-3 overflow-x-auto overscroll-x-contain pb-1" onScroll={updateScrollHints}>
-        {items.map((item) => {
+        {items.map((item, index) => {
+          const key = relatedAnimeItemKey(item, index);
           const poster = assetUrl(item.posterUrl);
+          const badges = [
+            item.source === "fallback" ? t("library.relatedAnimeBadgeFallback") : null,
+            item.source === "manual" ? t("library.relatedAnimeBadgeManual") : null,
+            item.mappedByOverride ? t("library.relatedAnimeBadgeMapped") : null,
+            item.pendingUpstreamDeletion ? t("library.relatedAnimeBadgeRemoved") : null,
+            item.needsManualMapping ? t("library.relatedAnimeBadgeNeedsMapping") : null,
+          ].filter(Boolean);
           const content = (
             <>
               <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-xl border bg-muted">
@@ -776,6 +830,11 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
               </div>
               <span className="min-w-0">
                 <span className="line-clamp-2 block font-medium leading-snug text-foreground">{item.title}</span>
+                {badges.length > 0 ? (
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    {badges.map((badge) => <Badge key={badge} variant="secondary" className="text-[10px]">{badge}</Badge>)}
+                  </span>
+                ) : null}
                 <span className="mt-1 block text-xs text-muted-foreground">
                   {item.airDate ?? t("library.relatedAnimeTba")}
                   {item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}
@@ -783,11 +842,18 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
               </span>
             </>
           );
-          const className = "flex min-h-24 w-80 shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent sm:w-96";
-          if (item.inLibrary && item.animeId !== null) {
-            return <Link key={item.externalId} href={`/library/${item.animeId}`} className={className}>{content}</Link>;
+          const className = "flex min-h-28 w-80 shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent sm:w-96";
+          const cardContent = content;
+          if (item.pendingUpstreamDeletion) {
+            return <button key={key} type="button" className={`${className} text-left`} onClick={() => setSelectedItem(item)}>{cardContent}</button>;
           }
-          return <button key={item.externalId} type="button" className={`${className} text-left`} onClick={() => setSelectedItem(item)}>{content}</button>;
+          if (item.inLibrary && item.animeId !== null) {
+            return <div key={key} role="button" tabIndex={0} className={`${className} cursor-pointer`} onClick={() => router.push(`/library/${item.animeId}`)} onKeyDown={(event) => { if (event.key === "Enter") router.push(`/library/${item.animeId}`); }}>{cardContent}</div>;
+          }
+          if (item.source === "manual") {
+            return <div key={key} className={className}>{cardContent}</div>;
+          }
+          return <button key={key} type="button" className={`${className} text-left`} onClick={() => setSelectedItem(item)}>{cardContent}</button>;
         })}
       </div>
       </div>
@@ -795,8 +861,8 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
         <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="related-anime-action-title" onClick={closeDialog}>
           <div className="glass-dialog flex max-h-[90svh] w-full max-w-xl flex-col rounded-2xl border text-foreground" onClick={(event) => event.stopPropagation()}>
             <div className="border-b p-5">
-              <h2 id="related-anime-action-title" className="text-lg font-semibold tracking-tight">{t("library.relatedAnimeActionTitle")}</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{t("library.relatedAnimeActionDescription")}</p>
+              <h2 id="related-anime-action-title" className="text-lg font-semibold tracking-tight">{selectedItem.pendingUpstreamDeletion ? t("library.relatedAnimeDeletionTitle") : t("library.relatedAnimeActionTitle")}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{selectedItem.pendingUpstreamDeletion ? t("library.relatedAnimeDeletionDescription") : t("library.relatedAnimeActionDescription")}</p>
               <div className="mt-4 rounded-2xl border bg-background/50 p-4">
                 <div className="flex items-start gap-3">
                   <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-xl border bg-muted">
@@ -834,20 +900,356 @@ function RelatedAnimeSection({ provider, items }: { provider: string; items: Rel
             ) : null}
 
             <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" disabled={isAdding} onClick={closeDialog}>{t("library.cancel")}</Button>
-              {selectedItem.url ? (
+              <Button type="button" variant="outline" disabled={isAdding || isResolvingDeletion} onClick={closeDialog}>{t("library.cancel")}</Button>
+              {selectedItem.pendingUpstreamDeletion ? (
+                <>
+                  <Button type="button" variant="outline" disabled={isResolvingDeletion} onClick={() => void dismissRemovedRelation(selectedItem)}>{t("library.relatedAnimeDismissRemoved")}</Button>
+                  <Button type="button" disabled={isResolvingDeletion} onClick={() => void keepRemovedRelation(selectedItem)}>{t("library.relatedAnimeKeepManual")}</Button>
+                </>
+              ) : selectedItem.url ? (
                 <a className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={selectedItem.url} target="_blank" rel="noreferrer">
                   {t("library.relatedAnimeVisitProvider")}
                 </a>
               ) : null}
-              <Button type="button" disabled={isAdding} onClick={() => void addRelatedToLibrary(selectedItem, duplicateConflict ? { useCurrentProvider: true } : undefined)}>
+              {!selectedItem.pendingUpstreamDeletion ? <Button type="button" disabled={isAdding} onClick={() => void addRelatedToLibrary(selectedItem, duplicateConflict ? { useCurrentProvider: true } : undefined)}>
                 {duplicateConflict ? t("search.useCurrentProvider") : isAdding ? t("search.addingToLibrary") : t("library.relatedAnimeAddToLibrary")}
-              </Button>
+              </Button> : null}
             </div>
           </div>
         </div>
       ) : null}
     </section>
+  );
+}
+
+function relatedAnimeItemKey(item: RelatedAnime, index: number) {
+  if (item.manualRelationId !== undefined && item.manualRelationId !== null) {
+    return `manual:${item.manualRelationId}`;
+  }
+  if (item.relationId !== undefined && item.relationId !== null) {
+    return `relation:${item.relationId}:${item.source ?? "provider"}:${item.animeId ?? "none"}`;
+  }
+  if (item.deletionPromptId !== undefined) {
+    return `prompt:${item.deletionPromptId}`;
+  }
+  return `${item.provider}:${item.externalId}:${item.source ?? "provider"}:${item.animeId ?? "none"}:${index}`;
+}
+
+function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, onClose, onSelect }: { open: boolean; title: string; initialQuery?: string; excludeAnimeIds?: number[]; onClose: () => void; onSelect: (anime: Anime) => void }) {
+  const t = useTranslations();
+  const [query, setQuery] = useState(initialQuery ?? "");
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const excludedIds = (excludeAnimeIds ?? []).join(",");
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const controller = new AbortController();
+    const excluded = new Set(excludedIds ? excludedIds.split(",") : []);
+    getLibrary({
+      q: query,
+      status: "all",
+      provider: "all",
+      list: "all",
+      seasonZero: "exclude",
+      sort: "name",
+      order: "asc",
+      pageSize: 20,
+      page: 1,
+      signal: controller.signal,
+    })
+      .then((response) => {
+        setError(null);
+        setItems(response.items.filter((item) => !excluded.has(String(item.anime.id))));
+      })
+      .catch((err: unknown) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+        }
+      });
+    return () => controller.abort();
+  }, [excludedIds, open, query, t]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[90] flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div className="glass-dialog flex max-h-[85svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
+        <div className="border-b p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">{title}</h2>
+            <Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          </div>
+          <label className="mt-4 flex items-center gap-2 rounded-2xl border bg-background/50 px-3 py-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("library.libraryPickerSearch")} className="border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" />
+          </label>
+        </div>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+          {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+          {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.libraryPickerEmpty")}</p> : null}
+          {items.map((item) => {
+            const poster = assetUrl(item.anime.posterUrl);
+            return (
+              <button key={item.anime.id} type="button" className="flex w-full items-center gap-3 rounded-2xl border bg-card p-3 text-left transition-colors hover:bg-accent" onClick={() => onSelect(item.anime)}>
+                <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-xl border bg-muted">
+                  {poster ? <Image src={poster} alt="" fill unoptimized sizes="56px" className="object-cover" /> : <NoPoster />}
+                </div>
+                <span className="min-w-0">
+                  <span className="line-clamp-1 block font-medium">{item.anime.displayName}</span>
+                  <span className="line-clamp-1 block text-sm text-muted-foreground">{item.anime.originalName}</span>
+                  <span className="mt-1 flex flex-wrap gap-1 text-xs text-muted-foreground">
+                    <Badge variant="outline">{item.anime.provider}</Badge>
+                    {item.anime.airDate ? <Badge variant="secondary">{item.anime.airDate}</Badge> : null}
+                    {item.anime.totalEpisodes !== null ? <Badge variant="secondary">{t("library.relatedAnimeEpisodeCount", { count: item.anime.totalEpisodes })}</Badge> : null}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedItems, existingRelatedAnimeIds, onClose, onChanged }: { open: boolean; animeId: number; currentAnimeTitle: string; relatedItems: RelatedAnime[]; existingRelatedAnimeIds: number[]; onClose: () => void; onChanged: () => void }) {
+  const t = useTranslations();
+  const [items, setItems] = useState<ManualRelatedAnime[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [mappingItem, setMappingItem] = useState<RelatedAnime | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadManualRelated(signal?: AbortSignal) {
+    try {
+      const response = await getManualRelatedAnime(animeId, signal);
+      setError(null);
+      setItems(response.manualRelatedAnime);
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : t("library.manualRelatedLoadFailed"));
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const controller = new AbortController();
+    getManualRelatedAnime(animeId, controller.signal)
+      .then((response) => {
+        setError(null);
+        setItems(response.manualRelatedAnime);
+      })
+      .catch((err: unknown) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          setError(err instanceof Error ? err.message : t("library.manualRelatedLoadFailed"));
+        }
+      });
+    return () => controller.abort();
+  }, [animeId, open, t]);
+
+  async function addManualRelation(anime: Anime) {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await createManualRelatedAnime(animeId, anime.id);
+      setPickerOpen(false);
+      await loadManualRelated();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function saveNote(item: ManualRelatedAnime) {
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await updateManualRelatedAnime(animeId, item.id, { note });
+      setItems((current) => current.map((entry) => entry.id === item.id ? response.manualRelation : entry));
+      setEditingId(null);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function deleteManualRelation(item: ManualRelatedAnime) {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await deleteManualRelatedAnime(animeId, item.id);
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function mapRelatedToLibrary(item: RelatedAnime, targetAnimeId: number) {
+    if (item.relationId === undefined || item.relationId === null) {
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateRelatedAnimeOverride(animeId, item.relationId, targetAnimeId);
+      setMappingItem(null);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function clearRelatedMapping(item: RelatedAnime) {
+    if (item.relationId === undefined || item.relationId === null) {
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateRelatedAnimeOverride(animeId, item.relationId, null);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function toggleProviderImport(item: RelatedAnime, allowProviderImport: boolean) {
+    if (item.relationId === undefined || item.relationId === null) {
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateRelatedAnimeProviderImport(animeId, item.relationId, allowProviderImport);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.relatedAnimeSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const configurableRelatedItems = relatedItems.filter((item) => item.source !== "manual" && item.relationId !== undefined && item.relationId !== null);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div className="glass-dialog flex max-h-[88svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
+        <div className="border-b p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">{t("library.manualRelatedTitle")}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{currentAnimeTitle} · {t("library.manualRelatedDescription")}</p>
+            </div>
+            <Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          </div>
+          <Button type="button" className="mt-4" disabled={isSaving} onClick={() => setPickerOpen(true)}><Plus className="h-4 w-4" />{t("library.manualRelatedAdd")}</Button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+          {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.manualRelatedEmpty")}</p> : null}
+          {items.map((item) => (
+            <div key={item.id} className="rounded-2xl border bg-card p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <Link className="font-medium hover:underline" href={`/library/${item.relatedAnimeId}`}>{item.relatedAnimeTitle}</Link>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.relationType}</p>
+                  {editingId === item.id ? (
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("library.manualRelatedNotePlaceholder")} />
+                      <Button type="button" disabled={isSaving} onClick={() => void saveNote(item)}>{t("library.manualRelatedSaveNote")}</Button>
+                    </div>
+                  ) : item.note ? <p className="mt-2 text-sm text-muted-foreground">{item.note}</p> : null}
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button type="button" variant="outline" disabled={isSaving} onClick={() => { setEditingId(item.id); setNote(item.note ?? ""); }}>{t("library.manualRelatedEditNote")}</Button>
+                  <Button type="button" variant="outline" disabled={isSaving} onClick={() => void deleteManualRelation(item)}>{t("library.manualRelatedDelete")}</Button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {configurableRelatedItems.length > 0 ? (
+            <div className="space-y-3 border-t pt-4">
+              <div>
+                <h3 className="font-semibold">{t("library.relatedAnimeMappingTitle")}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeMappingDescription")}</p>
+              </div>
+              {configurableRelatedItems.map((item) => (
+                <div key={`${item.externalId}-${item.relationId ?? item.deletionPromptId ?? "prompt"}`} className="rounded-2xl border bg-background/50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{item.provider}</Badge>
+                        {item.source === "fallback" ? <Badge variant="secondary">{t("library.relatedAnimeBadgeFallback")}</Badge> : null}
+                        {item.mappedByOverride ? <Badge variant="secondary">{t("library.relatedAnimeBadgeMapped")}</Badge> : null}
+                        {item.pendingUpstreamDeletion ? <Badge variant="secondary">{t("library.relatedAnimeBadgeRemoved")}</Badge> : null}
+                        {item.needsManualMapping ? <Badge variant="secondary">{t("library.relatedAnimeBadgeNeedsMapping")}</Badge> : null}
+                      </div>
+                      <p className="mt-2 font-medium">{item.title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.airDate ?? t("library.relatedAnimeTba")}{item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}</p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      {item.relationId !== undefined && item.relationId !== null ? <Button type="button" variant="outline" disabled={isSaving} onClick={() => setMappingItem(item)}>{t("library.relatedAnimeMapToLibrary")}</Button> : null}
+                      {item.mappedByOverride && item.relationId !== undefined && item.relationId !== null ? <Button type="button" variant="outline" disabled={isSaving} onClick={() => void clearRelatedMapping(item)}>{t("library.relatedAnimeClearMapping")}</Button> : null}
+                    </div>
+                  </div>
+                  {item.mappedByOverride && item.relationId !== undefined && item.relationId !== null ? (
+                    <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
+                      <span className="text-sm text-muted-foreground">{t("library.relatedAnimeAllowProviderImport")}</span>
+                      <DangerSwitch checked={item.allowProviderImport === true} disabled={isSaving} onChange={(checked) => void toggleProviderImport(item, checked)} />
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <LibraryAnimePickerDialog open={pickerOpen} title={t("library.libraryPickerTitle")} excludeAnimeIds={[animeId, ...existingRelatedAnimeIds, ...items.map((item) => item.relatedAnimeId)]} onClose={() => setPickerOpen(false)} onSelect={(anime) => void addManualRelation(anime)} />
+      <LibraryAnimePickerDialog open={mappingItem !== null} title={t("library.libraryPickerTitle")} excludeAnimeIds={[animeId]} initialQuery={mappingItem?.title ?? ""} onClose={() => setMappingItem(null)} onSelect={(anime) => { if (mappingItem) void mapRelatedToLibrary(mappingItem, anime.id); }} />
+    </div>
+  );
+}
+
+function DangerSwitch({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      className={cn(
+        "inline-flex h-7 w-12 shrink-0 items-center rounded-full border p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "border-red-500 bg-red-500" : "border-border bg-muted",
+      )}
+      onClick={() => onChange(!checked)}
+    >
+      <span className={cn("h-5 w-5 rounded-full bg-background shadow-sm transition-transform", checked && "translate-x-5")} />
+    </button>
   );
 }
 

@@ -63,6 +63,24 @@ export type RelatedAnime = {
   episodeCount: number | null;
   url: string | null;
   posterUrl: string | null;
+  source?: "provider" | "fallback" | "manual";
+  mappedByOverride?: boolean;
+  needsManualMapping?: boolean;
+  pendingUpstreamDeletion?: boolean;
+  relationId?: number | null;
+  manualRelationId?: number | null;
+  deletionPromptId?: number;
+  allowProviderImport?: boolean | null;
+};
+
+export type ManualRelatedAnime = {
+  id: number;
+  animeId: number;
+  relatedAnimeId: number;
+  relatedAnimeTitle: string;
+  relationType: string;
+  note: string | null;
+  createdFromAnimeRelationId: number | null;
 };
 
 export type AnimeProgress = {
@@ -236,4 +254,8 @@ export type ProviderSwitchResponse = {
   progress: AnimeProgress;
   previousAnimeId: number;
   episodeConflicts: EpisodeConflict[];
+  relatedAnimeMode?: "provider" | "fallback" | "none";
+  autoMappedCount?: number;
+  manualMappingRequiredCount?: number;
+  fallbackRelationCount?: number;
 };

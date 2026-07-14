@@ -30,9 +30,11 @@ from app.models.anime import (
 )
 from app.models.progress import (
     UserAnimeProgress,
+    UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
     UserAnimeStatus,
     UserEpisodeProgress,
+    UserManualAnimeRelation,
 )
 from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
@@ -57,6 +59,18 @@ class ProviderSwitchResult:
     progress: UserAnimeProgress
     previous_anime_id: int
     episode_conflicts: list[Any]
+    related_anime_mode: str
+    related_auto_mapped_count: int
+    related_manual_mapping_required_count: int
+    related_fallback_relation_count: int
+
+
+@dataclass(frozen=True)
+class ProviderSwitchRelatedAnimeResult:
+    related_anime_mode: str
+    auto_mapped_count: int
+    manual_mapping_required_count: int
+    fallback_relation_count: int
 
 
 def import_anime_from_provider(
@@ -274,7 +288,7 @@ def switch_user_anime_provider(
         recalculate_user_anime_progress(session, progress=target_progress)
         if source_watched and target_progress.status == UserAnimeStatus.PLAN_TO_WATCH:
             target_progress.status = UserAnimeStatus.WATCHING
-        _retarget_user_related_anime_links(
+        related_result = reconcile_related_anime_after_provider_switch(
             session,
             user_id=user_id,
             previous_anime_id=anime_id,
@@ -294,7 +308,67 @@ def switch_user_anime_provider(
         progress=target_progress,
         previous_anime_id=anime_id,
         episode_conflicts=conflicts,
+        related_anime_mode=related_result.related_anime_mode,
+        related_auto_mapped_count=related_result.auto_mapped_count,
+        related_manual_mapping_required_count=related_result.manual_mapping_required_count,
+        related_fallback_relation_count=related_result.fallback_relation_count,
     )
+
+
+def reconcile_related_anime_after_provider_switch(
+    session: Session,
+    *,
+    user_id: int,
+    previous_anime_id: int,
+    target_anime_id: int,
+) -> ProviderSwitchRelatedAnimeResult:
+    _retarget_user_related_anime_links(
+        session,
+        user_id=user_id,
+        previous_anime_id=previous_anime_id,
+        target_anime_id=target_anime_id,
+    )
+    _retarget_user_manual_anime_relations(
+        session,
+        user_id=user_id,
+        previous_anime_id=previous_anime_id,
+        target_anime_id=target_anime_id,
+    )
+    _retarget_user_deletion_prompts(
+        session,
+        user_id=user_id,
+        previous_anime_id=previous_anime_id,
+        target_anime_id=target_anime_id,
+    )
+    provider_relations = session.scalars(
+        select(AnimeRelation).where(
+            AnimeRelation.anime_id == target_anime_id,
+            AnimeRelation.relation_type == 'same_series_season',
+            AnimeRelation.is_active.is_(True),
+        ),
+    ).all()
+    auto_mapped_count = 0
+    manual_mapping_required_count = 0
+    for relation in provider_relations:
+        if relation.related_anime_id is not None and get_user_progress(session, user_id=user_id, anime_id=relation.related_anime_id) is not None:
+            auto_mapped_count += 1
+            continue
+        related_anime_id = session.scalar(
+            select(AnimeMetaInfo.id).where(
+                AnimeMetaInfo.provider_type == relation.provider_type,
+                AnimeMetaInfo.external_id == relation.external_id,
+            ),
+        )
+        if related_anime_id is not None and get_user_progress(session, user_id=user_id, anime_id=related_anime_id) is not None:
+            relation.related_anime_id = related_anime_id
+            relation.poster_id = _relation_poster_id(session, related_anime_id=related_anime_id)
+            auto_mapped_count += 1
+        else:
+            manual_mapping_required_count += 1
+    if provider_relations:
+        return ProviderSwitchRelatedAnimeResult('provider', auto_mapped_count, manual_mapping_required_count, 0)
+    fallback_relation_count = len(_fallback_related_relations(session, user_id=user_id, anime_id=target_anime_id))
+    return ProviderSwitchRelatedAnimeResult('fallback' if fallback_relation_count else 'none', 0, 0, fallback_relation_count)
 
 
 def _add_anime_progress(
@@ -457,6 +531,101 @@ def _retarget_user_related_anime_links(
             override.related_anime_id = target_anime_id
 
 
+def _retarget_user_manual_anime_relations(
+    session: Session,
+    *,
+    user_id: int,
+    previous_anime_id: int,
+    target_anime_id: int,
+) -> None:
+    if previous_anime_id == target_anime_id:
+        return
+    relations = session.scalars(
+        select(UserManualAnimeRelation).where(
+            UserManualAnimeRelation.user_id == user_id,
+            (UserManualAnimeRelation.anime_id_low == previous_anime_id) | (UserManualAnimeRelation.anime_id_high == previous_anime_id),
+        ),
+    ).all()
+    for relation in relations:
+        other_id = relation.anime_id_high if relation.anime_id_low == previous_anime_id else relation.anime_id_low
+        if other_id == target_anime_id:
+            session.delete(relation)
+            continue
+        low_id, high_id = sorted((target_anime_id, other_id))
+        duplicate = session.scalar(
+            select(UserManualAnimeRelation).where(
+                UserManualAnimeRelation.user_id == user_id,
+                UserManualAnimeRelation.anime_id_low == low_id,
+                UserManualAnimeRelation.anime_id_high == high_id,
+                UserManualAnimeRelation.relation_type == relation.relation_type,
+                UserManualAnimeRelation.id != relation.id,
+            ),
+        )
+        if duplicate is not None:
+            session.delete(relation)
+            continue
+        relation.anime_id_low = low_id
+        relation.anime_id_high = high_id
+
+
+def _retarget_user_deletion_prompts(
+    session: Session,
+    *,
+    user_id: int,
+    previous_anime_id: int,
+    target_anime_id: int,
+) -> None:
+    if previous_anime_id == target_anime_id:
+        return
+    prompts = session.scalars(
+        select(UserAnimeRelationDeletionPrompt).where(
+            UserAnimeRelationDeletionPrompt.user_id == user_id,
+            UserAnimeRelationDeletionPrompt.status == 'pending',
+            (UserAnimeRelationDeletionPrompt.anime_id == previous_anime_id)
+            | (UserAnimeRelationDeletionPrompt.related_anime_id == previous_anime_id),
+        ),
+    ).all()
+    for prompt in prompts:
+        if prompt.anime_id == previous_anime_id:
+            prompt.anime_id = target_anime_id
+        if prompt.related_anime_id == previous_anime_id:
+            prompt.related_anime_id = target_anime_id
+
+
+def _fallback_related_relations(session: Session, *, user_id: int, anime_id: int) -> list[AnimeRelation]:
+    overrides = session.scalars(
+        select(UserAnimeRelationOverride).where(
+            UserAnimeRelationOverride.user_id == user_id,
+            UserAnimeRelationOverride.related_anime_id == anime_id,
+        ),
+    ).all()
+    if not overrides:
+        return []
+    relation_ids = [override.anime_relation_id for override in overrides]
+    previous_source_ids = {
+        relation.related_anime_id
+        for relation in session.scalars(select(AnimeRelation).where(AnimeRelation.id.in_(relation_ids))).all()
+        if relation.related_anime_id is not None and relation.related_anime_id != anime_id
+    }
+    if previous_source_ids:
+        source_relations = session.scalars(
+            select(AnimeRelation).where(
+                AnimeRelation.anime_id.in_(previous_source_ids),
+                AnimeRelation.relation_type == 'same_series_season',
+                AnimeRelation.is_active.is_(True),
+            ),
+        ).all()
+        if source_relations:
+            return list(source_relations)
+    return list(session.scalars(
+        select(AnimeRelation).where(
+            AnimeRelation.id.in_(relation_ids),
+            AnimeRelation.relation_type == 'same_series_season',
+            AnimeRelation.is_active.is_(True),
+        ),
+    ).all())
+
+
 def get_user_progress(session: Session, *, user_id: int, anime_id: int) -> UserAnimeProgress | None:
     return session.scalar(
         select(UserAnimeProgress).where(
@@ -482,9 +651,34 @@ def update_user_anime_status(
         )
         progress.last_watched_episode_number = 0
         progress.last_watched_at = None
+    elif status == UserAnimeStatus.DROPPED:
+        _delete_user_related_anime_state_for_anime(session, user_id=progress.user_id, anime_id=progress.anime_id)
     progress.status = status
     session.commit()
     return progress
+
+
+def _delete_user_related_anime_state_for_anime(session: Session, *, user_id: int, anime_id: int) -> None:
+    relation_ids_from_anime = select(AnimeRelation.id).where(AnimeRelation.anime_id == anime_id)
+    session.execute(
+        delete(UserAnimeRelationOverride).where(
+            UserAnimeRelationOverride.user_id == user_id,
+            (UserAnimeRelationOverride.related_anime_id == anime_id)
+            | (UserAnimeRelationOverride.anime_relation_id.in_(relation_ids_from_anime)),
+        ),
+    )
+    session.execute(
+        delete(UserManualAnimeRelation).where(
+            UserManualAnimeRelation.user_id == user_id,
+            (UserManualAnimeRelation.anime_id_low == anime_id) | (UserManualAnimeRelation.anime_id_high == anime_id),
+        ),
+    )
+    session.execute(
+        delete(UserAnimeRelationDeletionPrompt).where(
+            UserAnimeRelationDeletionPrompt.user_id == user_id,
+            (UserAnimeRelationDeletionPrompt.anime_id == anime_id) | (UserAnimeRelationDeletionPrompt.related_anime_id == anime_id),
+        ),
+    )
 
 
 def set_episode_watch_state(
@@ -774,6 +968,8 @@ def _upsert_related_anime(session: Session, anime: AnimeMetaInfo, related_items:
         relation.episode_count = item.episode_count
         relation.url = item.url
         relation.poster_source_url = item.poster_source_url
+        relation.is_active = True
+        relation.removed_at = None
 
     stale_same_series = session.scalars(
         select(AnimeRelation).where(
@@ -783,7 +979,8 @@ def _upsert_related_anime(session: Session, anime: AnimeMetaInfo, related_items:
     ).all()
     for relation in stale_same_series:
         if (relation.provider_type, relation.external_id, relation.relation_type) not in active_keys:
-            session.delete(relation)
+            relation.is_active = False
+            relation.removed_at = datetime.now(UTC)
 
     session.flush()
     session.execute(

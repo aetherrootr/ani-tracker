@@ -16,7 +16,7 @@ import { NoPoster } from "./NoPoster";
 
 type Dialog = "name" | "poster" | "summary" | null;
 
-export function AnimeHeroSettingsMenu({ anime, onAnimeChange }: { anime: Anime; onAnimeChange: (anime: Anime) => void }) {
+export function AnimeHeroSettingsMenu({ anime, onAnimeChange, onManageManualRelated }: { anime: Anime; onAnimeChange: (anime: Anime) => void; onManageManualRelated?: () => void }) {
   const t = useTranslations();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -76,6 +76,7 @@ export function AnimeHeroSettingsMenu({ anime, onAnimeChange }: { anime: Anime; 
             <MenuButton onClick={() => { setDialog("name"); setMenuOpen(false); }}>{t("library.changeTitle")}</MenuButton>
             <MenuButton onClick={() => { setDialog("poster"); setMenuOpen(false); }}>{t("library.changePoster")}</MenuButton>
             <MenuButton onClick={() => { setDialog("summary"); setMenuOpen(false); }}>{t("library.summaryPreference")}</MenuButton>
+            {onManageManualRelated ? <MenuButton onClick={() => { onManageManualRelated(); setMenuOpen(false); }}>{t("library.manageManualRelatedAnime")}</MenuButton> : null}
           </div>
         ) : null}
       </div>
