@@ -1,5 +1,9 @@
 import type { MetadataRoute } from "next";
 
+import { pwaIcon192Url, pwaIcon512Url, pwaMaskableIconUrl } from "@/lib/app-branding";
+
+export const dynamic = "force-dynamic";
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Ani Tracker",
@@ -13,17 +17,17 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#fafafa",
     icons: [
       {
-        src: "/icon-192x192.png",
+        src: pwaIcon192Url,
         sizes: "192x192",
         type: "image/png",
       },
       {
-        src: "/icon-512x512.png",
+        src: pwaIcon512Url,
         sizes: "512x512",
         type: "image/png",
       },
       {
-        src: "/icon-maskable-512x512.png",
+        src: pwaMaskableIconUrl,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
