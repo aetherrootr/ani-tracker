@@ -5,6 +5,8 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from operator import itemgetter
+from typing import Any
 from uuid import uuid4
 
 from flask import Blueprint, current_app, jsonify, request
@@ -1093,6 +1095,7 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
         for prompt in sorted(pending_prompts, key=lambda item: item.id)
         if prompt.anime_relation_id not in visible_relation_ids and prompt.related_anime_id not in manual_target_ids
     )
+    related_anime_items = _dedupe_related_anime_items(related_anime_items)
     return jsonify(
         {
             'anime': serialize_anime(
@@ -1115,6 +1118,31 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
             },
         },
     )
+
+
+def _dedupe_related_anime_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: dict[tuple[object, object], tuple[int, int, dict[str, Any]]] = {}
+    for index, item in enumerate(items):
+        anime_id = item.get('animeId')
+        identity = anime_id if anime_id is not None else (item.get('provider'), item.get('externalId'))
+        key = (identity, item.get('relationType'))
+        priority = _related_anime_item_priority(item)
+        existing = selected.get(key)
+        if existing is None or priority > existing[0]:
+            selected[key] = (priority, index, item)
+    return [item for _priority, _index, item in sorted(selected.values(), key=itemgetter(1))]
+
+
+def _related_anime_item_priority(item: dict[str, Any]) -> int:
+    if item.get('source') == 'manual':
+        return 4
+    if item.get('mappedByOverride') or item.get('pendingUpstreamDeletion'):
+        return 3
+    if item.get('source') == 'provider':
+        return 2
+    if item.get('source') == 'fallback':
+        return 1
+    return 0
 
 
 def _serialize_manual_related_anime(
