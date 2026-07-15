@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 from flask.typing import ResponseReturnValue
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.utils.auth import require_auth_user
@@ -13,73 +13,28 @@ from app.api.utils.parsing import (
 )
 from app.api.utils.serializers import (
     select_episode_name_for_user,
-    serialize_anime,
     serialize_episode_name,
     serialize_episode_with_watch_state,
-    serialize_progress,
 )
-from app.models.anime import (
-    AnimeMetaInfo,
-    Episode,
-    EpisodeName,
-)
+from app.models.anime import Episode, EpisodeName
 from app.models.progress import (
-    get_anime_episodes_with_watch_state,
+    UserAnimeMetadataSource,
 )
 from app.models.user import User
 from app.services.anime_library import (
+    get_episode_rows_for_progress,
     get_user_progress,
     set_episode_name_preference,
-)
-from app.services.anime_sync import (
-    resolve_episode_conflicts,
 )
 
 anime_episodes_bp = Blueprint("anime_episodes", __name__)
 
 
-@anime_episodes_bp.post('/library/<int:anime_id>/sync/episode-conflicts/resolve')
-@require_auth_user
-def resolve_library_anime_sync_episode_conflicts(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict) or not isinstance(payload.get('deleteEpisodeIds'), list):
-        return jsonify({'message': 'deleteEpisodeIds is required'}), 400
-    delete_episode_ids = payload['deleteEpisodeIds']
-    if not all(isinstance(episode_id, int) for episode_id in delete_episode_ids):
-        return jsonify({'message': 'deleteEpisodeIds is invalid'}), 400
-
-    try:
-        summary = resolve_episode_conflicts(
-            db,
-            anime_id=anime_id,
-            user_id=user.id,
-            delete_episode_ids=delete_episode_ids,
-        )
-        if summary is None:
-            db.rollback()
-            return jsonify({'message': 'Anime not found'}), 404
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
-    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
-    anime = db.get(AnimeMetaInfo, anime_id)
-    if progress is None or anime is None:
-        return jsonify({'message': 'Anime not found'}), 404
-    return jsonify(
-        {
-            'anime': serialize_anime(anime, progress, user),
-            'progress': serialize_progress(progress),
-            'resolution': summary,
-        },
-    )
-
-
 @anime_episodes_bp.get('/library/<int:anime_id>/episodes')
 @require_auth_user
 def list_episodes(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
-    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None:
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
         return jsonify({'message': 'Anime not found'}), 404
     limit, error = parse_library_limit(request.args.get('limit'), default=200, maximum=500)
     if error is not None:
@@ -87,11 +42,10 @@ def list_episodes(db: Session, user: User, anime_id: int) -> ResponseReturnValue
     offset, error = parse_library_offset(request.args.get('offset'))
     if error is not None:
         return jsonify({'message': error}), 400
-    rows = get_anime_episodes_with_watch_state(db, anime_id=anime_id, user_id=user.id, limit=limit, offset=offset)
-    total = db.scalar(select(func.count(Episode.id)).where(Episode.anime_id == anime_id)) or 0
+    rows, total, is_local_snapshot = get_episode_rows_for_progress(db, progress=progress, limit=limit, offset=offset)
     episode_ids = [row['episode_id'] for row in rows]
     names_by_episode: dict[int, list[EpisodeName]] = {episode_id: [] for episode_id in episode_ids}
-    if episode_ids:
+    if episode_ids and not is_local_snapshot:
         episode_names = db.scalars(
             select(EpisodeName)
             .where(EpisodeName.episode_id.in_(episode_ids))
@@ -139,6 +93,8 @@ def update_episode_name_preference(db: Session, user: User, anime_id: int, episo
     if name_id is not None and not isinstance(name_id, int):
         return jsonify({'message': 'nameId is invalid'}), 400
     progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is not None and progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        return jsonify({'message': 'Episode title preference is disabled for local snapshots'}), 400
     episode = db.get(Episode, episode_id)
     if progress is None or episode is None or episode.anime_id != anime_id:
         return jsonify({'message': 'Episode not found'}), 404

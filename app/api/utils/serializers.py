@@ -13,7 +13,12 @@ from app.models.anime import (
     AnimeSummary,
     EpisodeName,
 )
-from app.models.progress import UserAnimeProgress, UserAnimeStatus
+from app.models.progress import (
+    UserAnimeMetadataEpisodeSnapshot,
+    UserAnimeMetadataSnapshot,
+    UserAnimeProgress,
+    UserAnimeStatus,
+)
 from app.models.user import User
 from app.services.anime_library import DuplicateAnimeCandidate
 from app.services.name_keys import build_name_keys
@@ -165,7 +170,7 @@ def serialize_anime_name(name: AnimeName | None) -> dict[str, Any] | None:
     return {'id': name.id, 'language': name.language, 'name': name.name}
 
 
-def serialize_progress(progress: UserAnimeProgress, *, include_anime_id: bool = False) -> dict[str, Any]:
+def serialize_progress(progress: UserAnimeProgress, *, include_anime_id: bool = False, has_local_snapshot: bool | None = None) -> dict[str, Any]:
     data = {
         'id': progress.id,
         'status': progress.status.value,
@@ -174,10 +179,43 @@ def serialize_progress(progress: UserAnimeProgress, *, include_anime_id: bool = 
         'preferredNameId': progress.preferred_name_id,
         'preferredSummaryId': progress.preferred_summary_id,
         'preferredPosterId': progress.preferred_poster_id,
+        'metadataSource': progress.metadata_source,
+        'hasLocalSnapshot': (progress.metadata_snapshot_id is not None) if has_local_snapshot is None else has_local_snapshot,
     }
     if include_anime_id:
         data['animeId'] = progress.anime_id
     return data
+
+
+def serialize_metadata_snapshot(snapshot: UserAnimeMetadataSnapshot | None, *, include_episodes: bool = False) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    data: dict[str, Any] = {
+        'id': snapshot.id,
+        'sourceAnimeId': snapshot.source_anime_id,
+        'sourceProvider': snapshot.source_provider,
+        'sourceExternalId': snapshot.source_external_id,
+        'sourceTitle': snapshot.source_title,
+        'episodeCount': snapshot.episode_count,
+        'createdAt': snapshot.created_at.isoformat(),
+        'updatedAt': snapshot.updated_at.isoformat(),
+    }
+    if include_episodes:
+        data['episodes'] = [serialize_metadata_snapshot_episode(episode) for episode in sorted(snapshot.episodes, key=lambda item: item.episode_number)]
+    return data
+
+
+def serialize_metadata_snapshot_episode(episode: UserAnimeMetadataEpisodeSnapshot) -> dict[str, Any]:
+    return {
+        'id': episode.id,
+        'episodeNumber': episode.episode_number,
+        'displayName': episode.title,
+        'airAt': episode.air_at.isoformat() if episode.air_at is not None else None,
+        'duration': episode.duration,
+        'status': episode.status,
+        'watched': episode.watched,
+        'watchedAt': episode.watched_at.isoformat() if episode.watched_at is not None else None,
+    }
 
 
 def serialize_library_progress(

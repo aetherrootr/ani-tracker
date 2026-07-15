@@ -13,8 +13,8 @@ import type {
   LibraryRefreshJob,
   LibraryRefreshResponse,
   ManualRelatedAnime,
+  MetadataSourceResponse,
   ProviderSwitchResponse,
-  ResolveEpisodeConflictsResponse,
   LibraryListFilter,
   LibrarySeasonZeroFilter,
   LibrarySort,
@@ -99,10 +99,17 @@ export function getImportProviders(signal?: AbortSignal) {
   return apiFetch<ImportProvidersResponse>("/api/anime/providers", { signal });
 }
 
-export function switchAnimeProvider(animeId: number, provider: string, externalId: string) {
+export function switchAnimeProvider(animeId: number, provider: string, externalId: string, confirm = false) {
   return apiFetch<ProviderSwitchResponse>(`/api/anime/library/${animeId}/provider-switch`, {
     method: "POST",
-    body: JSON.stringify({ provider, externalId }),
+    body: JSON.stringify({ provider, externalId, confirm }),
+  });
+}
+
+export function updateMetadataSource(animeId: number, source: "upstream" | "local_snapshot") {
+  return apiFetch<MetadataSourceResponse>(`/api/anime/library/${animeId}/metadata-source`, {
+    method: "PATCH",
+    body: JSON.stringify({ source }),
   });
 }
 
@@ -200,13 +207,6 @@ export async function getCurrentLibraryRefreshJob(signal?: AbortSignal) {
 
 export function getLibraryRefreshJob(jobId: string, signal?: AbortSignal) {
   return apiFetch<LibraryRefreshJob>(`/api/anime/library/sync-all/${jobId}`, { signal });
-}
-
-export function resolveEpisodeConflicts(animeId: number, deleteEpisodeIds: number[]) {
-  return apiFetch<ResolveEpisodeConflictsResponse>(`/api/anime/library/${animeId}/sync/episode-conflicts/resolve`, {
-    method: "POST",
-    body: JSON.stringify({ deleteEpisodeIds }),
-  });
 }
 
 export function updateEpisodeWatchState(animeId: number, episodeId: number, watched: boolean) {

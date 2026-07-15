@@ -12,6 +12,9 @@ from app.models.anime import (
 )
 from app.models.base import Base
 from app.models.progress import (
+    UserAnimeMetadataEpisodeSnapshot,
+    UserAnimeMetadataSnapshot,
+    UserAnimeMetadataSource,
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
@@ -34,6 +37,9 @@ __all__ = [
     "EpisodeStatus",
     "ProviderType",
     "User",
+    "UserAnimeMetadataEpisodeSnapshot",
+    "UserAnimeMetadataSnapshot",
+    "UserAnimeMetadataSource",
     "UserAnimeProgress",
     "UserAnimeRelationDeletionPrompt",
     "UserAnimeRelationOverride",

@@ -57,6 +57,14 @@ handled by a human maintainer.
   each title is linked to one upstream metadata provider at a time. This avoids
   silently mixing data from different providers, and ani-tracker provides a way
   to migrate your watch history when switching providers.
+- Local metadata snapshots: when upstream metadata changes or when you want to
+  keep the current episode view, you can switch a title to a local snapshot.
+  Provider switching migrates watch state for episodes that can be matched by
+  episode number. Watch records for episodes missing from the target provider
+  may be retained internally, but ani-tracker does not guarantee that those
+  unmatched records will remain visible, recoverable, or manageable after the
+  switch. Use a local snapshot before switching if you need to preserve the
+  current episode context.
 - Desktop and mobile experiences: ani-tracker implements separate frontend
   interactions for desktop and mobile devices.
 - OIDC / SSO support.
@@ -169,6 +177,9 @@ In this example, the container file `/opt/ani-tracker/web/public/custom/logo.svg
 ## Known Limitations
 
 - Metadata-provider behavior may change during early development.
+- Switching metadata providers is best-effort. Unmatched historical episode
+  watch records are not actively deleted, but only local snapshots are intended
+  to preserve an old episode view for future use.
 - Export tools are still under development.
 - Some UI interactions may be refined in future releases.
 

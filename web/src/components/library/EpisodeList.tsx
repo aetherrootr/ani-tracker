@@ -15,7 +15,7 @@ import { EpisodeSearchMenu, type EpisodeFilter, type EpisodeOrder } from "./Epis
 import { EpisodeTitleSettingsMenu } from "./EpisodeTitleSettingsMenu";
 import { LibraryPagination, SkeletonBlock } from "./LibraryPagination";
 
-export function EpisodeList({ animeId, refreshKey = 0, onProgressChange }: { animeId: number; refreshKey?: number; onProgressChange: (progress: AnimeProgress) => void }) {
+export function EpisodeList({ animeId, metadataSource, refreshKey = 0, onProgressChange }: { animeId: number; metadataSource: string; refreshKey?: number; onProgressChange: (progress: AnimeProgress) => void }) {
   const t = useTranslations();
   const searchParams = useSearchParams();
   const initialEpisodeNumber = parsePositiveInt(searchParams.get("episode"));
@@ -93,21 +93,23 @@ export function EpisodeList({ animeId, refreshKey = 0, onProgressChange }: { ani
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1">
           <h2 className="text-2xl font-semibold tracking-tight">{t("library.episodes")}</h2>
-          <EpisodeTitleSettingsMenu
-            animeId={animeId}
-            episodes={episodes}
-            page={page}
-            totalPages={data?.totalPages ?? 0}
-            total={data?.total ?? 0}
-            isLoading={isLoading}
-            open={openMenu === "settings"}
-            onOpenChange={(open) => setOpenMenu(open ? "settings" : null)}
-            onPageChange={setPage}
-            onEpisodeChange={(episode) => setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? episode : item) } : current)}
-            onMarkTo={(episodeNumber) => void markMany(episodes.filter((episode) => episode.episodeNumber <= episodeNumber), true)}
-            onMarkAired={() => void markMany(episodes.filter((episode) => episode.status === "aired"), true)}
-            onClearAll={() => setConfirmClear(true)}
-          />
+          {metadataSource === "local_snapshot" ? null : (
+            <EpisodeTitleSettingsMenu
+              animeId={animeId}
+              episodes={episodes}
+              page={page}
+              totalPages={data?.totalPages ?? 0}
+              total={data?.total ?? 0}
+              isLoading={isLoading}
+              open={openMenu === "settings"}
+              onOpenChange={(open) => setOpenMenu(open ? "settings" : null)}
+              onPageChange={setPage}
+              onEpisodeChange={(episode) => setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? episode : item) } : current)}
+              onMarkTo={(episodeNumber) => void markMany(episodes.filter((episode) => episode.episodeNumber <= episodeNumber), true)}
+              onMarkAired={() => void markMany(episodes.filter((episode) => episode.status === "aired"), true)}
+              onClearAll={() => setConfirmClear(true)}
+            />
+          )}
         </div>
         <div className="flex items-center gap-1">
           <EpisodeSearchMenu

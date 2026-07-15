@@ -10,7 +10,7 @@ from app.celery_app import celery_app
 from app.db import default_database_url, ensure_database_current
 from app.import_provider import ImportProviderFactory
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
-from app.models.progress import UserAnimeProgress
+from app.models.progress import UserAnimeMetadataSource, UserAnimeProgress
 from app.services.anime_sync import sync_anime_from_provider
 from app.services.library_refresh_jobs import (
     release_library_refresh_lock,
@@ -73,7 +73,7 @@ def sync_user_library_anime(user_id: int, anime_ids: list[int] | None = None, pr
     engine = create_engine(database_url, connect_args=connect_args)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     provider_factory = ImportProviderFactory.from_config(_provider_config())
-    summary: dict[str, object] = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0, 'failedAnime': []}
+    summary: dict[str, object] = {'checked': 0, 'synced': 0, 'skipped': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0, 'failedAnime': []}
     try:
         with session_factory() as session:
             if anime_ids is None:
@@ -86,6 +86,12 @@ def sync_user_library_anime(user_id: int, anime_ids: list[int] | None = None, pr
             for index, anime_id in enumerate(library_anime_ids, start=1):
                 anime_title = None
                 try:
+                    progress = session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.user_id == user_id, UserAnimeProgress.anime_id == anime_id))
+                    if progress is not None and progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+                        summary['skipped'] = _summary_int(summary, 'skipped') + 1
+                        if progress_callback is not None:
+                            progress_callback(_sync_progress_details(summary, anime_id=anime_id, anime_title=None, processed=index, total=len(library_anime_ids)))
+                        continue
                     anime = session.get(AnimeMetaInfo, anime_id)
                     if anime is None:
                         if progress_callback is not None:
@@ -200,6 +206,7 @@ def _sync_progress_details(summary: dict[str, object], *, anime_id: int, anime_t
         'currentAnime': {'animeId': anime_id, 'title': anime_title or f'#{anime_id}'},
         'synced': _summary_int(summary, 'synced'),
         'failed': _summary_int(summary, 'failed'),
+        'skipped': _summary_int(summary, 'skipped'),
         'episodeConflicts': _summary_int(summary, 'episodeConflicts'),
         'postersQueued': _summary_int(summary, 'postersQueued'),
         'failedAnime': summary.get('failedAnime', []),

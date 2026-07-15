@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
@@ -23,12 +23,16 @@ from app.models.anime import (
     EpisodeName,
 )
 from app.models.progress import (
+    UserAnimeMetadataSource,
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserEpisodeProgress,
 )
 from app.models.user import User
-from app.services.anime_library import populate_anime_from_detail, recalculate_user_anime_progress
+from app.services.anime_library import (
+    create_or_update_metadata_snapshot,
+    populate_anime_from_detail,
+)
 
 
 @dataclass(frozen=True)
@@ -60,8 +64,20 @@ def sync_anime_from_provider(
     anime = session.get(AnimeMetaInfo, anime_id)
     if anime is None:
         return None
+    progress = None
+    if user_id is not None:
+        progress = session.scalar(
+            select(UserAnimeProgress).where(
+                UserAnimeProgress.user_id == user_id,
+                UserAnimeProgress.anime_id == anime_id,
+            ),
+        )
+        if progress is not None and progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+            return AnimeSyncResult(anime=anime, episode_conflicts=[], poster_ids_to_enqueue=[])
     user = session.get(User, user_id) if user_id is not None else None
     detail = provider.get_anime_detail(anime.external_id, language=user.language_preference if user is not None else None)
+    if progress is not None and _has_destructive_episode_change(session, anime_id=anime.id, episodes=detail.episodes):
+        create_or_update_metadata_snapshot(session, progress=progress)
     poster = populate_anime_from_detail(session, anime, detail)
     if user_id is not None:
         _create_related_anime_deletion_prompts(session, user_id=user_id, anime_id=anime.id)
@@ -70,6 +86,14 @@ def sync_anime_from_provider(
     conflicts = _prune_episodes(session, anime=anime, episodes=detail.episodes, user_id=user_id)
     poster_ids = _poster_ids_to_enqueue(session, anime_id=anime.id, poster=poster)
     return AnimeSyncResult(anime=anime, episode_conflicts=conflicts, poster_ids_to_enqueue=poster_ids)
+
+
+def _has_destructive_episode_change(session: Session, *, anime_id: int, episodes: list[ImportEpisodeInfo]) -> bool:
+    upstream_numbers = {item.episode_number for item in episodes}
+    if not upstream_numbers:
+        return session.scalar(select(func.count(Episode.id)).where(Episode.anime_id == anime_id)) != 0
+    existing_numbers = set(session.scalars(select(Episode.episode_number).where(Episode.anime_id == anime_id)).all())
+    return bool(existing_numbers - upstream_numbers)
 
 
 def _create_related_anime_deletion_prompts(session: Session, *, user_id: int, anime_id: int) -> None:
@@ -111,50 +135,6 @@ def _create_related_anime_deletion_prompts(session: Session, *, user_id: int, an
                 episode_count=relation.episode_count,
             ),
         )
-
-
-def resolve_episode_conflicts(
-    session: Session,
-    *,
-    anime_id: int,
-    user_id: int,
-    delete_episode_ids: list[int],
-) -> dict[str, Any] | None:
-    progress = session.scalar(
-        select(UserAnimeProgress).where(
-            UserAnimeProgress.user_id == user_id,
-            UserAnimeProgress.anime_id == anime_id,
-        ),
-    )
-    anime = session.get(AnimeMetaInfo, anime_id)
-    if progress is None or anime is None:
-        return None
-    requested_ids = set(delete_episode_ids)
-    if not requested_ids:
-        return {'deletedEpisodeIds': [], 'keptEpisodeIds': [], 'invalidEpisodeIds': []}
-    conflict_ids = {
-        conflict.episode_id
-        for conflict in get_episode_conflicts(session, anime_id=anime_id, user_id=user_id)
-    }
-    invalid_ids = sorted(requested_ids - conflict_ids)
-    deletable_ids = sorted(requested_ids & conflict_ids)
-    for episode_id in deletable_ids:
-        session.execute(
-            delete(UserEpisodeProgress).where(
-                UserEpisodeProgress.user_id == user_id,
-                UserEpisodeProgress.episode_id == episode_id,
-            ),
-        )
-        if _watched_user_count(session, episode_id=episode_id) == 0:
-            episode = session.get(Episode, episode_id)
-            if episode is not None and _is_orphaned_by_sync(episode, anime):
-                session.delete(episode)
-    recalculate_user_anime_progress(session, progress=progress)
-    return {
-        'deletedEpisodeIds': deletable_ids,
-        'keptEpisodeIds': sorted(conflict_ids - set(deletable_ids)),
-        'invalidEpisodeIds': invalid_ids,
-    }
 
 
 def get_episode_conflicts(session: Session, *, anime_id: int, user_id: int | None = None) -> list[EpisodeConflict]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -29,6 +30,9 @@ from app.models.anime import (
     EpisodeStatus,
 )
 from app.models.progress import (
+    UserAnimeMetadataEpisodeSnapshot,
+    UserAnimeMetadataSnapshot,
+    UserAnimeMetadataSource,
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
@@ -264,7 +268,7 @@ def switch_user_anime_provider(
             language=user.language_preference if user is not None else None,
         )
         target_progress = get_user_progress(session, user_id=user_id, anime_id=target_anime.id)
-        source_watched = _watched_episode_numbers(session, user_id=user_id, anime_id=anime_id)
+        source_watched = _current_watched_episode_numbers(session, progress=source_progress)
         conflicts = _migrate_watched_episodes(
             session,
             user_id=user_id,
@@ -284,6 +288,8 @@ def switch_user_anime_provider(
         recalculate_user_anime_progress(session, progress=target_progress)
         if source_watched and target_progress.status == UserAnimeStatus.PLAN_TO_WATCH:
             target_progress.status = UserAnimeStatus.WATCHING
+        target_progress.metadata_source = UserAnimeMetadataSource.UPSTREAM.value
+        target_progress.metadata_snapshot_id = None
         related_result = reconcile_related_anime_after_provider_switch(
             session,
             user_id=user_id,
@@ -291,6 +297,8 @@ def switch_user_anime_provider(
             target_anime_id=target_anime.id,
         )
         session.flush()
+        create_or_update_metadata_snapshot(session, progress=target_progress)
+        target_progress.metadata_snapshot_id = None
         poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == target_anime.id))
         session.commit()
     except Exception:
@@ -306,6 +314,41 @@ def switch_user_anime_provider(
         episode_conflicts=conflicts,
         related_auto_mapped_count=related_result.auto_mapped_count,
         related_manual_mapping_required_count=related_result.manual_mapping_required_count,
+    )
+
+
+def preview_user_anime_provider_switch(
+    session: Session,
+    provider: ImportProvider,
+    *,
+    user_id: int,
+    anime_id: int,
+    external_id: str,
+) -> ProviderSwitchResult | None:
+    user = session.get(User, user_id)
+    source_progress = get_user_progress(session, user_id=user_id, anime_id=anime_id)
+    if source_progress is None:
+        return None
+    target_anime, _target_created = import_anime_from_provider(
+        session,
+        provider,
+        external_id=external_id,
+        language=user.language_preference if user is not None else None,
+    )
+    source_watched = _current_watched_episode_numbers(session, progress=source_progress)
+    conflicts = _provider_switch_conflicts(
+        session,
+        source_anime_id=anime_id,
+        target_anime_id=target_anime.id,
+        source_watched=source_watched,
+    )
+    return ProviderSwitchResult(
+        anime=target_anime,
+        progress=source_progress,
+        previous_anime_id=anime_id,
+        episode_conflicts=conflicts,
+        related_auto_mapped_count=0,
+        related_manual_mapping_required_count=0,
     )
 
 
@@ -443,37 +486,103 @@ def _watched_episode_numbers(
     return {episode.episode_number: (episode, progress) for episode, progress in rows}
 
 
+def _current_watched_episode_numbers(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+) -> dict[int, tuple[Any, Any]]:
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot = _active_metadata_snapshot(session, progress=progress)
+        if snapshot is None:
+            return {}
+        episodes = session.scalars(
+            select(UserAnimeMetadataEpisodeSnapshot).where(
+                UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id,
+                UserAnimeMetadataEpisodeSnapshot.watched.is_(True),
+            ),
+        ).all()
+        return {episode.episode_number: (episode, episode) for episode in episodes}
+    return _watched_episode_numbers(session, user_id=progress.user_id, anime_id=progress.anime_id)
+
+
+def _active_metadata_snapshot(session: Session, *, progress: UserAnimeProgress) -> UserAnimeMetadataSnapshot | None:
+    if progress.metadata_snapshot_id is not None:
+        snapshot = session.get(UserAnimeMetadataSnapshot, progress.metadata_snapshot_id)
+        if snapshot is not None and snapshot.user_id == progress.user_id and snapshot.anime_id == progress.anime_id:
+            return snapshot
+    return get_metadata_snapshot(session, user_id=progress.user_id, anime_id=progress.anime_id)
+
+
+def _current_metadata_episode_rows(session: Session, *, progress: UserAnimeProgress) -> list[dict[str, Any]]:
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot = _active_metadata_snapshot(session, progress=progress)
+        if snapshot is None:
+            return []
+        return [
+            {
+                'episode_number': episode.episode_number,
+                'title': episode.title,
+                'air_at': episode.air_at,
+                'duration': episode.duration,
+                'status': episode.status,
+                'watched': episode.watched,
+                'watched_at': episode.watched_at,
+                'names': episode.names,
+            }
+            for episode in session.scalars(
+                select(UserAnimeMetadataEpisodeSnapshot)
+                .where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id)
+                .order_by(UserAnimeMetadataEpisodeSnapshot.episode_number),
+            ).all()
+        ]
+    rows = session.execute(
+        select(Episode, UserEpisodeProgress)
+        .outerjoin(
+            UserEpisodeProgress,
+            (UserEpisodeProgress.episode_id == Episode.id) & (UserEpisodeProgress.user_id == progress.user_id),
+        )
+        .where(Episode.anime_id == progress.anime_id)
+        .order_by(Episode.episode_number),
+    ).all()
+    result: list[dict[str, Any]] = []
+    for episode, watch_progress in rows:
+        names = session.scalars(select(EpisodeName).where(EpisodeName.episode_id == episode.id).order_by(EpisodeName.id)).all()
+        result.append(
+            {
+                'episode_number': episode.episode_number,
+                'title': episode.original_title,
+                'air_at': episode.air_at,
+                'duration': episode.duration,
+                'status': episode.status.value if hasattr(episode.status, 'value') else episode.status,
+                'watched': bool(watch_progress.watched) if watch_progress is not None else False,
+                'watched_at': watch_progress.watched_at if watch_progress is not None else None,
+                'names': json.dumps([{'name': name.name, 'language': name.language} for name in names]),
+            },
+        )
+    return result
+
+
 def _migrate_watched_episodes(
     session: Session,
     *,
     user_id: int,
     source_anime_id: int,
     target_anime_id: int,
-    source_watched: dict[int, tuple[Episode, UserEpisodeProgress]],
+    source_watched: dict[int, tuple[Any, Any]],
 ) -> list[Any]:
-    from app.services.anime_sync import EpisodeConflict
-
     target_episodes = {
         episode.episode_number: episode
         for episode in session.scalars(select(Episode).where(Episode.anime_id == target_anime_id)).all()
     }
-    conflicts: list[Any] = []
-    for episode_number, (source_episode, source_progress) in source_watched.items():
+    conflicts = _provider_switch_conflicts(
+        session,
+        source_anime_id=source_anime_id,
+        target_anime_id=target_anime_id,
+        source_watched=source_watched,
+    )
+    for episode_number, (_source_episode, source_progress) in source_watched.items():
         target_episode = target_episodes.get(episode_number)
         if target_episode is None:
-            selected_name = session.scalar(select(EpisodeName).where(EpisodeName.episode_id == source_episode.id).order_by(EpisodeName.id))
-            conflicts.append(
-                EpisodeConflict(
-                    anime_id=source_anime_id,
-                    episode_id=source_episode.id,
-                    episode_number=episode_number,
-                    display_name=selected_name.name if selected_name is not None else source_episode.original_title,
-                    watched_user_count=1,
-                    watched=True,
-                    watched_at=source_progress.watched_at.isoformat() if source_progress.watched_at else None,
-                    reason='missing_target_episode',
-                ),
-            )
             continue
         target_progress = session.scalar(
             select(UserEpisodeProgress).where(
@@ -487,6 +596,37 @@ def _migrate_watched_episodes(
         target_progress.watched = True
         if target_progress.watched_at is None:
             target_progress.watched_at = source_progress.watched_at
+    return conflicts
+
+
+def _provider_switch_conflicts(
+    session: Session,
+    *,
+    source_anime_id: int,
+    target_anime_id: int,
+    source_watched: dict[int, tuple[Any, Any]],
+) -> list[Any]:
+    from app.services.anime_sync import EpisodeConflict
+
+    target_numbers = set(session.scalars(select(Episode.episode_number).where(Episode.anime_id == target_anime_id)).all())
+    conflicts: list[Any] = []
+    for episode_number, (source_episode, source_progress) in source_watched.items():
+        if episode_number in target_numbers:
+            continue
+        selected_name = session.scalar(select(EpisodeName).where(EpisodeName.episode_id == source_episode.id).order_by(EpisodeName.id)) if isinstance(source_episode, Episode) else None
+        source_title = source_episode.original_title if isinstance(source_episode, Episode) else source_episode.title
+        conflicts.append(
+            EpisodeConflict(
+                anime_id=source_anime_id,
+                episode_id=source_episode.id,
+                episode_number=episode_number,
+                display_name=selected_name.name if selected_name is not None else source_title,
+                watched_user_count=1,
+                watched=True,
+                watched_at=source_progress.watched_at.isoformat() if source_progress.watched_at else None,
+                reason='missing_target_episode',
+            ),
+        )
     return conflicts
 
 
@@ -626,6 +766,105 @@ def get_user_progress(session: Session, *, user_id: int, anime_id: int) -> UserA
     )
 
 
+def get_metadata_snapshot(session: Session, *, user_id: int, anime_id: int) -> UserAnimeMetadataSnapshot | None:
+    return session.scalar(
+        select(UserAnimeMetadataSnapshot).where(
+            UserAnimeMetadataSnapshot.user_id == user_id,
+            UserAnimeMetadataSnapshot.anime_id == anime_id,
+        ),
+    )
+
+
+def create_or_update_metadata_snapshot(session: Session, *, progress: UserAnimeProgress) -> UserAnimeMetadataSnapshot:
+    anime = session.get(AnimeMetaInfo, progress.anime_id)
+    if anime is None:
+        msg = 'Anime not found'
+        raise ValueError(msg)
+    rows = _current_metadata_episode_rows(session, progress=progress)
+    snapshot = get_metadata_snapshot(session, user_id=progress.user_id, anime_id=progress.anime_id)
+    if snapshot is None:
+        snapshot = UserAnimeMetadataSnapshot(user_id=progress.user_id, anime_id=progress.anime_id, source_provider=anime.provider_type, source_external_id=anime.external_id, source_title=anime.original_name)
+        session.add(snapshot)
+        session.flush()
+    snapshot.source_anime_id = anime.id
+    snapshot.source_provider = anime.provider_type
+    snapshot.source_external_id = anime.external_id
+    snapshot.source_title = anime.original_name
+    snapshot.episode_count = len(rows)
+    session.execute(delete(UserAnimeMetadataEpisodeSnapshot).where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id))
+    for row in rows:
+        session.add(
+            UserAnimeMetadataEpisodeSnapshot(
+                snapshot_id=snapshot.id,
+                episode_number=row['episode_number'],
+                title=row['title'],
+                air_at=row['air_at'],
+                duration=row['duration'],
+                status=row['status'],
+                watched=bool(row['watched']),
+                watched_at=row['watched_at'],
+                names=row['names'],
+            ),
+        )
+    session.flush()
+    return snapshot
+
+
+def set_anime_metadata_source(session: Session, *, progress: UserAnimeProgress, source: str) -> UserAnimeProgress:
+    if source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot = create_or_update_metadata_snapshot(session, progress=progress)
+        progress.metadata_source = UserAnimeMetadataSource.LOCAL_SNAPSHOT.value
+        progress.metadata_snapshot_id = snapshot.id
+    elif source == UserAnimeMetadataSource.UPSTREAM.value:
+        progress.metadata_source = UserAnimeMetadataSource.UPSTREAM.value
+        progress.metadata_snapshot_id = None
+    else:
+        msg = 'Unknown metadata source'
+        raise ValueError(msg)
+    session.commit()
+    return progress
+
+
+def get_episode_rows_for_progress(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+    limit: int,
+    offset: int,
+) -> tuple[list[dict[str, Any]], int, bool]:
+    if progress.metadata_source != UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        from app.models.progress import get_anime_episodes_with_watch_state
+
+        rows = get_anime_episodes_with_watch_state(session, anime_id=progress.anime_id, user_id=progress.user_id, limit=limit, offset=offset)
+        total = session.scalar(select(func.count(Episode.id)).where(Episode.anime_id == progress.anime_id)) or 0
+        return rows, total, False
+    snapshot = _active_metadata_snapshot(session, progress=progress)
+    if snapshot is None:
+        return [], 0, True
+    total = session.scalar(select(func.count(UserAnimeMetadataEpisodeSnapshot.id)).where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id)) or 0
+    rows = [
+        {
+            'episode_id': episode.id,
+            'episode_number': episode.episode_number,
+            'original_title': episode.title,
+            'air_at': episode.air_at,
+            'duration': episode.duration,
+            'status': episode.status,
+            'watched': episode.watched,
+            'watched_at': episode.watched_at,
+            'preferred_name_id': None,
+        }
+        for episode in session.scalars(
+            select(UserAnimeMetadataEpisodeSnapshot)
+            .where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id)
+            .order_by(UserAnimeMetadataEpisodeSnapshot.episode_number)
+            .limit(limit)
+            .offset(offset),
+        ).all()
+    ]
+    return rows, total, True
+
+
 def update_user_anime_status(
     session: Session,
     *,
@@ -703,12 +942,52 @@ def set_episode_watch_state(
     return watch_progress
 
 
+def set_snapshot_episode_watch_state(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+    episode_id: int,
+    watched: bool,
+) -> UserAnimeMetadataEpisodeSnapshot | None:
+    snapshot = _active_metadata_snapshot(session, progress=progress)
+    if snapshot is None:
+        return None
+    episode = session.get(UserAnimeMetadataEpisodeSnapshot, episode_id)
+    if episode is None or episode.snapshot_id != snapshot.id:
+        return None
+    episode.watched = watched
+    episode.watched_at = datetime.now(UTC) if watched else None
+    if watched and progress.status == UserAnimeStatus.PLAN_TO_WATCH:
+        progress.status = UserAnimeStatus.WATCHING
+    session.flush()
+    recalculate_user_anime_progress(session, progress=progress, marked_watched=watched)
+    session.commit()
+    return episode
+
+
 def recalculate_user_anime_progress(
     session: Session,
     *,
     progress: UserAnimeProgress,
     marked_watched: bool = False,
 ) -> None:
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        row = session.execute(
+            select(UserAnimeMetadataEpisodeSnapshot.episode_number, UserAnimeMetadataEpisodeSnapshot.watched_at)
+            .where(
+                UserAnimeMetadataEpisodeSnapshot.snapshot_id == progress.metadata_snapshot_id,
+                UserAnimeMetadataEpisodeSnapshot.watched.is_(True),
+            )
+            .order_by(UserAnimeMetadataEpisodeSnapshot.episode_number.desc())
+            .limit(1),
+        ).first()
+        if row is None:
+            progress.last_watched_episode_number = 0
+            progress.last_watched_at = None
+        else:
+            progress.last_watched_episode_number = row.episode_number
+            progress.last_watched_at = row.watched_at
+        return
     row = session.execute(
         select(Episode.episode_number, UserEpisodeProgress.watched_at)
         .join(UserEpisodeProgress, UserEpisodeProgress.episode_id == Episode.id)
