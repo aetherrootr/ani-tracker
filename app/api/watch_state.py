@@ -21,10 +21,12 @@ from app.api.utils.serializers import (
 from app.models.anime import (
     Episode,
 )
+from app.models.progress import UserAnimeMetadataSource
 from app.models.user import User
 from app.services.anime_library import (
     get_user_progress,
     set_episode_watch_state,
+    set_snapshot_episode_watch_state,
 )
 from app.services.anime_statistics import get_watch_timeline
 
@@ -86,6 +88,21 @@ def update_episode_watch_state(db: Session, user: User, anime_id: int, episode_i
     if not isinstance(payload, dict) or not isinstance(payload.get('watched'), bool):
         return jsonify({'message': 'Episode watched state is required'}), 400
     progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is not None and progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot_episode = set_snapshot_episode_watch_state(db, progress=progress, episode_id=episode_id, watched=payload['watched'])
+        if snapshot_episode is None:
+            return jsonify({'message': 'Episode not found'}), 404
+        return jsonify(
+            {
+                'episode': {
+                    'id': snapshot_episode.id,
+                    'episodeNumber': snapshot_episode.episode_number,
+                    'watched': snapshot_episode.watched,
+                    'watchedAt': snapshot_episode.watched_at.isoformat() if snapshot_episode.watched_at else None,
+                },
+                'progress': serialize_progress(progress),
+            },
+        )
     episode = db.get(Episode, episode_id)
     if progress is None or episode is None or episode.anime_id != anime_id:
         return jsonify({'message': 'Episode not found'}), 404

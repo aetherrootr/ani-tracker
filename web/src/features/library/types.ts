@@ -91,6 +91,8 @@ export type AnimeProgress = {
   preferredNameId: number | null;
   preferredSummaryId: number | null;
   preferredPosterId: number | null;
+  metadataSource: "upstream" | "local_snapshot" | string;
+  hasLocalSnapshot: boolean;
   animeId?: number;
 };
 
@@ -153,9 +155,34 @@ export type EpisodeListResponse = {
 export type AnimeDetailResponse = {
   anime: Anime;
   progress: AnimeProgress;
+  episodeConflicts: EpisodeConflict[];
+  metadataSnapshot: MetadataSnapshot | null;
   features?: {
     seasonDiscovery: boolean;
   };
+};
+
+export type MetadataSnapshot = {
+  id: number;
+  sourceAnimeId: number | null;
+  sourceProvider: string;
+  sourceExternalId: string;
+  sourceTitle: string;
+  episodeCount: number;
+  createdAt: string;
+  updatedAt: string;
+  episodes?: MetadataSnapshotEpisode[];
+};
+
+export type MetadataSnapshotEpisode = {
+  id: number;
+  episodeNumber: number;
+  displayName: string | null;
+  airAt: string | null;
+  duration: string | null;
+  status: string;
+  watched: boolean;
+  watchedAt: string | null;
 };
 
 export type EpisodeConflict = {
@@ -228,16 +255,6 @@ export type LibraryRefreshResponse = {
 
 export type RelatedAnimeDiscoveryJobResponse = LibraryRefreshResponse;
 
-export type ResolveEpisodeConflictsResponse = {
-  anime: Anime;
-  progress: AnimeProgress;
-  resolution: {
-    deletedEpisodeIds: number[];
-    keptEpisodeIds: number[];
-    invalidEpisodeIds: number[];
-  };
-};
-
 export type TrackingListItem = {
   anime: Anime;
   progress: AnimeProgress;
@@ -275,6 +292,13 @@ export type ProviderSwitchResponse = {
   progress: AnimeProgress;
   previousAnimeId: number;
   episodeConflicts: EpisodeConflict[];
+  metadataSnapshot?: MetadataSnapshot | null;
   autoMappedCount?: number;
   manualMappingRequiredCount?: number;
+};
+
+export type MetadataSourceResponse = {
+  anime: Anime;
+  progress: AnimeProgress;
+  metadataSnapshot: MetadataSnapshot | null;
 };

@@ -7,19 +7,28 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
 import { SearchResultCard } from "@/components/search/SearchResultCard";
-import { getImportProviders, switchAnimeProvider } from "@/features/library/api";
-import type { Anime, EpisodeConflict, ImportProvider } from "@/features/library/types";
+import { getImportProviders, switchAnimeProvider, updateMetadataSource } from "@/features/library/api";
+import type { Anime, AnimeProgress, EpisodeConflict, ImportProvider, MetadataSnapshot } from "@/features/library/types";
 import { getTvdbSeasons, searchAnime } from "@/features/search/api";
 import type { AnimeSearchResult } from "@/features/search/types";
+import { ApiError } from "@/lib/api-client";
 
 type Props = {
   open: boolean;
   anime: Anime;
+  metadataSource: string;
+  metadataSnapshot: MetadataSnapshot | null;
   onClose: () => void;
   onSwitched: (animeId: number, previousAnimeId: number, conflicts: EpisodeConflict[]) => void;
+  onMetadataSourceChanged: (progress: AnimeProgress, metadataSnapshot: MetadataSnapshot | null) => void;
 };
 
-export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props) {
+type PendingProviderSwitch = {
+  result: AnimeSearchResult;
+  conflicts: EpisodeConflict[];
+};
+
+export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnapshot, onClose, onSwitched, onMetadataSourceChanged }: Props) {
   const t = useTranslations();
   const [providers, setProviders] = useState<ImportProvider[]>([]);
   const [targetProvider, setTargetProvider] = useState<string>("");
@@ -36,6 +45,7 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
   const [tvdbSeasons, setTvdbSeasons] = useState<AnimeSearchResult[]>([]);
   const [isLoadingTvdbSeasons, setIsLoadingTvdbSeasons] = useState(false);
   const [tvdbSeasonsError, setTvdbSeasonsError] = useState<string | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<PendingProviderSwitch | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -44,19 +54,20 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
     const controller = new AbortController();
     getImportProviders(controller.signal)
       .then((response) => {
-        const available = response.providers.filter((provider) => provider.name !== anime.provider);
+        const upstreamProviders = metadataSource === "local_snapshot" ? response.providers : response.providers.filter((provider) => provider.name !== anime.provider);
+        const available = [...upstreamProviders, { name: "local", label: t("library.localSnapshotProvider") }];
         setProviders(available);
         const nextProvider = available[0]?.name || "";
         setTargetProvider(nextProvider);
-        setIsLoading(Boolean(nextProvider));
+        setIsLoading(Boolean(nextProvider) && nextProvider !== "local");
       })
       .catch((err) => setError(err instanceof Error ? err.message : t("library.switchProviderFailed")));
     return () => controller.abort();
-  }, [anime.provider, open, t]);
+  }, [anime.provider, metadataSource, open, t]);
 
   useEffect(() => {
     const keyword = searchKeyword.trim();
-    if (!open || !targetProvider || !keyword) {
+    if (!open || !targetProvider || targetProvider === "local" || !keyword) {
       return;
     }
     const controller = new AbortController();
@@ -88,18 +99,44 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
     await switchToProviderResult(result);
   }
 
-  async function switchToProviderResult(result: AnimeSearchResult) {
+  async function switchToProviderResult(result: AnimeSearchResult, confirm = false) {
     setIsSwitching(true);
     setSwitchingExternalId(result.externalId);
     setError(null);
     try {
-      const response = await switchAnimeProvider(anime.id, result.provider, result.externalId);
+      const response = await switchAnimeProvider(anime.id, result.provider, result.externalId, confirm);
       onSwitched(response.anime.id, response.previousAnimeId, response.episodeConflicts);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && isProviderSwitchConflictBody(err.body)) {
+        setPendingSwitch({ result, conflicts: err.body.episodeConflicts });
+        return;
+      }
       setError(err instanceof Error ? err.message : t("library.switchProviderFailed"));
     } finally {
       setIsSwitching(false);
       setSwitchingExternalId(null);
+    }
+  }
+
+  async function continuePendingSwitch() {
+    if (!pendingSwitch) {
+      return;
+    }
+    await switchToProviderResult(pendingSwitch.result, true);
+    setPendingSwitch(null);
+  }
+
+  async function switchToLocalSnapshot() {
+    setIsSwitching(true);
+    setError(null);
+    try {
+      const response = await updateMetadataSource(anime.id, "local_snapshot");
+      onMetadataSourceChanged(response.progress, response.metadataSnapshot);
+      closeDialog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.switchProviderFailed"));
+    } finally {
+      setIsSwitching(false);
     }
   }
 
@@ -122,7 +159,7 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
     setTargetProvider(provider);
     setResults([]);
     setError(null);
-    setIsLoading(true);
+    setIsLoading(provider !== "local");
     setTvdbSeasonTarget(null);
     setTvdbSeasons([]);
     setTvdbSeasonsError(null);
@@ -136,6 +173,7 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
     setTvdbSeasonTarget(null);
     setTvdbSeasons([]);
     setTvdbSeasonsError(null);
+    setPendingSwitch(null);
     onClose();
   }
 
@@ -215,9 +253,25 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
         {error ? <div className="border-b p-4 text-sm font-medium text-destructive">{error}</div> : null}
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {targetProvider === "local" ? (
+            <div className="rounded-2xl border bg-card p-4">
+              <div className="space-y-1">
+                <p className="font-semibold">{metadataSnapshot ? t("library.useLocalSnapshot") : t("library.createLocalSnapshot")}</p>
+                <p className="text-sm text-muted-foreground">{t("library.localSnapshotDescription")}</p>
+                {metadataSnapshot ? (
+                  <p className="text-sm text-muted-foreground">
+                    {metadataSnapshot.sourceTitle} · {metadataSnapshot.sourceProvider} · {t("library.relatedAnimeEpisodeCount", { count: metadataSnapshot.episodeCount })}
+                  </p>
+                ) : null}
+              </div>
+              <Button type="button" className="mt-4" disabled={isSwitching} onClick={() => void switchToLocalSnapshot()}>
+                {isSwitching ? t("library.switchingProvider") : metadataSnapshot ? t("library.useLocalSnapshot") : t("library.createLocalSnapshot")}
+              </Button>
+            </div>
+          ) : null}
           {isLoading ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("search.loading")}</p> : null}
-          {!isLoading && results.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.switchProviderSearchEmpty")}</p> : null}
-          {results.map((result) => (
+          {targetProvider !== "local" && !isLoading && results.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.switchProviderSearchEmpty")}</p> : null}
+          {targetProvider !== "local" ? results.map((result) => (
             <SearchResultCard
               key={`${result.provider}:${result.externalId}`}
               result={result}
@@ -232,7 +286,7 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
                 onClick: () => void switchToResult(result),
               }}
             />
-          ))}
+          )) : null}
         </div>
       </div>
       {confirmUnlockOpen ? (
@@ -284,6 +338,51 @@ export function ProviderSwitchDialog({ open, anime, onClose, onSwitched }: Props
           </div>
         </div>
       ) : null}
+      {pendingSwitch ? (
+        <div className="mobile-fixed-below-top-nav fixed inset-0 z-[100] flex items-stretch justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="provider-switch-conflicts-title" onClick={() => setPendingSwitch(null)}>
+          <div className="glass-dialog flex h-[100svh] w-full flex-col overflow-hidden border pt-[env(safe-area-inset-top)] text-foreground sm:h-auto sm:max-h-[90svh] sm:max-w-2xl sm:rounded-2xl sm:pt-0" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b p-5">
+              <h2 id="provider-switch-conflicts-title" className="text-lg font-semibold tracking-tight">{t("library.switchProviderEpisodeConflictsTitle")}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{t("library.switchProviderPreflightConflictsDescription")}</p>
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+              {pendingSwitch.conflicts.map((conflict) => (
+                <div key={conflict.episodeId} className="rounded-2xl border bg-card p-4">
+                  <p className="font-medium">{t("library.conflictEpisode", { episode: conflict.episodeNumber })}</p>
+                  <p className="mt-1 truncate text-sm text-muted-foreground">{conflict.displayName || t("anime.unknown")}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("library.conflictHiddenAfterSwitch")}
+                    {conflict.watchedAt ? ` · ${t("library.conflictWatchedAt", { time: formatDateTime(conflict.watchedAt) })}` : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" disabled={isSwitching} onClick={() => setPendingSwitch(null)}>{t("library.cancel")}</Button>
+              <Button type="button" variant="outline" disabled={isSwitching} onClick={() => void switchToLocalSnapshot()}>{t("library.useLocalSnapshot")}</Button>
+              <Button type="button" disabled={isSwitching} onClick={() => void continuePendingSwitch()}>{isSwitching ? t("library.switchingProvider") : t("library.continueProviderSwitch")}</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function isProviderSwitchConflictBody(value: unknown): value is { episodeConflicts: EpisodeConflict[] } {
+  if (!value || typeof value !== "object" || !("episodeConflicts" in value)) {
+    return false;
+  }
+  const conflicts = (value as { episodeConflicts?: unknown }).episodeConflicts;
+  return Array.isArray(conflicts);
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

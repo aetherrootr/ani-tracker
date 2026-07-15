@@ -36,6 +36,8 @@ from app.models.anime import (
     EpisodeStatus,
 )
 from app.models.progress import (
+    UserAnimeMetadataEpisodeSnapshot,
+    UserAnimeMetadataSnapshot,
     UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
@@ -2104,37 +2106,6 @@ def test_sync_library_anime_deletes_unwatched_removed_episode_and_reports_watche
     assert db_session.scalar(select(UserEpisodeProgress).where(UserEpisodeProgress.episode_id == watched_removed_id)) is not None
 
 
-def test_resolve_episode_conflicts_deletes_only_confirmed_conflict(
-    app: Flask,
-    client: FlaskClient,
-    db_session: Session,
-) -> None:
-    assert register_user(client).status_code == 201
-    anime = add_library_anime(db_session, external_id='1', original_name='Old Anime', names=[('Old Anime', 'en')])
-    normal = add_episode(db_session, anime, number=1, title='Normal')
-    conflict = add_episode(db_session, anime, number=2, title='Conflict')
-    normal_id = normal.id
-    conflict_id = conflict.id
-    db_session.add(UserEpisodeProgress(user_id=1, episode_id=conflict.id, watched=True, watched_at=datetime.now(UTC)))
-    db_session.commit()
-    provider = MutableDetailProvider({'1': anime_detail('1', episodes=[episode_info(1, title='Normal')])})
-    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
-    assert client.post(f'/api/anime/library/{anime.id}/sync').status_code == 200
-
-    response = client.post(
-        f'/api/anime/library/{anime.id}/sync/episode-conflicts/resolve',
-        json={'deleteEpisodeIds': [conflict_id, normal_id]},
-    )
-
-    assert response.status_code == 200
-    resolution = response.get_json()['resolution']
-    assert resolution['deletedEpisodeIds'] == [conflict_id]
-    assert resolution['invalidEpisodeIds'] == [normal_id]
-    db_session.expire_all()
-    assert db_session.get(Episode, conflict_id) is None
-    assert db_session.get(Episode, normal_id) is not None
-
-
 def test_sync_library_anime_maps_provider_errors(app: Flask, client: FlaskClient, db_session: Session) -> None:
     class TimeoutProvider(FakeProvider):
         def get_anime_detail(self, _external_id: str, *, language: str | None = None) -> ImportAnimeDetail:
@@ -2664,3 +2635,152 @@ def test_create_app_preserves_celery_task_always_eager_env(test_instance_path, m
     )
 
     assert celery_app.conf.task_always_eager is True
+
+
+def test_switch_to_local_snapshot_returns_snapshot_episodes(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    install_provider(app)
+    assert register_user(client).status_code == 201
+    assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'}).status_code == 201
+    assert client.patch('/api/watch-state/anime/1/episodes/1', json={'watched': True}).status_code == 200
+
+    response = client.post('/api/anime/library/1/provider-switch', json={'provider': 'local'})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['progress']['metadataSource'] == 'local_snapshot'
+    assert body['progress']['hasLocalSnapshot'] is True
+    assert body['metadataSnapshot']['episodeCount'] == 2
+    progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.anime_id == 1))
+    snapshot = db_session.scalar(select(UserAnimeMetadataSnapshot))
+    assert progress is not None
+    assert snapshot is not None
+    assert progress.metadata_snapshot_id == snapshot.id
+
+    episodes_response = client.get('/api/anime/library/1/episodes')
+    assert episodes_response.status_code == 200
+    episodes = episodes_response.get_json()['episodes']
+    assert [episode['episodeNumber'] for episode in episodes] == [1, 2]
+    assert episodes[0]['watched'] is True
+    assert episodes[0]['displayName'] == '旅立ちの終わり'
+    assert episodes[0]['availableNames'] == []
+
+
+def test_local_snapshot_watch_state_updates_snapshot_episode(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    install_provider(app)
+    assert register_user(client).status_code == 201
+    assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'}).status_code == 201
+    assert client.post('/api/anime/library/1/provider-switch', json={'provider': 'local'}).status_code == 200
+    snapshot_episode = db_session.scalar(
+        select(UserAnimeMetadataEpisodeSnapshot).where(UserAnimeMetadataEpisodeSnapshot.episode_number == 2),
+    )
+    assert snapshot_episode is not None
+
+    response = client.patch(f'/api/watch-state/anime/1/episodes/{snapshot_episode.id}', json={'watched': True})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['episode']['watched'] is True
+    db_session.refresh(snapshot_episode)
+    assert snapshot_episode.watched is True
+    assert snapshot_episode.watched_at is not None
+    assert db_session.scalar(select(UserEpisodeProgress).where(UserEpisodeProgress.watched.is_(True))) is None
+
+
+def test_sync_conflict_creates_local_snapshot_before_pruning(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    provider = MutableDetailProvider(
+        {
+            '493042': anime_detail('493042', episodes=[episode_info(1, title='Episode 1'), episode_info(2, title='Episode 2')]),
+        },
+    )
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert register_user(client).status_code == 201
+    assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'}).status_code == 201
+    episode_2 = db_session.scalar(select(Episode).where(Episode.episode_number == 2))
+    assert episode_2 is not None
+    assert client.patch(f'/api/watch-state/anime/1/episodes/{episode_2.id}', json={'watched': True}).status_code == 200
+    provider.details['493042'] = anime_detail('493042', episodes=[episode_info(1, title='Episode 1')], total_episodes=1)
+
+    response = client.post('/api/anime/library/1/sync')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['episodeConflicts'][0]['episodeNumber'] == 2
+    snapshot = db_session.scalar(select(UserAnimeMetadataSnapshot))
+    assert snapshot is not None
+    snapshot_episodes = db_session.scalars(
+        select(UserAnimeMetadataEpisodeSnapshot).where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id).order_by(UserAnimeMetadataEpisodeSnapshot.episode_number),
+    ).all()
+    assert [episode.episode_number for episode in snapshot_episodes] == [1, 2]
+    assert snapshot_episodes[1].watched is True
+
+
+def test_anime_detail_returns_metadata_snapshot_summary(
+    app: Flask,
+    client: FlaskClient,
+) -> None:
+    install_provider(app)
+    assert register_user(client).status_code == 201
+    assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': '493042'}).status_code == 201
+    assert client.post('/api/anime/library/1/provider-switch', json={'provider': 'local'}).status_code == 200
+
+    response = client.get('/api/anime/1')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['progress']['metadataSource'] == 'local_snapshot'
+    assert body['progress']['hasLocalSnapshot'] is True
+    assert body['metadataSnapshot']['sourceProvider'] == 'bangumi'
+    assert body['metadataSnapshot']['episodeCount'] == 2
+    assert body['episodeConflicts'] == []
+
+
+def test_provider_switch_conflict_requires_confirmation_before_migration(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    source = add_library_anime(db_session, external_id='source', original_name='Source', names=[('Source', 'en')])
+    watched = add_episode(db_session, source, number=2, title='Source Episode 2')
+    db_session.add(UserEpisodeProgress(user_id=1, episode_id=watched.id, watched=True, watched_at=datetime.now(UTC)))
+    db_session.commit()
+    provider = NamedMutableDetailProvider('tvdb', {'target': replace(anime_detail('target', episodes=[episode_info(1, title='Target Episode 1')], total_episodes=1), provider='tvdb')})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': FakeProvider(), 'tvdb': provider})
+
+    conflict_response = client.post(
+        f'/api/anime/library/{source.id}/provider-switch',
+        json={'provider': 'tvdb', 'externalId': 'target'},
+    )
+
+    assert conflict_response.status_code == 409
+    conflict_body = conflict_response.get_json()
+    assert conflict_body['episodeConflicts'][0]['episodeNumber'] == 2
+    db_session.expire_all()
+    progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.user_id == 1))
+    assert progress is not None
+    assert progress.anime_id == source.id
+    assert db_session.scalar(select(AnimeMetaInfo).where(AnimeMetaInfo.provider_type == 'tvdb')) is None
+
+    confirm_response = client.post(
+        f'/api/anime/library/{source.id}/provider-switch',
+        json={'provider': 'tvdb', 'externalId': 'target', 'confirm': True},
+    )
+
+    assert confirm_response.status_code == 200
+    assert confirm_response.get_json()['episodeConflicts'][0]['episodeNumber'] == 2
+    db_session.expire_all()
+    progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.user_id == 1))
+    assert progress is not None
+    assert progress.anime.provider_type == 'tvdb'

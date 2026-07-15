@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { assetUrl, createManualRelatedAnime, deleteManualRelatedAnime, dismissDeletedRelatedAnime, discoverRelatedAnime, getAnimeDetail, getCurrentRelatedAnimeDiscoveryJob, getLibrary, getManualRelatedAnime, getRelatedAnimeDiscoveryJob, keepDeletedRelatedAnime, resolveEpisodeConflicts, syncAnime, updateAnimeStatus, updateManualRelatedAnime, updateRelatedAnimeOverride, updateRelatedAnimeProviderImport } from "@/features/library/api";
+import { assetUrl, createManualRelatedAnime, deleteManualRelatedAnime, dismissDeletedRelatedAnime, discoverRelatedAnime, getAnimeDetail, getCurrentRelatedAnimeDiscoveryJob, getLibrary, getManualRelatedAnime, getRelatedAnimeDiscoveryJob, keepDeletedRelatedAnime, syncAnime, updateAnimeStatus, updateManualRelatedAnime, updateMetadataSource, updateRelatedAnimeOverride, updateRelatedAnimeProviderImport } from "@/features/library/api";
 import { useAnimeDetail } from "@/features/library/hooks";
 import type { Anime, AnimeProgress, EpisodeConflict, LibraryItem, LibraryRefreshJob, ManualRelatedAnime, RelatedAnime, RelatedAnimeDiscoveryResponse, UserAnimeStatus } from "@/features/library/types";
 import { addSearchResultToLibrary } from "@/features/search/api";
@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils";
 
 import { AnimeHeroSettingsMenu } from "./AnimeHeroSettingsMenu";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { EpisodeConflictDialog } from "./EpisodeConflictDialog";
 import { EpisodeList } from "./EpisodeList";
 import { SkeletonBlock } from "./LibraryPagination";
 import { NoPoster } from "./NoPoster";
@@ -56,13 +55,10 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [seasonDiscoveryMessage, setSeasonDiscoveryMessage] = useState<string | null>(null);
   const [episodeRefreshKey, setEpisodeRefreshKey] = useState(0);
   const [episodeConflicts, setEpisodeConflicts] = useState<EpisodeConflict[]>([]);
-  const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
   const [isPosterRefreshing, setIsPosterRefreshing] = useState(false);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [providerSwitchOpen, setProviderSwitchOpen] = useState(false);
   const [manualRelatedOpen, setManualRelatedOpen] = useState(false);
-  const [providerSwitchTargetAnimeId, setProviderSwitchTargetAnimeId] = useState<number | null>(null);
-  const [providerSwitchConflicts, setProviderSwitchConflicts] = useState<EpisodeConflict[]>([]);
 
   const applyRelatedAnimeDiscoveryJob = useCallback(async (job: LibraryRefreshJob) => {
     const result = relatedAnimeDiscoverySummary(job.summary);
@@ -275,27 +271,15 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
     }
   }
 
-  async function resolveConflicts(deleteEpisodeIds: number[]) {
-    setIsResolvingConflicts(true);
+  async function activateLocalSnapshotFromConflict() {
     setSyncError(null);
     try {
-      const result = await resolveEpisodeConflicts(animeId, deleteEpisodeIds);
-      setData((current) => current ? { ...current, anime: result.anime, progress: result.progress } : current);
+      const result = await updateMetadataSource(animeId, "local_snapshot");
+      setData((current) => current ? { ...current, anime: result.anime, progress: result.progress, metadataSnapshot: result.metadataSnapshot, episodeConflicts: [] } : current);
       setEpisodeConflicts([]);
       setEpisodeRefreshKey((current) => current + 1);
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : t("library.resolveConflictsFailed"));
-    } finally {
-      setIsResolvingConflicts(false);
-    }
-  }
-
-  function finishProviderSwitch() {
-    const targetAnimeId = providerSwitchTargetAnimeId;
-    setProviderSwitchConflicts([]);
-    setProviderSwitchTargetAnimeId(null);
-    if (targetAnimeId !== null) {
-      router.push(`/library/${targetAnimeId}`);
+      setSyncError(err instanceof Error ? err.message : t("library.switchProviderFailed"));
     }
   }
 
@@ -316,7 +300,10 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const poster = assetUrl(data.anime.posterUrl);
   const summary = data.anime.summary?.summary?.trim() || t("anime.noSummary");
   const showOriginal = data.anime.originalName !== data.anime.displayName;
-  const canDiscoverRelatedAnime = Boolean(data.features?.seasonDiscovery && RELATED_ANIME_DISCOVERY_BY_PROVIDER[data.anime.provider as keyof typeof RELATED_ANIME_DISCOVERY_BY_PROVIDER]);
+  const isLocalSnapshot = data.progress.metadataSource === "local_snapshot";
+  const providerDisplayName = isLocalSnapshot ? t("library.localSnapshotProvider") : data.anime.provider;
+  const canDiscoverRelatedAnime = Boolean(!isLocalSnapshot && data.features?.seasonDiscovery && RELATED_ANIME_DISCOVERY_BY_PROVIDER[data.anime.provider as keyof typeof RELATED_ANIME_DISCOVERY_BY_PROVIDER]);
+  const activeEpisodeConflicts = episodeConflicts.length > 0 ? episodeConflicts : data.episodeConflicts;
 
   return (
     <div className="space-y-8">
@@ -339,6 +326,17 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       {seasonDiscoveryMessage ? (
         <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm font-medium text-primary">
           {seasonDiscoveryMessage}
+        </div>
+      ) : null}
+
+      {activeEpisodeConflicts.length > 0 ? (
+        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-4">
+          <p className="text-sm font-semibold text-primary">{t("library.syncEpisodeConflictsTitle")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t("library.syncEpisodeConflictsDescription", { count: activeEpisodeConflicts.length })}</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Button type="button" size="sm" onClick={() => void activateLocalSnapshotFromConflict()}>{t("library.useLocalSnapshot")}</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setProviderSwitchOpen(true)}>{t("library.switchProvider")}</Button>
+          </div>
         </div>
       ) : null}
 
@@ -384,7 +382,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                       size="sm"
                       variant="outline"
                       className="h-8 rounded-full px-3 text-xs"
-                      disabled={isSyncing}
+                      disabled={isSyncing || isLocalSnapshot}
                       onClick={() => void syncCurrentAnime()}
                     >
                       <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
@@ -403,7 +401,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                         {isDiscoveringSeasons ? t("library.tvdbSeasonDiscovering") : t("library.tvdbSeasonDiscovery")}
                       </Button>
                     ) : null}
-                    <span>{t("library.lastSynced", { time: formatLastSynced(data.anime.lastSyncedAt, t("library.neverSynced")) })}</span>
+                    <span>{isLocalSnapshot ? t("library.localSnapshotActive") : t("library.lastSynced", { time: formatLastSynced(data.anime.lastSyncedAt, t("library.neverSynced")) })}</span>
                     {isPosterRefreshing ? <span>{t("library.posterRefreshing")}</span> : null}
                   </div>
                 </div>
@@ -482,7 +480,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               <button type="button" className="group relative rounded-2xl border bg-background/35 p-3 text-left backdrop-blur transition-colors hover:bg-background/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setProviderSwitchOpen(true)}>
                 <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</span>
                 <span className="mt-1 flex items-center justify-between gap-3 font-semibold">
-                  <span>{data.anime.provider}</span>
+                  <span>{providerDisplayName}</span>
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/60 text-muted-foreground transition-colors group-hover:border-primary/40 group-hover:text-primary" aria-hidden="true">
                     <Repeat2 className="h-4 w-4" />
                   </span>
@@ -497,7 +495,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               </button>
               {data.anime.url ? (
                 <a className="rounded-2xl border bg-background/35 p-3 backdrop-blur transition-colors hover:bg-background/55" href={data.anime.url} target="_blank" rel="noreferrer">
-                  <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("anime.viewOnProvider", { provider: data.anime.provider })}</span>
+                  <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("anime.viewOnProvider", { provider: providerDisplayName })}</span>
                   <span className="mt-1 inline-flex items-center gap-2 font-semibold">
                     {data.anime.externalId}<ExternalLink className="h-4 w-4" />
                   </span>
@@ -508,11 +506,11 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         </div>
       </section>
 
-      <RelatedAnimeSection animeId={animeId} provider={data.anime.provider} items={data.anime.relatedAnime ?? []} onRefresh={() => void refreshDetail()} />
+      <RelatedAnimeSection animeId={animeId} provider={providerDisplayName} items={data.anime.relatedAnime ?? []} onRefresh={() => void refreshDetail()} />
 
       <ManualRelatedAnimeDialog open={manualRelatedOpen} animeId={animeId} currentAnimeTitle={data.anime.displayName} relatedItems={data.anime.relatedAnime ?? []} existingRelatedAnimeIds={(data.anime.relatedAnime ?? []).filter((item) => item.source === "manual" && item.animeId !== null).map((item) => item.animeId as number)} onClose={() => setManualRelatedOpen(false)} onChanged={() => void refreshDetail()} />
 
-      <EpisodeList animeId={animeId} refreshKey={episodeRefreshKey} onProgressChange={updateProgress} />
+      <EpisodeList animeId={animeId} metadataSource={data.progress.metadataSource} refreshKey={episodeRefreshKey} onProgressChange={updateProgress} />
 
       <ConfirmDialog
         open={dropConfirm}
@@ -526,36 +524,22 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
           updateAnimeStatus(animeId, "dropped").then((result) => updateProgress(result.progress));
         }}
       />
-      <EpisodeConflictDialog
-        key={episodeConflicts.map((conflict) => conflict.episodeId).join("-")}
-        open={episodeConflicts.length > 0}
-        conflicts={episodeConflicts}
-        isResolving={isResolvingConflicts}
-        onCancel={() => setEpisodeConflicts([])}
-        onConfirm={(deleteEpisodeIds) => void resolveConflicts(deleteEpisodeIds)}
-      />
       <ProviderSwitchDialog
         open={providerSwitchOpen}
         anime={data.anime}
+        metadataSource={data.progress.metadataSource}
+        metadataSnapshot={data.metadataSnapshot}
         onClose={() => setProviderSwitchOpen(false)}
-        onSwitched={(targetAnimeId, _previousAnimeId, conflicts) => {
-          setProviderSwitchOpen(false);
-          if (conflicts.length === 0) {
-            router.push(`/library/${targetAnimeId}`);
-            return;
-          }
-          setProviderSwitchTargetAnimeId(targetAnimeId);
-          setProviderSwitchConflicts(conflicts);
+        onMetadataSourceChanged={(progress, metadataSnapshot) => {
+          setData((current) => current ? { ...current, progress, metadataSnapshot } : current);
+          setEpisodeConflicts([]);
+          setEpisodeRefreshKey((current) => current + 1);
         }}
-      />
-      <EpisodeConflictDialog
-        key={`provider-switch-${providerSwitchConflicts.map((conflict) => conflict.episodeId).join("-")}`}
-        open={providerSwitchConflicts.length > 0}
-        conflicts={providerSwitchConflicts}
-        title={t("library.switchProviderEpisodeConflictsTitle")}
-        description={t("library.switchProviderEpisodeConflictsDescription")}
-        onCancel={finishProviderSwitch}
-        onConfirm={finishProviderSwitch}
+        onSwitched={(targetAnimeId, _previousAnimeId, conflicts) => {
+          void conflicts;
+          setProviderSwitchOpen(false);
+          router.push(`/library/${targetAnimeId}`);
+        }}
       />
       {summaryDialogOpen ? (
         <div

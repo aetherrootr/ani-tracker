@@ -43,6 +43,7 @@ from app.api.utils.serializers import (
     serialize_duplicate_anime_candidate,
     serialize_import_search_result,
     serialize_library_progress,
+    serialize_metadata_snapshot,
     serialize_progress,
     serialize_related_anime,
     serialize_summary,
@@ -62,6 +63,7 @@ from app.models.anime import (
 from app.models.anime_utils import season_zero_anime_condition, tracking_list_query_parts
 from app.models.progress import (
     UserAnimeProgress,
+    UserAnimeMetadataSource,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
     UserAnimeStatus,
@@ -74,6 +76,9 @@ from app.services.anime_library import (
     _fallback_related_relations,
     add_anime_to_user_library,
     get_user_progress,
+    get_metadata_snapshot,
+    preview_user_anime_provider_switch,
+    set_anime_metadata_source,
     set_anime_name_preference,
     set_summary_preference,
     switch_user_anime_provider,
@@ -82,6 +87,7 @@ from app.services.anime_library import (
 from app.services.anime_poster import enqueue_poster_download
 from app.services.anime_sync import (
     serialize_episode_conflict,
+    get_episode_conflicts,
     sync_anime_from_provider,
 )
 from app.services.library_refresh_jobs import (
@@ -302,6 +308,26 @@ def switch_library_anime_provider(db: Session, user: User, anime_id: int) -> Res
     external_id = payload.get('externalId')
     if not isinstance(provider_name, str) or not provider_name.strip():
         return jsonify({'message': 'Anime provider is required'}), 400
+    if provider_name.strip() == 'local':
+        progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+        if progress is None:
+            return jsonify({'message': 'Anime not found'}), 404
+        try:
+            set_anime_metadata_source(db, progress=progress, source=UserAnimeMetadataSource.LOCAL_SNAPSHOT.value)
+        except ValueError as exc:
+            db.rollback()
+            return jsonify({'message': str(exc)}), 400
+        anime = db.get(AnimeMetaInfo, anime_id)
+        snapshot = get_metadata_snapshot(db, user_id=user.id, anime_id=anime_id)
+        return jsonify(
+            {
+                'anime': serialize_anime(anime, progress, user) if anime is not None else None,
+                'progress': serialize_progress(progress, include_anime_id=True, has_local_snapshot=snapshot is not None),
+                'previousAnimeId': anime_id,
+                'episodeConflicts': [],
+                'metadataSnapshot': serialize_metadata_snapshot(snapshot),
+            },
+        )
     if not isinstance(external_id, str) or not external_id.strip():
         return jsonify({'message': 'Anime externalId is required'}), 400
     try:
@@ -311,6 +337,30 @@ def switch_library_anime_provider(db: Session, user: User, anime_id: int) -> Res
 
     try:
         provider = get_import_provider_factory().get_provider(provider_type.value)
+        confirmed = payload.get('confirm') is True
+        if not confirmed:
+            preview = preview_user_anime_provider_switch(
+                db,
+                provider,
+                user_id=user.id,
+                anime_id=anime_id,
+                external_id=external_id.strip(),
+            )
+            if preview is None:
+                db.rollback()
+                return jsonify({'message': 'Anime not found'}), 404
+            if preview.episode_conflicts:
+                db.rollback()
+                return jsonify(
+                    {
+                        'message': 'Provider switch has episode conflicts',
+                        'anime': serialize_anime(preview.anime, preview.progress, user),
+                        'progress': serialize_progress(preview.progress, include_anime_id=True, has_local_snapshot=get_metadata_snapshot(db, user_id=user.id, anime_id=anime_id) is not None),
+                        'previousAnimeId': preview.previous_anime_id,
+                        'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in preview.episode_conflicts],
+                    },
+                ), 409
+            db.rollback()
         result = switch_user_anime_provider(
             db,
             provider,
@@ -331,13 +381,47 @@ def switch_library_anime_provider(db: Session, user: User, anime_id: int) -> Res
     return jsonify(
         {
             'anime': serialize_anime(result.anime, result.progress, user),
-            'progress': serialize_progress(result.progress, include_anime_id=True),
+            'progress': serialize_progress(result.progress, include_anime_id=True, has_local_snapshot=get_metadata_snapshot(db, user_id=user.id, anime_id=result.progress.anime_id) is not None),
             'previousAnimeId': result.previous_anime_id,
             'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
             'autoMappedCount': result.related_auto_mapped_count,
             'manualMappingRequiredCount': result.related_manual_mapping_required_count,
         },
     )
+
+
+@anime_info_bp.patch('/library/<int:anime_id>/metadata-source')
+@require_auth_user
+def update_library_anime_metadata_source(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get('source'), str):
+        return jsonify({'message': 'Metadata source is required'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    anime = db.get(AnimeMetaInfo, anime_id)
+    if progress is None or anime is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    try:
+        set_anime_metadata_source(db, progress=progress, source=payload['source'])
+    except ValueError as exc:
+        db.rollback()
+        return jsonify({'message': str(exc)}), 400
+    snapshot = get_metadata_snapshot(db, user_id=user.id, anime_id=anime_id)
+    return jsonify(
+        {
+            'anime': serialize_anime(anime, progress, user),
+            'progress': serialize_progress(progress, has_local_snapshot=snapshot is not None),
+            'metadataSnapshot': serialize_metadata_snapshot(snapshot),
+        },
+    )
+
+
+@anime_info_bp.get('/library/<int:anime_id>/metadata-snapshot')
+@require_auth_user
+def get_library_anime_metadata_snapshot(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    if get_user_progress(db, user_id=user.id, anime_id=anime_id) is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    snapshot = get_metadata_snapshot(db, user_id=user.id, anime_id=anime_id)
+    return jsonify({'metadataSnapshot': serialize_metadata_snapshot(snapshot, include_episodes=True)})
 
 
 @anime_info_bp.patch('/library/<int:anime_id>/related-anime/<int:relation_id>/override')
@@ -759,6 +843,16 @@ def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturn
     if anime is None:
         return jsonify({'message': 'Anime not found'}), 404
 
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot = get_metadata_snapshot(db, user_id=user.id, anime_id=anime_id)
+        return jsonify(
+            {
+                'anime': serialize_anime(anime, progress, user),
+                'progress': serialize_progress(progress, has_local_snapshot=snapshot is not None),
+                'synced': False,
+                'episodeConflicts': [],
+            },
+        )
     try:
         provider = get_import_provider_factory().get_provider(anime.provider_type)
         result = sync_anime_from_provider(db, provider, anime_id=anime_id, user_id=user.id)
@@ -783,7 +877,7 @@ def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturn
     return jsonify(
         {
             'anime': serialize_anime(result.anime, progress, user),
-            'progress': serialize_progress(progress),
+            'progress': serialize_progress(progress, has_local_snapshot=get_metadata_snapshot(db, user_id=user.id, anime_id=anime_id) is not None),
             'synced': True,
             'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
         },
@@ -799,6 +893,8 @@ def discover_library_related_anime(db: Session, user: User, anime_id: int) -> Re
     anime = db.get(AnimeMetaInfo, anime_id)
     if anime is None:
         return jsonify({'message': 'Anime not found'}), 404
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        return jsonify({'message': 'Related anime discovery is disabled while using local snapshot metadata'}), 400
     discovery_config = RELATED_ANIME_DISCOVERY_BY_PROVIDER.get(anime.provider_type)
     if discovery_config is None:
         return jsonify({'message': 'Related anime discovery is not supported for this provider'}), 400
@@ -1094,6 +1190,8 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
         if prompt.anime_relation_id not in visible_relation_ids and prompt.related_anime_id not in manual_target_ids
     )
     related_anime_items = _dedupe_related_anime_items(related_anime_items)
+    metadata_snapshot = get_metadata_snapshot(db, user_id=user.id, anime_id=anime.id)
+    episode_conflicts = [] if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value else get_episode_conflicts(db, anime_id=anime.id, user_id=user.id)
     return jsonify(
         {
             'anime': serialize_anime(
@@ -1110,9 +1208,11 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
                 related_anime_progresses=related_anime_progresses,
                 related_anime_items=related_anime_items,
             ),
-            'progress': serialize_progress(progress),
+            'progress': serialize_progress(progress, has_local_snapshot=metadata_snapshot is not None),
+            'metadataSnapshot': serialize_metadata_snapshot(metadata_snapshot),
+            'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in episode_conflicts],
             'features': {
-                'seasonDiscovery': _season_discovery_enabled(anime.provider_type),
+                'seasonDiscovery': progress.metadata_source != UserAnimeMetadataSource.LOCAL_SNAPSHOT.value and _season_discovery_enabled(anime.provider_type),
             },
         },
     )

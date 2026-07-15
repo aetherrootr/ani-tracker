@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     and_,
     func,
@@ -36,6 +37,11 @@ class UserAnimeStatus(enum.Enum):
     PLAN_TO_WATCH = "plan_to_watch"
     ON_HOLD = "on_hold"
     DROPPED = "dropped"
+
+
+class UserAnimeMetadataSource(enum.Enum):
+    UPSTREAM = "upstream"
+    LOCAL_SNAPSHOT = "local_snapshot"
 
 
 class UserEpisodeProgress(TimestampedBase):
@@ -100,12 +106,62 @@ class UserAnimeProgress(TimestampedBase):
     preferred_name_id: Mapped[int | None] = mapped_column(
         ForeignKey("anime_name.id", ondelete="SET NULL"),
     )
+    metadata_source: Mapped[str] = mapped_column(String(32), default=UserAnimeMetadataSource.UPSTREAM.value, server_default=UserAnimeMetadataSource.UPSTREAM.value, nullable=False)
+    metadata_snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("user_anime_metadata_snapshot.id", ondelete="SET NULL"))
 
     user: Mapped[User] = relationship(back_populates="anime_progresses")
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="user_progresses")
     preferred_summary: Mapped[AnimeSummary | None] = relationship()
     preferred_poster: Mapped[AnimePoster | None] = relationship()
     preferred_name: Mapped[AnimeName | None] = relationship()
+    metadata_snapshot: Mapped[UserAnimeMetadataSnapshot | None] = relationship(foreign_keys=[metadata_snapshot_id])
+
+
+class UserAnimeMetadataSnapshot(TimestampedBase):
+    __tablename__ = "user_anime_metadata_snapshot"
+    __table_args__ = (
+        UniqueConstraint("user_id", "anime_id", name="uq_user_anime_metadata_snapshot_user_anime"),
+        Index("ix_user_anime_metadata_snapshot_user_anime", "user_id", "anime_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    anime_id: Mapped[int] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="CASCADE"), nullable=False)
+    source_anime_id: Mapped[int | None] = mapped_column(ForeignKey("anime_meta_info.id", ondelete="SET NULL"))
+    source_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    episode_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+    user: Mapped[User] = relationship()
+    anime: Mapped[AnimeMetaInfo] = relationship(foreign_keys=[anime_id])
+    source_anime: Mapped[AnimeMetaInfo | None] = relationship(foreign_keys=[source_anime_id])
+    episodes: Mapped[list[UserAnimeMetadataEpisodeSnapshot]] = relationship(
+        back_populates="snapshot",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class UserAnimeMetadataEpisodeSnapshot(TimestampedBase):
+    __tablename__ = "user_anime_metadata_episode_snapshot"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "episode_number", name="uq_user_anime_metadata_episode_snapshot_number"),
+        Index("ix_user_anime_metadata_episode_snapshot_snapshot_number", "snapshot_id", "episode_number"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(ForeignKey("user_anime_metadata_snapshot.id", ondelete="CASCADE"), nullable=False)
+    episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255))
+    air_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration: Mapped[str | None] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(32), default=EpisodeStatus.UNKNOWN.value, server_default=EpisodeStatus.UNKNOWN.value, nullable=False)
+    watched: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    watched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    names: Mapped[str | None] = mapped_column(Text)
+
+    snapshot: Mapped[UserAnimeMetadataSnapshot] = relationship(back_populates="episodes")
 
 
 class UserAnimeRelationOverride(TimestampedBase):
