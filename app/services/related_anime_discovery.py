@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
 from app.models.anime import AnimeMetaInfo, AnimePoster, AnimeRelation
-from app.models.progress import UserAnimeMetadataSource, UserAnimeProgress, UserAnimeRelationOverride, UserAnimeStatus
+from app.models.progress import (
+    UserAnimeMetadataSource,
+    UserAnimeProgress,
+    UserAnimeRelationOverride,
+    UserAnimeStatus,
+)
 from app.models.user import User
 from app.services.anime_library import import_anime_from_provider
 from app.services.anime_poster import enqueue_poster_download

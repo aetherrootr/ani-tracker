@@ -13,7 +13,12 @@ from app.models.anime import (
     AnimeSummary,
     EpisodeName,
 )
-from app.models.progress import UserAnimeMetadataEpisodeSnapshot, UserAnimeMetadataSnapshot, UserAnimeProgress, UserAnimeStatus
+from app.models.progress import (
+    UserAnimeMetadataEpisodeSnapshot,
+    UserAnimeMetadataSnapshot,
+    UserAnimeProgress,
+    UserAnimeStatus,
+)
 from app.models.user import User
 from app.services.anime_library import DuplicateAnimeCandidate
 from app.services.name_keys import build_name_keys

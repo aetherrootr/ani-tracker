@@ -22,8 +22,8 @@ from app.models.progress import (
 )
 from app.models.user import User
 from app.services.anime_library import (
-    get_user_progress,
     get_episode_rows_for_progress,
+    get_user_progress,
     set_episode_name_preference,
 )
 

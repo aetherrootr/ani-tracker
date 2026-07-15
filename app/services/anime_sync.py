@@ -23,13 +23,16 @@ from app.models.anime import (
     EpisodeName,
 )
 from app.models.progress import (
-    UserAnimeProgress,
     UserAnimeMetadataSource,
+    UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserEpisodeProgress,
 )
 from app.models.user import User
-from app.services.anime_library import create_or_update_metadata_snapshot, populate_anime_from_detail
+from app.services.anime_library import (
+    create_or_update_metadata_snapshot,
+    populate_anime_from_detail,
+)
 
 
 @dataclass(frozen=True)

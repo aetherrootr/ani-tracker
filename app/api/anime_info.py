@@ -62,8 +62,8 @@ from app.models.anime import (
 )
 from app.models.anime_utils import season_zero_anime_condition, tracking_list_query_parts
 from app.models.progress import (
-    UserAnimeProgress,
     UserAnimeMetadataSource,
+    UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
     UserAnimeStatus,
@@ -75,8 +75,8 @@ from app.services.anime_library import (
     DuplicateAnimeConflict,
     _fallback_related_relations,
     add_anime_to_user_library,
-    get_user_progress,
     get_metadata_snapshot,
+    get_user_progress,
     preview_user_anime_provider_switch,
     set_anime_metadata_source,
     set_anime_name_preference,
@@ -86,8 +86,8 @@ from app.services.anime_library import (
 )
 from app.services.anime_poster import enqueue_poster_download
 from app.services.anime_sync import (
-    serialize_episode_conflict,
     get_episode_conflicts,
+    serialize_episode_conflict,
     sync_anime_from_provider,
 )
 from app.services.library_refresh_jobs import (

@@ -30,10 +30,10 @@ from app.models.anime import (
     EpisodeStatus,
 )
 from app.models.progress import (
-    UserAnimeProgress,
     UserAnimeMetadataEpisodeSnapshot,
     UserAnimeMetadataSnapshot,
     UserAnimeMetadataSource,
+    UserAnimeProgress,
     UserAnimeRelationDeletionPrompt,
     UserAnimeRelationOverride,
     UserAnimeStatus,
@@ -580,7 +580,7 @@ def _migrate_watched_episodes(
         target_anime_id=target_anime_id,
         source_watched=source_watched,
     )
-    for episode_number, (source_episode, source_progress) in source_watched.items():
+    for episode_number, (_source_episode, source_progress) in source_watched.items():
         target_episode = target_episodes.get(episode_number)
         if target_episode is None:
             continue
