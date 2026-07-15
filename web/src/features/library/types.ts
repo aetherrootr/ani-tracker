@@ -63,7 +63,7 @@ export type RelatedAnime = {
   episodeCount: number | null;
   url: string | null;
   posterUrl: string | null;
-  source?: "provider" | "fallback" | "manual";
+  source?: "provider" | "manual";
   mappedByOverride?: boolean;
   needsManualMapping?: boolean;
   pendingUpstreamDeletion?: boolean;
@@ -275,8 +275,6 @@ export type ProviderSwitchResponse = {
   progress: AnimeProgress;
   previousAnimeId: number;
   episodeConflicts: EpisodeConflict[];
-  relatedAnimeMode?: "provider" | "fallback" | "none";
   autoMappedCount?: number;
   manualMappingRequiredCount?: number;
-  fallbackRelationCount?: number;
 };

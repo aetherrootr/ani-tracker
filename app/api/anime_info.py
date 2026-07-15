@@ -334,10 +334,8 @@ def switch_library_anime_provider(db: Session, user: User, anime_id: int) -> Res
             'progress': serialize_progress(result.progress, include_anime_id=True),
             'previousAnimeId': result.previous_anime_id,
             'episodeConflicts': [serialize_episode_conflict(conflict) for conflict in result.episode_conflicts],
-            'relatedAnimeMode': result.related_anime_mode,
             'autoMappedCount': result.related_auto_mapped_count,
             'manualMappingRequiredCount': result.related_manual_mapping_required_count,
-            'fallbackRelationCount': result.related_fallback_relation_count,
         },
     )
 
@@ -975,7 +973,7 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
     provider_relations = [relation for relation in anime.related_anime if relation.is_active and relation.relation_type == 'same_series_season']
     fallback_relations = [] if provider_relations else _fallback_related_relations(db, user_id=user.id, anime_id=anime.id)
     effective_relations = provider_relations or fallback_relations
-    source_by_relation_id = {relation.id: ('provider' if provider_relations else 'fallback') for relation in effective_relations}
+    source_by_relation_id = {relation.id: 'provider' for relation in effective_relations}
     relation_ids = [relation.id for relation in effective_relations]
     related_anime_ids = [relation.related_anime_id for relation in effective_relations if relation.related_anime_id is not None]
     related_anime_overrides = {}
@@ -1140,8 +1138,6 @@ def _related_anime_item_priority(item: dict[str, Any]) -> int:
         return 3
     if item.get('source') == 'provider':
         return 2
-    if item.get('source') == 'fallback':
-        return 1
     return 0
 
 
