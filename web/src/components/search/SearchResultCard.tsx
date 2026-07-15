@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { BookOpenCheck, ChevronDown, ChevronRight, ExternalLink, Eye, ImageOff, Plus, X } from "lucide-react";
+import { BookOpenCheck, ChevronDown, ChevronRight, ExternalLink, Eye, ImageOff, Plus, Shuffle, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -15,10 +15,18 @@ type SearchResultCardProps = {
   result: AnimeSearchResult;
   imageFailed: boolean;
   onImageError: (imageUrl: string) => void;
-  onLibraryAdded: (provider: string, externalId: string, animeId: number, libraryStatus: string) => void;
+  onLibraryAdded?: (provider: string, externalId: string, animeId: number, libraryStatus: string) => void;
+  primaryAction?: {
+    label: string;
+    loadingLabel?: string;
+    icon?: "eye" | "shuffle";
+    disabled?: boolean;
+    loading?: boolean;
+    onClick: () => void;
+  };
 };
 
-export function SearchResultCard({ result, imageFailed, onImageError, onLibraryAdded }: SearchResultCardProps) {
+export function SearchResultCard({ result, imageFailed, onImageError, onLibraryAdded, primaryAction }: SearchResultCardProps) {
   const t = useTranslations();
   const imageUrl = result.imageUrl;
   const hasImage = imageUrl && !imageFailed;
@@ -34,6 +42,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
   const [addingExternalId, setAddingExternalId] = useState<string | null>(null);
   const [isAddingAllSeasons, setIsAddingAllSeasons] = useState(false);
   const isTvdbResult = result.provider === "tvdb";
+  const PrimaryActionIcon = primaryAction?.icon === "eye" ? Eye : Shuffle;
 
   async function addToLibrary(target: AnimeSearchResult = result, duplicateResolution?: DuplicateResolution): Promise<boolean> {
     setIsAdding(true);
@@ -43,7 +52,7 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
       const response = await addSearchResultToLibrary(target.provider, target.externalId, duplicateResolution);
       setDuplicateConflict(null);
       setDuplicateTarget(null);
-      onLibraryAdded(target.provider, target.externalId, response.anime.id, response.progress.status);
+      onLibraryAdded?.(target.provider, target.externalId, response.anime.id, response.progress.status);
       setTvdbSeasons((current) => current?.map((season) => season.externalId === target.externalId ? { ...season, inLibrary: true, animeId: response.anime.id, libraryStatus: response.progress.status } : season) ?? null);
       return true;
     } catch (err) {
@@ -196,7 +205,19 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
 
         <div className="flex items-center md:border-l md:pl-4">
           <div className="flex w-full flex-col items-center justify-center gap-2 md:min-h-44 md:rounded-2xl md:bg-muted/25 md:p-3">
-            {isTvdbResult ? (
+            {primaryAction ? (
+              <Button
+                type="button"
+                className="h-11 w-11 rounded-full px-0 text-xs md:h-[46px] md:w-full md:rounded-xl md:px-3 sm:text-sm"
+                disabled={primaryAction.disabled || primaryAction.loading}
+                aria-label={primaryAction.loading ? primaryAction.loadingLabel ?? primaryAction.label : primaryAction.label}
+                title={primaryAction.loading ? primaryAction.loadingLabel ?? primaryAction.label : primaryAction.label}
+                onClick={primaryAction.onClick}
+              >
+                <PrimaryActionIcon className="h-4 w-4" />
+                <span className="hidden md:inline">{primaryAction.loading ? primaryAction.loadingLabel ?? primaryAction.label : primaryAction.label}</span>
+              </Button>
+            ) : isTvdbResult ? (
               <Button
                 type="button"
                 className="h-11 w-11 rounded-full px-0 text-xs md:h-[46px] md:w-full md:rounded-xl md:px-3 sm:text-sm"
