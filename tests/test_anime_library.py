@@ -538,11 +538,11 @@ def test_provider_switch_without_target_related_falls_back_to_old_provider_relat
 
     assert switch_response.status_code == 200
     payload = switch_response.get_json()
-    assert payload['relatedAnimeMode'] == 'fallback'
+    assert 'relatedAnimeMode' not in payload
     target_id = payload['anime']['id']
     detail_response = client.get(f'/api/anime/{target_id}')
     related = detail_response.get_json()['anime']['relatedAnime'][0]
-    assert related['source'] == 'fallback'
+    assert related['source'] == 'provider'
     assert related['provider'] == 'bangumi'
     assert related['animeId'] == old_related_next.id
 

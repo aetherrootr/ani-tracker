@@ -679,7 +679,6 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
   const [addError, setAddError] = useState<string | null>(null);
   const [isResolvingDeletion, setIsResolvingDeletion] = useState(false);
   const [duplicateConflict, setDuplicateConflict] = useState<DuplicateAnimeConflict | null>(null);
-  const hasFallback = items.some((item) => item.source === "fallback");
 
   function updateScrollHints() {
     const element = scrollRef.current;
@@ -788,7 +787,6 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
         <h2 className="text-xl font-semibold tracking-tight">{t("library.relatedAnimeTitle")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeDescription", { provider })}</p>
       </div>
-      {hasFallback ? <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">{t("library.relatedAnimeFallbackNotice")}</p> : null}
       <div className="relative">
         {canScrollLeft ? (
           <button
@@ -815,7 +813,6 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
           const key = relatedAnimeItemKey(item, index);
           const poster = assetUrl(item.posterUrl);
           const badges = [
-            item.source === "fallback" ? t("library.relatedAnimeBadgeFallback") : null,
             item.source === "manual" ? t("library.relatedAnimeBadgeManual") : null,
             item.mappedByOverride ? t("library.relatedAnimeBadgeMapped") : null,
             item.pendingUpstreamDeletion ? t("library.relatedAnimeBadgeRemoved") : null,
@@ -1204,7 +1201,6 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline">{item.provider}</Badge>
-                        {item.source === "fallback" ? <Badge variant="secondary">{t("library.relatedAnimeBadgeFallback")}</Badge> : null}
                         {item.mappedByOverride ? <Badge variant="secondary">{t("library.relatedAnimeBadgeMapped")}</Badge> : null}
                         {item.pendingUpstreamDeletion ? <Badge variant="secondary">{t("library.relatedAnimeBadgeRemoved")}</Badge> : null}
                         {item.needsManualMapping ? <Badge variant="secondary">{t("library.relatedAnimeBadgeNeedsMapping")}</Badge> : null}

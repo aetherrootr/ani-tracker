@@ -59,18 +59,14 @@ class ProviderSwitchResult:
     progress: UserAnimeProgress
     previous_anime_id: int
     episode_conflicts: list[Any]
-    related_anime_mode: str
     related_auto_mapped_count: int
     related_manual_mapping_required_count: int
-    related_fallback_relation_count: int
 
 
 @dataclass(frozen=True)
 class ProviderSwitchRelatedAnimeResult:
-    related_anime_mode: str
     auto_mapped_count: int
     manual_mapping_required_count: int
-    fallback_relation_count: int
 
 
 def import_anime_from_provider(
@@ -308,10 +304,8 @@ def switch_user_anime_provider(
         progress=target_progress,
         previous_anime_id=anime_id,
         episode_conflicts=conflicts,
-        related_anime_mode=related_result.related_anime_mode,
         related_auto_mapped_count=related_result.auto_mapped_count,
         related_manual_mapping_required_count=related_result.manual_mapping_required_count,
-        related_fallback_relation_count=related_result.fallback_relation_count,
     )
 
 
@@ -365,10 +359,7 @@ def reconcile_related_anime_after_provider_switch(
             auto_mapped_count += 1
         else:
             manual_mapping_required_count += 1
-    if provider_relations:
-        return ProviderSwitchRelatedAnimeResult('provider', auto_mapped_count, manual_mapping_required_count, 0)
-    fallback_relation_count = len(_fallback_related_relations(session, user_id=user_id, anime_id=target_anime_id))
-    return ProviderSwitchRelatedAnimeResult('fallback' if fallback_relation_count else 'none', 0, 0, fallback_relation_count)
+    return ProviderSwitchRelatedAnimeResult(auto_mapped_count, manual_mapping_required_count)
 
 
 def _add_anime_progress(
