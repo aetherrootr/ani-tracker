@@ -13,10 +13,14 @@ export type StatisticsWeek = {
 
 export type StatisticsSummary = {
   status: "ready" | "pending" | "failed";
+  statisticsVersion: string;
+  calculatedAt: string;
+  timeZone: string;
   watchedEpisodeCount: number;
   unwatchedAiredEpisodeCount: number;
   libraryAnimeCount: number;
   totalWatchSeconds: number;
+  unknownDurationEpisodeCount: number;
   averageWeeklyWatchedEpisodesLastQuarter: number;
   weekStartDay: number;
   daily: StatisticsDay[];
@@ -32,11 +36,13 @@ export type WatchTimelineItem = {
   };
   episode: {
     id: number;
+    source: "upstream" | "local_snapshot";
     episodeNumber: number;
     displayName: string | null;
     duration: string | null;
     durationSeconds: number | null;
     watchedAt: string | null;
+    localDate: string;
   };
 };
 
@@ -46,4 +52,6 @@ export type WatchTimelinePage = {
   limit: number;
   offset: number;
   hasMore: boolean;
+  statisticsVersion: string;
+  timeZone: string;
 };

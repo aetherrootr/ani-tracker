@@ -58,6 +58,7 @@ def create_oidc_user(db: Any, *, issuer: str, subject: str, claims: dict[str, An
         display_name=_oidc_display_name(claims, email),
         language_preference=DEFAULT_LANGUAGE_PREFERENCE,
         password_hash=hash_password(secrets.token_urlsafe(48)),
+        password_login_enabled=False,
     )
     db.add(user)
     db.flush()

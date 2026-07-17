@@ -38,8 +38,8 @@ export function LanguageToggle() {
       type="button"
       variant="ghost"
       size="sm"
-      className="gap-2"
-      aria-label={t("app.language")}
+      className="min-h-11 gap-2 px-3 md:min-h-8"
+      aria-label={`${t("app.language")}: ${locale === "zh-CN" ? t("app.languageChinese") : t("app.languageEnglish")}`}
       disabled={isUpdating}
       onClick={handleClick}
     >

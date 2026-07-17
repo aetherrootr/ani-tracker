@@ -69,27 +69,21 @@ export function calculateLibraryPageSize(gridElement?: HTMLElement | null) {
     return DEFAULT_LIBRARY_PAGE_SIZE;
   }
 
-  const width = gridElement?.getBoundingClientRect().width ?? window.innerWidth;
-  const gridColumns = gridElement ? getGridColumnCount(gridElement) : 0;
-  const columns = gridColumns || (window.innerWidth < 640 ? 1 : window.innerWidth < 1024 ? 3 : window.innerWidth < 1280 ? 4 : 5);
-  if (window.innerWidth < 640) {
-    return 18;
-  }
+  const desktop = window.matchMedia("(min-width: 768px) and (any-hover: hover) and (any-pointer: fine)").matches;
+  if (!desktop) return 12;
 
-  const cardWidth = width / columns;
-  const cardHeight = window.innerWidth < 640 ? 172 : cardWidth * 1.5 + 150;
-  const gridTop = gridElement?.getBoundingClientRect().top ?? 220;
-  const availableHeight = Math.max(cardHeight, window.innerHeight - gridTop - 120);
-  const targetDesktopItems = 25;
-  const rows = Math.max(Math.ceil(targetDesktopItems / columns), Math.ceil(availableHeight / cardHeight));
-  return Math.min(100, Math.max(columns * rows, columns * 2));
+  const width = gridElement?.getBoundingClientRect().width ?? window.innerWidth;
+  const estimatedColumns = Math.max(1, Math.floor((width + 18) / 208));
+  const columns = (gridElement ? getGridColumnCount(gridElement) : 0) || estimatedColumns;
+  if (columns <= 2) return columns * 10;
+  if (columns === 3) return 24;
+  if (columns === 4) return 24;
+  return Math.min(columns * 5, 100);
 }
 
 function getGridColumnCount(element: HTMLElement) {
   const template = window.getComputedStyle(element).gridTemplateColumns;
-  if (!template || template === "none") {
-    return 0;
-  }
+  if (!template || template === "none") return 0;
   return template.split(" ").filter(Boolean).length;
 }
 

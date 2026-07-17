@@ -1,7 +1,33 @@
 export const MOBILE_SCROLL_CONTAINER_ID = "app-mobile-scroll-container";
 
 export function getMobileScrollContainer() {
+  if (usesDocumentScrolling()) {
+    return null;
+  }
+
   return document.getElementById(MOBILE_SCROLL_CONTAINER_ID);
+}
+
+export function usesDocumentScrolling() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const standalone = window.matchMedia("(display-mode: standalone)").matches
+    || ("standalone" in navigator && navigator.standalone === true);
+  const mobilePointer = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+  return mobilePointer && !standalone;
+}
+
+export function subscribeToDocumentScrollMode(listener: () => void) {
+  const displayMode = window.matchMedia("(display-mode: standalone)");
+  const pointerMode = window.matchMedia("(hover: none) and (pointer: coarse)");
+  displayMode.addEventListener("change", listener);
+  pointerMode.addEventListener("change", listener);
+  return () => {
+    displayMode.removeEventListener("change", listener);
+    pointerMode.removeEventListener("change", listener);
+  };
 }
 
 export function getPageScrollTop() {

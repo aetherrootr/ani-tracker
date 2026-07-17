@@ -1,10 +1,7 @@
-import type { NextRequest } from "next/server";
-
-import { pwaIcon512TargetUrl } from "@/lib/app-branding";
-import { redirectToBrandingAsset } from "@/lib/branding-redirect";
+import { createAppIconResponse } from "@/lib/app-icon-response";
 
 export const dynamic = "force-dynamic";
 
-export function GET(request: NextRequest) {
-  return redirectToBrandingAsset(request, pwaIcon512TargetUrl);
+export function GET() {
+  return createAppIconResponse(512);
 }

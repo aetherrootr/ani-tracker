@@ -1,17 +1,18 @@
 "use client";
 
-import { Check, EyeOff } from "lucide-react";
+import { AlertCircle, Check, EyeOff, LoaderCircle, RotateCcw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { HTMLAttributes, PointerEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { matchesDesktopPlatform } from "@/components/layout/platform-layout";
 
 import { ConfirmDialog } from "./ConfirmDialog";
 
 const MOBILE_DRAG_THRESHOLD = 76;
 const DESKTOP_DRAG_THRESHOLD = 224;
-const COMMIT_FEEDBACK_MS = 100;
+const COMMIT_FEEDBACK_MS = 700;
 const DESKTOP_DRAG_AXIS_LOCK_PX = 8;
 const MOBILE_DRAG_AXIS_LOCK_PX = 5;
 const DESKTOP_VERTICAL_AXIS_LOCK_PX = 8;
@@ -20,6 +21,7 @@ const DESKTOP_VERTICAL_MAX_HORIZONTAL_PX = 18;
 const MOBILE_VERTICAL_MAX_HORIZONTAL_PX = 28;
 const DESKTOP_DRAG_AXIS_RATIO = 1.35;
 const MOBILE_DRAG_AXIS_RATIO = 1.12;
+const EDGE_BACK_GESTURE_GUARD_PX = 24;
 
 let horizontalDragLockCount = 0;
 
@@ -28,6 +30,7 @@ type Props = {
   label: string;
   requireWatchConfirm?: boolean;
   disabled?: boolean;
+  buttonClassName?: string;
   onChange: (watched: boolean) => Promise<void> | void;
   children: (
     dragStyle: { transform?: string },
@@ -35,10 +38,11 @@ type Props = {
     handlers: HTMLAttributes<HTMLDivElement>,
     isDragging: boolean,
     dragState: { triggered: boolean; direction: "watched" | "unwatched" | null; unavailable: boolean },
+    watchButton: ReactNode,
   ) => ReactNode;
 };
 
-export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false, disabled, onChange, children }: Props) {
+export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false, disabled, buttonClassName, onChange, children }: Props) {
   const t = useTranslations();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -52,7 +56,9 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
   } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState(false);
   const [commitFeedback, setCommitFeedback] = useState<"watched" | "unwatched" | null>(null);
+  const [failedTarget, setFailedTarget] = useState<boolean | null>(null);
   const suppressButtonClickRef = useRef(false);
+  const feedbackTimeoutRef = useRef<number | null>(null);
   const threshold = getDragThreshold();
   const axisLockThreshold = getDragAxisLockThreshold();
   const verticalAxisLockThreshold = getVerticalAxisLockThreshold();
@@ -65,7 +71,12 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
   const dragUnavailable = dragDirection === "watched" ? watched : dragDirection === "unwatched" ? !watched : false;
 
   useEffect(() => {
-    return () => unlockHorizontalDragScroll();
+    return () => {
+      unlockHorizontalDragScroll();
+      if (feedbackTimeoutRef.current !== null) {
+        window.clearTimeout(feedbackTimeoutRef.current);
+      }
+    };
   }, []);
 
   async function apply(next: boolean) {
@@ -87,18 +98,26 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
 
   async function commitChange(next: boolean) {
     setPending(true);
-    setCommitFeedback(next ? "watched" : "unwatched");
+    setFailedTarget(null);
     try {
-      await wait(COMMIT_FEEDBACK_MS);
       await onChange(next);
+      setCommitFeedback(next ? "watched" : "unwatched");
+      feedbackTimeoutRef.current = window.setTimeout(() => {
+        setCommitFeedback(null);
+        feedbackTimeoutRef.current = null;
+      }, COMMIT_FEEDBACK_MS);
+    } catch {
+      setFailedTarget(next);
     } finally {
       setPending(false);
-      setCommitFeedback(null);
     }
   }
 
   function beginDrag(event: PointerEvent<HTMLElement>) {
     if (disabled || pending) {
+      return;
+    }
+    if (event.clientX <= EDGE_BACK_GESTURE_GUARD_PX) {
       return;
     }
     setDragStart({ x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis: "pending", scrollLocked: false });
@@ -183,30 +202,95 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
     onPointerCancel: cancelDrag,
   };
 
+  const watchButton = (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={watched}
+      aria-label={label}
+      aria-busy={pending}
+      disabled={disabled || pending}
+      className={cn(
+        "episode-watch-button interactive-surface absolute right-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border-2 bg-[var(--surface-card)] shadow-[var(--shadow-low)] hover:bg-[var(--surface-hover)] hover:shadow-[var(--shadow-medium)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]",
+        watched && "border-[var(--watched)] bg-[var(--watched)] text-white hover:bg-[var(--watched)]",
+        buttonClassName,
+      )}
+      onPointerDown={(event) => {
+        suppressButtonClickRef.current = false;
+        beginDrag(event);
+      }}
+      onPointerMove={(event) => {
+        if (moveDrag(event)) {
+          suppressButtonClickRef.current = true;
+        }
+      }}
+      onPointerUp={(event) => {
+        if (endDrag(event)) {
+          suppressButtonClickRef.current = true;
+        }
+      }}
+      onPointerCancel={cancelDrag}
+      onClick={(event) => {
+        if (suppressButtonClickRef.current) {
+          suppressButtonClickRef.current = false;
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        void apply(!watched);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === " " || event.key === "Enter") {
+          event.preventDefault();
+          void apply(!watched);
+        }
+      }}
+    >
+      {pending ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <Check className={cn("h-6 w-6 opacity-0 sm:h-5 sm:w-5", watched && "animate-check-pop opacity-100")} />}
+    </button>
+  );
+
   const backdrop = commitFeedback ? (
     <div className={cn(
       "pointer-events-none absolute inset-0 z-30 flex items-center justify-center transition-colors duration-200",
-      commitFeedback === "watched" ? "bg-emerald-500 text-white" : "bg-sky-500 text-white",
+      commitFeedback === "watched" ? "bg-emerald-500/90 text-white" : "bg-sky-500/90 text-white",
     )}>
       <div className="animate-check-pop rounded-full bg-white/20 p-4 shadow-lg backdrop-blur-sm">
         {commitFeedback === "watched" ? <Check className="h-9 w-9" /> : <EyeOff className="h-9 w-9" />}
       </div>
     </div>
   ) : dragX === 0 ? null : (
-    <div className={cn(
-      "pointer-events-none absolute inset-0 z-30 flex items-center justify-center transition-colors",
-      dragUnavailable ? "bg-muted text-muted-foreground" : dragX < 0 ? "bg-emerald-500/20" : "bg-sky-500/20",
-      triggered && (dragUnavailable ? "bg-muted text-muted-foreground" : dragX < 0 ? "bg-emerald-500 text-white" : "bg-sky-500 text-white"),
-    )} style={{ opacity: Math.max(0.25, progress) }}>
-      <div className="flex items-center justify-center rounded-full bg-white/15 p-4 font-medium shadow-sm backdrop-blur-sm" style={{ transform: `scale(${0.8 + progress * 0.3})`, opacity: Math.max(0.35, progress) }}>
-        {dragX < 0 ? <Check className="h-8 w-8" /> : <EyeOff className="h-8 w-8" />}
+    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]">
+      <div
+        className={cn(
+          "absolute inset-y-0 right-[-1px] flex w-[calc(50%+2px)] items-center justify-end pr-8 transition-colors",
+          dragUnavailable ? "bg-muted text-muted-foreground" : triggered ? "bg-[var(--watched)] text-white" : "bg-[var(--accent-soft)] text-[var(--accent-solid)]",
+          dragX >= 0 && "opacity-0",
+        )}
+        style={{ opacity: dragX < 0 ? Math.max(0.22, progress) : 0 }}
+      >
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/16 font-medium shadow-sm backdrop-blur-sm" style={{ transform: `scale(${0.86 + progress * 0.16})` }}>
+          <Check className="h-8 w-8" />
+        </div>
+      </div>
+      <div
+        className={cn(
+          "absolute inset-y-0 left-[-1px] flex w-[calc(50%+2px)] items-center justify-start pl-8 transition-colors",
+          dragUnavailable ? "bg-muted text-muted-foreground" : triggered ? "bg-amber-500 text-white" : "bg-[var(--accent-soft)] text-[var(--accent-solid)]",
+          dragX <= 0 && "opacity-0",
+        )}
+        style={{ opacity: dragX > 0 ? Math.max(0.22, progress) : 0 }}
+      >
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/16 font-medium shadow-sm backdrop-blur-sm" style={{ transform: `scale(${0.86 + progress * 0.16})` }}>
+          <EyeOff className="h-8 w-8" />
+        </div>
       </div>
     </div>
   );
 
   return (
     <>
-      <div className="relative overflow-hidden">
+      <div className="relative">
           {children(
             { transform: dragX ? `translateX(${dragX}px) scale(0.992)` : undefined },
             backdrop,
@@ -217,51 +301,27 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
               direction: commitFeedback ?? dragDirection,
               unavailable: commitFeedback === null && dragUnavailable,
             },
+            watchButton,
           )}
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={watched}
-          aria-label={label}
-          disabled={disabled || pending}
-          className={cn(
-            "absolute right-3 top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full border-2 bg-background shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:right-4 sm:h-9 sm:w-9",
-            watched && "border-emerald-500 bg-emerald-500 text-white shadow-emerald-500/20",
-          )}
-          style={{ transform: `translate(${dragX}px, -50%)` }}
-          onPointerDown={(event) => {
-            suppressButtonClickRef.current = false;
-            beginDrag(event);
-          }}
-          onPointerMove={(event) => {
-            if (moveDrag(event)) {
-              suppressButtonClickRef.current = true;
-            }
-          }}
-          onPointerUp={(event) => {
-            if (endDrag(event)) {
-              suppressButtonClickRef.current = true;
-            }
-          }}
-          onPointerCancel={cancelDrag}
-          onClick={(event) => {
-            if (suppressButtonClickRef.current) {
-              suppressButtonClickRef.current = false;
-              event.preventDefault();
-              event.stopPropagation();
-              return;
-            }
-            void apply(!watched);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === " " || event.key === "Enter") {
-              event.preventDefault();
-              void apply(!watched);
-            }
-          }}
-        >
-          <Check className={cn("h-6 w-6 opacity-0 sm:h-5 sm:w-5", watched && "animate-check-pop opacity-100")} />
-        </button>
+      </div>
+      <div aria-live="polite" aria-atomic="true">
+        {failedTarget !== null ? (
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-destructive/35 bg-destructive/10 px-3 py-2 text-sm text-foreground">
+            <span className="flex min-w-0 items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+              {t("tracking.updateFailed")}
+            </span>
+            <button
+              type="button"
+              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 font-medium text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]"
+              disabled={pending || disabled}
+              onClick={() => void commitChange(failedTarget)}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              {t("tracking.retryUpdate")}
+            </button>
+          </div>
+        ) : null}
       </div>
       <ConfirmDialog
         open={confirmOpen}
@@ -276,10 +336,6 @@ export function EpisodeWatchToggle({ watched, label, requireWatchConfirm = false
       />
     </>
   );
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function lockHorizontalDragScroll() {
@@ -308,33 +364,33 @@ function getDragThreshold() {
   if (typeof window === "undefined") {
     return MOBILE_DRAG_THRESHOLD;
   }
-  return window.innerWidth >= 768 ? DESKTOP_DRAG_THRESHOLD : MOBILE_DRAG_THRESHOLD;
+  return matchesDesktopPlatform() ? DESKTOP_DRAG_THRESHOLD : MOBILE_DRAG_THRESHOLD;
 }
 
 function getDragAxisLockThreshold() {
   if (typeof window === "undefined") {
     return MOBILE_DRAG_AXIS_LOCK_PX;
   }
-  return window.innerWidth >= 768 ? DESKTOP_DRAG_AXIS_LOCK_PX : MOBILE_DRAG_AXIS_LOCK_PX;
+  return matchesDesktopPlatform() ? DESKTOP_DRAG_AXIS_LOCK_PX : MOBILE_DRAG_AXIS_LOCK_PX;
 }
 
 function getVerticalAxisLockThreshold() {
   if (typeof window === "undefined") {
     return MOBILE_VERTICAL_AXIS_LOCK_PX;
   }
-  return window.innerWidth >= 768 ? DESKTOP_VERTICAL_AXIS_LOCK_PX : MOBILE_VERTICAL_AXIS_LOCK_PX;
+  return matchesDesktopPlatform() ? DESKTOP_VERTICAL_AXIS_LOCK_PX : MOBILE_VERTICAL_AXIS_LOCK_PX;
 }
 
 function getVerticalMaxHorizontal() {
   if (typeof window === "undefined") {
     return MOBILE_VERTICAL_MAX_HORIZONTAL_PX;
   }
-  return window.innerWidth >= 768 ? DESKTOP_VERTICAL_MAX_HORIZONTAL_PX : MOBILE_VERTICAL_MAX_HORIZONTAL_PX;
+  return matchesDesktopPlatform() ? DESKTOP_VERTICAL_MAX_HORIZONTAL_PX : MOBILE_VERTICAL_MAX_HORIZONTAL_PX;
 }
 
 function getDragAxisRatio() {
   if (typeof window === "undefined") {
     return MOBILE_DRAG_AXIS_RATIO;
   }
-  return window.innerWidth >= 768 ? DESKTOP_DRAG_AXIS_RATIO : MOBILE_DRAG_AXIS_RATIO;
+  return matchesDesktopPlatform() ? DESKTOP_DRAG_AXIS_RATIO : MOBILE_DRAG_AXIS_RATIO;
 }

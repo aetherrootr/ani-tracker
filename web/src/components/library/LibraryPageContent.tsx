@@ -1,7 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import type { CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BackToTopButton } from "@/components/layout/BackToTopButton";
 import { addPageScrollListener, scrollPageTo } from "@/components/layout/mobile-scroll-container";
@@ -30,6 +32,7 @@ export function LibraryPageContent() {
   const [celebration, setCelebration] = useState<{ key: string; run: number } | null>(null);
   const pendingAnchorKeyRef = useRef<string | null>(null);
   const preferredAnchorKeyRef = useRef<string | null>(null);
+  const anchorPendingViewRef = useRef(false);
   const celebrationTimeoutRef = useRef<number | null>(null);
   const { data, isLoading, error, retry } = useLibraryData({
     q: query.q,
@@ -47,50 +50,38 @@ export function LibraryPageContent() {
   const items = data?.items ?? [];
   const navigationAnchors = useMemo(() => data?.navigationAnchors ?? [], [data?.navigationAnchors]);
 
-  function celebrateAnchor(key: string) {
-    if (celebrationTimeoutRef.current !== null) {
-      window.clearTimeout(celebrationTimeoutRef.current);
-      celebrationTimeoutRef.current = null;
-    }
-
-    waitForAnchorInView(key, () => {
-      setCelebration((current) => ({ key, run: (current?.run ?? 0) + 1 }));
-    });
-  }
-
-  function waitForAnchorInView(key: string, callback: () => void) {
+  const waitForAnchorInView = useCallback((key: string, callback: () => void) => {
     const element = document.getElementById(anchorElementId(key));
-    if (!element) {
-      return;
-    }
-
+    if (!element) return;
     if (isElementInView(element)) {
       callback();
       return;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          observer.disconnect();
-          callback();
-        }
-      },
-      { threshold: 0.2 },
-    );
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      callback();
+    }, { threshold: 0.2 });
     observer.observe(element);
-
     celebrationTimeoutRef.current = window.setTimeout(() => {
       observer.disconnect();
       callback();
     }, 900);
-  }
+  }, []);
+
+  const celebrateAnchor = useCallback((key: string) => {
+    if (prefersReducedMotion()) return;
+    if (celebrationTimeoutRef.current !== null) window.clearTimeout(celebrationTimeoutRef.current);
+
+    waitForAnchorInView(key, () => {
+      setCelebration((current) => ({ key, run: (current?.run ?? 0) + 1 }));
+    });
+  }, [waitForAnchorInView]);
 
   useEffect(() => {
     return () => {
-      if (celebrationTimeoutRef.current !== null) {
-        window.clearTimeout(celebrationTimeoutRef.current);
-      }
+      if (celebrationTimeoutRef.current !== null) window.clearTimeout(celebrationTimeoutRef.current);
     };
   }, []);
 
@@ -141,6 +132,7 @@ export function LibraryPageContent() {
       observer.disconnect();
       window.removeEventListener("resize", syncPageSize);
     };
+  // query.update is intentionally omitted because the query object is recreated per render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query.page, query.pageSize]);
 
@@ -149,10 +141,10 @@ export function LibraryPageContent() {
       previousPageRef.current = query.page;
       if (pendingAnchorKeyRef.current === null) {
         if (window.innerWidth < 640) {
-          scrollPageTo({ top: 0, behavior: "smooth" });
+          scrollPageTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
           return;
         }
-        listTopRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        listTopRef.current?.scrollIntoView({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" });
       }
     }
   }, [query.page]);
@@ -181,8 +173,7 @@ export function LibraryPageContent() {
     if (!activeAnchorKey || !pageAnchors.some((anchor) => anchor.key === activeAnchorKey)) {
       setActiveAnchorKey(pageAnchors[0]?.key ?? null);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAnchorKey, data?.items, data?.navigationAnchors, navigationAnchors, query.page, query.pageSize]);
+  }, [activeAnchorKey, celebrateAnchor, data?.items, data?.navigationAnchors, navigationAnchors, query.page, query.pageSize]);
 
   useEffect(() => {
     const anchors = currentPageAnchors(navigationAnchors, query.page, query.pageSize);
@@ -194,11 +185,21 @@ export function LibraryPageContent() {
       const candidates = anchors
         .map((anchor) => ({ anchor, element: document.getElementById(anchorElementId(anchor.key)) }))
         .filter((item): item is { anchor: (typeof anchors)[number]; element: HTMLElement } => item.element !== null);
+      const preferredCandidate = preferredAnchorKeyRef.current
+        ? candidates.find((item) => item.anchor.key === preferredAnchorKeyRef.current)
+        : undefined;
+      if (anchorPendingViewRef.current) {
+        if (!preferredCandidate) return;
+        const rect = preferredCandidate.element.getBoundingClientRect();
+        if (rect.bottom > 120 && rect.top < window.innerHeight - 80) {
+          anchorPendingViewRef.current = false;
+        }
+        setActiveAnchorKey(preferredCandidate.anchor.key);
+        return;
+      }
       const preferredVisible = preferredAnchorKeyRef.current
         ? candidates.find((item) => {
-            if (item.anchor.key !== preferredAnchorKeyRef.current) {
-              return false;
-            }
+            if (item.anchor.key !== preferredAnchorKeyRef.current) return false;
             const rect = item.element.getBoundingClientRect();
             return rect.bottom > 120 && rect.top < window.innerHeight - 80;
           })
@@ -228,11 +229,14 @@ export function LibraryPageContent() {
   }, [activeAnchorKey, navigationAnchors, query.page, query.pageSize]);
 
   function updatePage(page: number) {
+    preferredAnchorKeyRef.current = null;
+    anchorPendingViewRef.current = false;
     query.update({ page });
   }
 
   function handleAnchor(anchor: { key: string; page: number }) {
     preferredAnchorKeyRef.current = anchor.key;
+    anchorPendingViewRef.current = true;
     if (anchor.page === query.page && document.getElementById(anchorElementId(anchor.key))) {
       pendingAnchorKeyRef.current = null;
       setActiveAnchorKey(anchor.key);
@@ -247,7 +251,7 @@ export function LibraryPageContent() {
 
   return (
     <div className="space-y-6">
-      <div className="mx-auto max-w-5xl space-y-2 text-center">
+      <div className="mx-auto max-w-[1280px] space-y-2 text-center">
         <p className="text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground">{t("library.eyebrow")}</p>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("library.title")}</h1>
       </div>
@@ -261,6 +265,8 @@ export function LibraryPageContent() {
         providers={data?.providers ?? []}
         sort={query.sort}
         order={query.order}
+        total={total}
+        busy={isLoading || query.isPending || debouncedSearch !== query.q}
         onSearchChange={setSearchDraft}
         onOptionsChange={(next) => query.update({ ...next, page: 1 })}
       />
@@ -276,20 +282,22 @@ export function LibraryPageContent() {
       ) : null}
 
       {!error ? (
-        <div className="relative mx-auto max-w-6xl">
-          <div className="absolute left-0 top-0 bottom-0 w-0">
-            <LibraryQuickNavigation
-              anchors={navigationAnchors}
-              activeAnchorKey={activeAnchorKey}
-              onAnchor={handleAnchor}
-            />
-          </div>
-          <main className="min-w-0 space-y-6">
-            {isLoading ? (
-              <div ref={gridRef} className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="library-results-layout mx-auto max-w-[1440px]">
+          <LibraryQuickNavigation
+            anchors={navigationAnchors}
+            activeAnchorKey={activeAnchorKey}
+            onAnchor={handleAnchor}
+          />
+          <section
+            className="min-w-0 space-y-6"
+            aria-label={t("library.resultsRegion")}
+            aria-busy={isLoading || query.isPending}
+          >
+            {isLoading && !data ? (
+              <div ref={gridRef} className="library-grid">
                 {Array.from({ length: query.pageSize }).map((_, index) => (
-                  <div key={index} className="rounded-2xl border bg-card p-3 sm:p-0">
-                    <SkeletonBlock className="aspect-[2/3] w-28 sm:w-full sm:rounded-b-none" />
+                  <div key={index} className="library-skeleton-card rounded-2xl border bg-card p-3">
+                    <SkeletonBlock className="library-skeleton-poster aspect-[2/3] w-24 shrink-0" />
                     <div className="space-y-2 p-3">
                       <SkeletonBlock className="h-4 w-4/5" />
                       <SkeletonBlock className="h-3 w-2/3" />
@@ -299,7 +307,7 @@ export function LibraryPageContent() {
                 ))}
               </div>
             ) : items.length > 0 ? (
-              <div ref={gridRef} className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              <div ref={gridRef} className={`library-grid transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}>
                 {items.map((item, index) => {
                   const globalOffset = Math.max(query.page - 1, 0) * query.pageSize + index;
                   const anchor = navigationAnchors.find((candidate) => candidate.offset === globalOffset);
@@ -311,16 +319,23 @@ export function LibraryPageContent() {
                       className="relative scroll-mt-28"
                     >
                       <LibraryAnimeCard item={item} />
-                      {anchor && celebration?.key === anchor.key ? (
-                        <ConfettiBurst key={`${anchor.key}-${celebration.run}`} />
-                      ) : null}
+                      {anchor && celebration?.key === anchor.key ? <ConfettiBurst key={`${anchor.key}-${celebration.run}`} /> : null}
                     </div>
                   );
                 })}
               </div>
             ) : (
               <div className="rounded-2xl border bg-card p-10 text-center text-muted-foreground">
-                {t("library.empty")}
+                <p>{t("library.empty")}</p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {query.q ? <Button type="button" variant="outline" onClick={() => setSearchDraft("")}>{t("library.clearSearch")}</Button> : null}
+                  <Button type="button" variant="outline" onClick={() => query.update({ status: "all", provider: "all", list: "all", seasonZero: "exclude", sort: "updatedAt", order: "desc", page: 1 })}>{t("library.resetFilters")}</Button>
+                  {!query.q && query.status === "all" && query.provider === "all" && query.list === "all" && query.seasonZero === "exclude" ? (
+                    <Link href="/search" className="interactive-surface inline-flex min-h-[38px] items-center justify-center rounded-[var(--radius-control)] bg-[var(--accent-solid)] px-4 py-2 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-glow)]">
+                      {t("library.addAnime")}
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             )}
 
@@ -328,10 +343,11 @@ export function LibraryPageContent() {
               page={query.page}
               totalPages={totalPages}
               total={total}
+              pageSize={query.pageSize}
               disabled={isLoading || query.isPending}
               onPageChange={updatePage}
             />
-          </main>
+          </section>
         </div>
       ) : null}
 
@@ -351,7 +367,11 @@ function anchorElementId(key: string) {
 }
 
 function scrollToAnchor(key: string) {
-  document.getElementById(anchorElementId(key))?.scrollIntoView({ block: "start", behavior: "smooth" });
+  document.getElementById(anchorElementId(key))?.scrollIntoView({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function isElementInView(element: HTMLElement) {
@@ -361,26 +381,10 @@ function isElementInView(element: HTMLElement) {
 
 function ConfettiBurst() {
   const pieces = [
-    [0, -132, -22, "#ff1744"],
-    [68, -158, 18, "#00ff6a"],
-    [-76, -150, -34, "#00a2ff"],
-    [124, -82, 44, "#fff200"],
-    [-128, -88, -58, "#ff00b8"],
-    [40, -190, 68, "#b000ff"],
-    [-34, -184, -72, "#00f7ff"],
-    [152, -26, 88, "#ff2a00"],
-    [-156, -22, -96, "#b6ff00"],
-    [18, -90, 120, "#ff9500"],
-    [94, -126, -118, "#00ffd5"],
-    [-98, -120, 138, "#ff00ff"],
-    [168, -130, 156, "#ffffff"],
-    [-172, -136, -154, "#ffffff"],
-    [132, -176, -168, "#39ff14"],
-    [-138, -178, 174, "#ffea00"],
-    [196, -70, 202, "#00fffb"],
-    [-202, -74, -208, "#ff1493"],
-    [78, -220, 234, "#ff4dff"],
-    [-82, -218, -238, "#4dff00"],
+    [0, -132, -22, "#ff1744"], [68, -158, 18, "#00d978"], [-76, -150, -34, "#4598ff"],
+    [124, -82, 44, "#ffd60a"], [-128, -88, -58, "#ff4fbd"], [40, -190, 68, "#8c63ff"],
+    [-34, -184, -72, "#3edbe8"], [152, -26, 88, "#ff6b35"], [-156, -22, -96, "#9edb3d"],
+    [18, -90, 120, "#ff9f0a"], [94, -126, -118, "#30d5c8"], [-98, -120, 138, "#d84cff"],
   ];
 
   return (
@@ -397,7 +401,7 @@ function ConfettiBurst() {
               "--confetti-rotate": `${rotate}deg`,
               "--confetti-color": color,
               animationDelay: `${index * 18}ms`,
-            } as React.CSSProperties}
+            } as CSSProperties}
           />
         ))}
       </div>

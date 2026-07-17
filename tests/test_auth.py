@@ -91,9 +91,12 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "username": "link",
             "displayName": "Link",
             "email": "link@link.com",
+            "passwordLoginEnabled": True,
             "languagePreference": "zh-CN",
             "importProviderPreference": "bangumi",
             "weekStartDay": 0,
+            "timeZone": "UTC",
+            "timeZoneMode": "auto",
             "includeUnwatchedSeasonZeroInTracking": False,
             "includeUnwatchedSeasonZeroInStatistics": False,
             "oidcLinked": False,
@@ -173,11 +176,14 @@ def test_update_password_resets_login_password(client: FlaskClient) -> None:
 
     assert register_user(client).status_code == 201
 
-    invalid_response = client.patch("/api/user/me/password", json={"password": "short"})
+    invalid_response = client.patch("/api/user/me/password", json={"currentPassword": "password123", "newPassword": "short"})
     assert invalid_response.status_code == 400
     assert invalid_response.get_json() == {"message": "Password must be at least 8 characters"}
 
-    update_response = client.patch("/api/user/me/password", json={"password": "newpassword123"})
+    wrong_current_response = client.patch("/api/user/me/password", json={"currentPassword": "wrongpassword", "newPassword": "newpassword123"})
+    assert wrong_current_response.status_code == 403
+
+    update_response = client.patch("/api/user/me/password", json={"currentPassword": "password123", "newPassword": "newpassword123"})
     assert update_response.status_code == 200
     assert update_response.get_json() == {"success": True}
 
@@ -187,6 +193,31 @@ def test_update_password_resets_login_password(client: FlaskClient) -> None:
 
     new_password_response = client.post("/api/auth/login", json={"username": "link", "password": "newpassword123"})
     assert new_password_response.status_code == 200
+
+
+def test_oidc_only_user_can_set_password_after_oidc_reauthentication(app: Flask, client: FlaskClient) -> None:
+    configure_oidc(app, {"sub": "password-setup-sub", "email": "oidc-password@example.test"})
+    assert client.get("/api/oidc/callback").status_code == 302
+    user = client.get("/api/user/me").get_json()["user"]
+    assert user["passwordLoginEnabled"] is False
+
+    blocked_unlink = client.delete("/api/oidc/link", json={"currentPassword": "unknown"})
+    assert blocked_unlink.status_code == 409
+
+    assert client.get("/api/oidc/password-setup").status_code == 302
+    callback = client.get("/api/oidc/password-setup/callback")
+    assert callback.status_code == 302
+    assert callback.headers["Location"] == "http://localhost:3000/settings#settings-account"
+    assert client.get("/api/oidc/password-setup/status").get_json() == {"authorized": True}
+
+    update = client.patch("/api/user/me/password", json={"newPassword": "oidcpassword123"})
+    assert update.status_code == 200
+    assert client.get("/api/user/me").get_json()["user"]["passwordLoginEnabled"] is True
+    assert client.get("/api/oidc/password-setup/status").get_json() == {"authorized": False}
+
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"username": user["username"], "password": "oidcpassword123"})
+    assert login.status_code == 200
 
 
 def test_update_language_preference_requires_login_and_valid_language(client: FlaskClient) -> None:
@@ -228,6 +259,27 @@ def test_update_preferences_updates_week_start_day(client: FlaskClient, db_sessi
     user = db_session.scalar(select(User).where(User.username == "link"))
     assert user is not None
     assert user.week_start_day == 6
+
+
+def test_update_preferences_updates_statistics_timezone(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+
+    invalid_zone = client.patch("/api/user/me/preferences", json={"timeZone": "Not/A_Zone"})
+    invalid_mode = client.patch("/api/user/me/preferences", json={"timeZoneMode": "system"})
+    update_response = client.patch(
+        "/api/user/me/preferences",
+        json={"timeZone": "Asia/Shanghai", "timeZoneMode": "manual"},
+    )
+
+    assert invalid_zone.status_code == 400
+    assert invalid_mode.status_code == 400
+    assert update_response.status_code == 200
+    assert update_response.get_json()["user"]["timeZone"] == "Asia/Shanghai"
+    assert update_response.get_json()["user"]["timeZoneMode"] == "manual"
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.time_zone == "Asia/Shanghai"
+    assert user.time_zone_mode == "manual"
 
 
 def test_update_preferences_updates_import_provider_preference(client: FlaskClient, db_session: Session) -> None:
@@ -440,7 +492,7 @@ def test_oidc_link_updates_me(
 def test_oidc_unlink_requires_login(app: Flask, client: FlaskClient) -> None:
     configure_oidc(app, {"sub": "unlink-sub"})
 
-    response = client.delete("/api/oidc/link")
+    response = client.delete("/api/oidc/link", json={"currentPassword": "password123"})
 
     assert response.status_code == 401
     assert response.get_json() == {"message": "Authentication required"}
@@ -456,7 +508,10 @@ def test_oidc_unlink_removes_current_user_identity(
     assert client.get("/api/oidc/link").status_code == 302
     assert client.get("/api/oidc/link/callback").status_code == 302
 
-    response = client.delete("/api/oidc/link")
+    wrong_password_response = client.delete("/api/oidc/link", json={"currentPassword": "wrongpassword"})
+    assert wrong_password_response.status_code == 403
+
+    response = client.delete("/api/oidc/link", json={"currentPassword": "password123"})
 
     assert response.status_code == 200
     assert response.get_json()["user"]["oidcLinked"] is False

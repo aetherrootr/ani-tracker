@@ -57,7 +57,7 @@ def login() -> ResponseReturnValue:
 
     db = get_db()
     user = db.scalar(select(User).where(User.username == payload["username"]))
-    if user is None or not verify_password(user.password_hash, payload["password"]):
+    if user is None or not user.password_login_enabled or not verify_password(user.password_hash, payload["password"]):
         return jsonify({"message": "Invalid username or password"}), 401
 
     session.clear()

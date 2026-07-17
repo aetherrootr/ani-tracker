@@ -5,9 +5,12 @@ export type AuthUser = {
   username: string;
   displayName?: string | null;
   email: string;
+  passwordLoginEnabled: boolean;
   languagePreference: Locale;
   importProviderPreference: string;
   weekStartDay: number;
+  timeZone: string;
+  timeZoneMode: "auto" | "manual";
   includeUnwatchedSeasonZeroInTracking: boolean;
   includeUnwatchedSeasonZeroInStatistics: boolean;
   oidcLinked: boolean;
@@ -36,13 +39,20 @@ export type UpdateLanguagePreferenceInput = {
 
 export type UpdatePreferencesInput = {
   weekStartDay?: number;
+  timeZone?: string;
+  timeZoneMode?: "auto" | "manual";
   importProviderPreference?: string;
   includeUnwatchedSeasonZeroInTracking?: boolean;
   includeUnwatchedSeasonZeroInStatistics?: boolean;
 };
 
 export type UpdatePasswordInput = {
-  password: string;
+  currentPassword?: string;
+  newPassword: string;
+};
+
+export type OidcPasswordSetupStatus = {
+  authorized: boolean;
 };
 
 export type AuthResponse = {

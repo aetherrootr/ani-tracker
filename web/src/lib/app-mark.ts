@@ -1,0 +1,2 @@
+export const APP_MARK_TRIANGLE_PATH = "M15.4 9.8c-2.2-1.4-5.1.2-5.1 2.8v22.8c0 2.6 2.9 4.2 5.1 2.8l20-11.4a3.2 3.2 0 0 0 0-5.6l-20-11.4Z";
+export const APP_MARK_HIGHLIGHT_PATH = "M14.3 13.2c-.7-.4-1.5.1-1.5.9v7.4c4.8-3.1 10.2-5.1 16-5.8l-14.5-2.5Z";

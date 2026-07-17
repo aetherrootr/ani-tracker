@@ -22,3 +22,7 @@ export const settingsNavigationItem = {
   labelKey: TranslationKey;
   icon: typeof ListTodo;
 };
+
+export function isNavigationItemActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}

@@ -7,8 +7,9 @@ import type { StatisticsSummary, WatchTimelineItem } from "./types";
 
 const TIMELINE_PAGE_SIZE = 30;
 
-export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeasonZeroInStatistics?: boolean) {
+export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeasonZeroInStatistics?: boolean, timeZone?: string) {
   const [data, setData] = useState<StatisticsSummary | null>(null);
+  const [lastReadyData, setLastReadyData] = useState<StatisticsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +22,12 @@ export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeas
     setError(null);
 
     getStatisticsSummary(controller.signal)
-      .then(setData)
+      .then((next) => {
+        setData(next);
+        if (next.status === "ready") {
+          setLastReadyData(next);
+        }
+      })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
           return;
@@ -35,7 +41,7 @@ export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeas
       });
 
     return () => controller.abort();
-  }, [retryKey, weekStartDay, includeUnwatchedSeasonZeroInStatistics]);
+  }, [retryKey, weekStartDay, includeUnwatchedSeasonZeroInStatistics, timeZone]);
 
   async function recalculate() {
     setIsRefreshing(true);
@@ -43,6 +49,9 @@ export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeas
     try {
       const next = await recalculateStatistics();
       setData(next);
+      if (next.status === "ready") {
+        setLastReadyData(next);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
       throw err;
@@ -51,12 +60,15 @@ export function useStatisticsSummary(weekStartDay?: number, includeUnwatchedSeas
     }
   }
 
-  return { data, isLoading, isRefreshing, error, retry: () => setRetryKey((current) => current + 1), recalculate };
+  return { data, displayData: data?.status === "ready" ? data : lastReadyData, isLoading, isRefreshing, error, retry: () => setRetryKey((current) => current + 1), recalculate };
 }
 
-export function useWatchTimeline() {
+export function useWatchTimeline(preferredTimeZone?: string) {
   const [items, setItems] = useState<WatchTimelineItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [timeZone, setTimeZone] = useState("UTC");
+  const [statisticsVersion, setStatisticsVersion] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +92,9 @@ export function useWatchTimeline() {
         offsetRef.current = page.items.length;
         hasMoreRef.current = page.hasMore;
         setHasMore(page.hasMore);
+        setTotal(page.total);
+        setTimeZone(page.timeZone);
+        setStatisticsVersion(page.statisticsVersion);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -94,7 +109,7 @@ export function useWatchTimeline() {
       });
 
     return () => controller.abort();
-  }, [retryKey]);
+  }, [retryKey, preferredTimeZone]);
 
   const loadMore = useCallback(async () => {
     if (isLoadingMoreRef.current || !hasMoreRef.current) {
@@ -113,6 +128,9 @@ export function useWatchTimeline() {
       offsetRef.current = currentOffset + page.items.length;
       hasMoreRef.current = page.hasMore;
       setHasMore(page.hasMore);
+      setTotal(page.total);
+      setTimeZone(page.timeZone);
+      setStatisticsVersion(page.statisticsVersion);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
     } finally {
@@ -123,11 +141,15 @@ export function useWatchTimeline() {
 
   return {
     items,
+    total,
+    timeZone,
+    statisticsVersion,
     hasMore,
     isLoading,
     isLoadingMore,
     error,
     retry: () => setRetryKey((current) => current + 1),
+    refresh: () => setRetryKey((current) => current + 1),
     loadMore,
   };
 }

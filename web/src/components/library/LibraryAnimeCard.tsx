@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { Check } from "lucide-react";
 import Image from "next/image";
-import { useTranslations } from "next-intl";
-import { useState } from "react";
+import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
+import { useId, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { assetUrl } from "@/features/library/api";
@@ -13,57 +14,69 @@ import { NoPoster } from "./NoPoster";
 
 export function LibraryAnimeCard({ item }: { item: LibraryItem }) {
   const t = useTranslations();
+  const locale = useLocale();
+  const descriptionId = useId();
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
   const poster = assetUrl(item.anime.posterUrl);
   const imageFailed = poster !== null && failedPoster === poster;
-  const percent = item.progress.progressPercent ?? 0;
+  const percent = Math.min(Math.max(item.progress.progressPercent ?? 0, 0), 100);
   const total = item.progress.totalEpisodeCount ?? "?";
   const showOriginal = item.anime.originalName && item.anime.originalName !== item.anime.displayName;
+  const completed = item.progress.status === "completed";
+  const status = t(`library.status.${item.progress.status}`);
 
   return (
-    <article className="group h-full overflow-hidden rounded-2xl border bg-card shadow-sm transition-transform motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none sm:flex sm:flex-col">
-      <Link href={`/library/${item.anime.id}`} className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <div className="flex h-full gap-4 p-3 sm:block sm:p-0">
-          <div className="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-full sm:rounded-none">
+    <article className="library-anime-card app-content-card interactive-card group">
+      <Link
+        href={`/library/${item.anime.id}`}
+        className="library-anime-card-link"
+        aria-label={t("library.viewDetails", { title: item.anime.displayName })}
+        aria-describedby={descriptionId}
+      >
+        <div className="library-anime-card-layout">
+          <div className="library-anime-poster">
             {poster && !imageFailed ? (
               <Image
                 key={poster}
                 src={poster}
-                alt={t("anime.coverAlt", { title: item.anime.displayName })}
+                alt=""
                 fill
                 unoptimized
-                sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 112px"
-                className="object-cover opacity-0 transition-opacity duration-300 motion-reduce:transition-none"
-                onLoad={(event) => event.currentTarget.classList.remove("opacity-0")}
+                sizes="(min-width: 1280px) 20vw, (min-width: 768px) 28vw, 104px"
+                className="object-cover transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transition-none"
                 onError={() => setFailedPoster(poster)}
               />
-            ) : (
-              <NoPoster />
-            )}
+            ) : <NoPoster />}
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-col space-y-3 sm:p-4">
+          <div className="library-anime-content">
             <div className="min-w-0">
-              <h2 className="line-clamp-2 min-h-[2.5rem] font-semibold leading-tight tracking-tight group-hover:underline">
-                {item.anime.displayName}
-              </h2>
-              <p className="mt-1 min-h-4 line-clamp-1 text-xs text-muted-foreground">
-                {showOriginal ? item.anime.originalName : ""}
-              </p>
+              <h2 className="library-anime-title font-semibold tracking-tight group-hover:underline">{item.anime.displayName}</h2>
+              {showOriginal ? <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{item.anime.originalName}</p> : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="secondary">{t(`library.status.${item.progress.status}`)}</Badge>
-              <span>{item.progress.watchedEpisodeCount} / {total}</span>
+            <div id={descriptionId} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="secondary" className={completed ? "gap-1" : undefined}>
+                {completed ? <Check className="h-3.5 w-3.5 text-[var(--watched)]" aria-hidden="true" /> : null}
+                {status}
+              </Badge>
+              <span>{t("library.watchedCount", { watched: item.progress.watchedEpisodeCount, total })}</span>
             </div>
 
-            <div className="mt-auto space-y-1">
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-all motion-reduce:transition-none" style={{ width: `${Math.min(Math.max(percent, 0), 100)}%` }} />
+            <div className="mt-auto space-y-1.5">
+              <div
+                className="h-2 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-label={t("library.watchProgress")}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(percent)}
+              >
+                <div className="h-full rounded-full bg-[var(--watched)] transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
               </div>
-              <div className="flex justify-between text-[11px] text-muted-foreground">
-                <span>{item.anime.type}</span>
-                <span>{item.anime.provider} · {formatDate(item.anime.airDate, t("anime.unknown"))}</span>
+              <div className="library-anime-metadata">
+                <span>{formatType(item.anime.type, t)}</span>
+                <span>{formatProvider(item.anime.provider)} · {formatDate(item.anime.airDate, locale, t("anime.unknown"))}</span>
               </div>
             </div>
           </div>
@@ -73,9 +86,19 @@ export function LibraryAnimeCard({ item }: { item: LibraryItem }) {
   );
 }
 
-function formatDate(value: string | null, fallback: string) {
-  if (!value) {
-    return fallback;
-  }
-  return value.slice(0, 10);
+function formatDate(value: string | null, locale: string, fallback: string) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
+function formatProvider(value: string) {
+  const labels: Record<string, string> = { anilist: "AniList", tmdb: "TMDB", tvdb: "TVDB" };
+  return labels[value.toLowerCase()] ?? value;
+}
+
+function formatType(value: string, t: ReturnType<typeof useTranslations>) {
+  const key = `library.type.${value.toLowerCase()}`;
+  return t.has(key) ? t(key) : value.toUpperCase();
 }

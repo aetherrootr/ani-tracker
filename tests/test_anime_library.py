@@ -1866,6 +1866,110 @@ def test_statistics_recalculate_returns_ready_summary(client: FlaskClient) -> No
     assert response.get_json()['status'] == 'ready'
 
 
+def test_statistics_uses_only_each_animes_active_episode_source(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='local-statistics',
+        original_name='Upstream Statistics Name',
+        names=[('Upstream Statistics Name', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    upstream_episode = add_episode(db_session, anime, number=1, duration='00:24:00')
+    progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.anime_id == anime.id))
+    assert progress is not None
+    snapshot = UserAnimeMetadataSnapshot(
+        user_id=1,
+        anime_id=anime.id,
+        source_anime_id=anime.id,
+        source_provider='bangumi',
+        source_external_id='local-statistics',
+        source_title='Frozen Statistics Name',
+        episode_count=2,
+    )
+    db_session.add(snapshot)
+    db_session.flush()
+    local_watched = UserAnimeMetadataEpisodeSnapshot(
+        snapshot_id=snapshot.id,
+        episode_number=1,
+        title='Frozen Episode',
+        duration='00:25:00',
+        status=EpisodeStatus.AIRED.value,
+        watched=True,
+        watched_at=datetime(2026, 7, 17, 1, tzinfo=UTC),
+    )
+    local_unwatched = UserAnimeMetadataEpisodeSnapshot(
+        snapshot_id=snapshot.id,
+        episode_number=2,
+        duration='00:25:00',
+        status=EpisodeStatus.AIRED.value,
+        watched=False,
+    )
+    db_session.add_all(
+        [
+            local_watched,
+            local_unwatched,
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=upstream_episode.id,
+                watched=True,
+                watched_at=datetime(2026, 7, 16, 1, tzinfo=UTC),
+            ),
+        ],
+    )
+    progress.metadata_source = 'local_snapshot'
+    progress.metadata_snapshot_id = snapshot.id
+    db_session.commit()
+
+    summary = client.get('/api/statistics/summary').get_json()
+    timeline = client.get('/api/watch-state/watch-timeline').get_json()
+
+    assert summary['watchedEpisodeCount'] == 1
+    assert summary['unwatchedAiredEpisodeCount'] == 1
+    assert summary['totalWatchSeconds'] == 25 * 60
+    assert timeline['total'] == 1
+    assert timeline['items'][0]['anime']['displayName'] == 'Frozen Statistics Name'
+    assert timeline['items'][0]['episode']['id'] == local_watched.id
+    assert timeline['items'][0]['episode']['source'] == 'local_snapshot'
+
+
+def test_statistics_groups_summary_and_timeline_in_user_timezone(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    assert client.patch('/api/user/me/preferences', json={'timeZone': 'Asia/Shanghai'}).status_code == 200
+    anime = add_library_anime(
+        db_session,
+        external_id='timezone-statistics',
+        original_name='Timezone Statistics',
+        names=[('Timezone Statistics', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    episode = add_episode(db_session, anime, number=1, duration='00:24:00')
+    db_session.add(
+        UserEpisodeProgress(
+            user_id=1,
+            episode_id=episode.id,
+            watched=True,
+            watched_at=datetime(2026, 7, 16, 18, 30, tzinfo=UTC),
+        ),
+    )
+    db_session.commit()
+
+    summary = client.get('/api/statistics/summary').get_json()
+    timeline = client.get('/api/watch-state/watch-timeline').get_json()
+
+    assert summary['timeZone'] == 'Asia/Shanghai'
+    assert next(day for day in summary['daily'] if day['date'] == '2026-07-17')['watchedEpisodeCount'] == 1
+    assert timeline['timeZone'] == 'Asia/Shanghai'
+    assert timeline['items'][0]['episode']['localDate'] == '2026-07-17'
+    assert timeline['items'][0]['episode']['watchedAt'].endswith('Z')
+
+
 def test_anime_detail_returns_available_names_air_date_and_posters(
     client: FlaskClient,
     db_session: Session,
@@ -2744,6 +2848,50 @@ def test_anime_detail_returns_metadata_snapshot_summary(
     assert body['metadataSnapshot']['sourceProvider'] == 'bangumi'
     assert body['metadataSnapshot']['episodeCount'] == 2
     assert body['episodeConflicts'] == []
+
+
+def test_bulk_episode_watch_state_applies_to_full_collection(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(db_session, external_id='bulk', original_name='Bulk', names=[])
+    episodes = [
+        add_episode(db_session, anime, number=number, status=EpisodeStatus.AIRED if number <= 35 else EpisodeStatus.UPCOMING)
+        for number in range(1, 41)
+    ]
+    db_session.commit()
+
+    response = client.patch(
+        f'/api/watch-state/anime/{anime.id}/episodes',
+        json={'watched': True, 'scope': 'aired'},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['matchedCount'] == 35
+    assert body['changedCount'] == 35
+    watched_ids = set(db_session.scalars(select(UserEpisodeProgress.episode_id).where(UserEpisodeProgress.watched.is_(True))).all())
+    assert watched_ids == {episode.id for episode in episodes[:35]}
+
+    clear_response = client.patch(
+        f'/api/watch-state/anime/{anime.id}/episodes',
+        json={'watched': False, 'scope': 'all'},
+    )
+    assert clear_response.status_code == 200
+    assert db_session.scalars(select(UserEpisodeProgress.id).where(UserEpisodeProgress.watched.is_(True))).all() == []
+
+
+def test_bulk_episode_watch_state_validates_through_scope(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(db_session, external_id='bulk-invalid', original_name='Bulk Invalid', names=[])
+
+    response = client.patch(
+        f'/api/watch-state/anime/{anime.id}/episodes',
+        json={'watched': True, 'scope': 'through', 'throughEpisodeNumber': 0},
+    )
+
+    assert response.status_code == 400
 
 
 def test_provider_switch_conflict_requires_confirmation_before_migration(

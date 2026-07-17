@@ -44,6 +44,12 @@ export function useUpdateWeekStartDay() {
   return updateWeekStartDay;
 }
 
+export function useUpdateTimeZonePreference() {
+  const { updateTimeZonePreference } = useAuth();
+
+  return updateTimeZonePreference;
+}
+
 export function useUpdateImportProviderPreference() {
   const { updateImportProviderPreference } = useAuth();
 

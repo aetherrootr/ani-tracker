@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { updateEpisodeNamePreference } from "@/features/library/api";
 import type { Episode } from "@/features/library/types";
 
@@ -20,6 +21,7 @@ export function EpisodeTitleSettingsMenu({
   onOpenChange,
   onPageChange,
   onEpisodeChange,
+  busy,
   onMarkTo,
   onMarkAired,
   onClearAll,
@@ -34,6 +36,7 @@ export function EpisodeTitleSettingsMenu({
   onOpenChange: (open: boolean) => void;
   onPageChange: (page: number) => void;
   onEpisodeChange: (episode: Episode) => void;
+  busy: boolean;
   onMarkTo: (episodeNumber: number) => void;
   onMarkAired: () => void;
   onClearAll: () => void;
@@ -45,16 +48,19 @@ export function EpisodeTitleSettingsMenu({
 
   async function chooseName(episode: Episode, nameId: number | null) {
     setSavingId(episode.id);
-    const selectedName = nameId === null ? null : episode.availableNames.find((name) => name.id === nameId) ?? null;
-    const result = await updateEpisodeNamePreference(animeId, episode.id, nameId);
-    const nextName = selectedName ?? result.name;
-    onEpisodeChange({
-      ...episode,
-      name: nextName,
-      displayName: nextName?.name ?? episode.originalTitle,
-      preferredNameId: result.episode.preferredNameId,
-    });
-    setSavingId(null);
+    try {
+      const selectedName = nameId === null ? null : episode.availableNames.find((name) => name.id === nameId) ?? null;
+      const result = await updateEpisodeNamePreference(animeId, episode.id, nameId);
+      const nextName = selectedName ?? result.name;
+      onEpisodeChange({
+        ...episode,
+        name: nextName,
+        displayName: nextName?.name ?? episode.originalTitle,
+        preferredNameId: result.episode.preferredNameId,
+      });
+    } finally {
+      setSavingId(null);
+    }
   }
 
   function closeMenu() {
@@ -68,24 +74,26 @@ export function EpisodeTitleSettingsMenu({
         <Settings className="h-4 w-4" />
       </Button>
       {open ? (
-        <div className="glass-dialog mobile-top-popover-enter fixed inset-x-4 top-24 z-50 max-h-[min(60vh,28rem)] overflow-y-auto rounded-2xl border p-4 text-foreground md:absolute md:inset-auto md:left-0 md:top-11 md:z-30 md:max-h-none md:w-80 md:overflow-visible md:animate-none">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold">{t("library.episodeSettingsMenuTitle")}</h3>
-            <Button type="button" variant="ghost" size="icon" aria-label={t("library.closeFilters")} onClick={closeMenu}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="mt-3 space-y-2">
-            <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setDialogOpen(true); onOpenChange(false); }}>
-              {t("library.editEpisodeTitles")}
-            </Button>
-            <div className="flex gap-2 border-t pt-3">
-              <Input value={episodeNumber} inputMode="numeric" placeholder={t("library.episodeNumber")} onChange={(event) => setEpisodeNumber(event.target.value)} />
-              <Button type="button" onClick={() => onMarkTo(Number(episodeNumber))}>{t("library.markToEpisode")}</Button>
+        <div className="glass-dialog mobile-top-popover-enter fixed inset-x-4 top-24 z-50 rounded-2xl border text-foreground md:absolute md:inset-auto md:left-0 md:top-11 md:z-30 md:w-80 md:animate-none">
+          <ScrollArea ariaLabel={t("app.scrollableContent")} className="max-h-[min(60vh,28rem)] md:max-h-none" viewportClassName="max-h-[min(60vh,28rem)] p-4 md:max-h-none md:overflow-visible">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold">{t("library.episodeSettingsMenuTitle")}</h3>
+              <Button type="button" variant="ghost" size="icon" aria-label={t("library.closeFilters")} onClick={closeMenu}>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-            <Button type="button" variant="outline" className="w-full" onClick={onMarkAired}>{t("library.markAllAired")}</Button>
-            <Button type="button" variant="outline" className="w-full border-destructive text-destructive hover:bg-destructive/10" onClick={onClearAll}>{t("library.clearAllWatched")}</Button>
-          </div>
+            <div className="mt-3 space-y-2">
+              <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setDialogOpen(true); onOpenChange(false); }}>
+                {t("library.editEpisodeTitles")}
+              </Button>
+              <div className="flex gap-2 border-t pt-3">
+                <Input value={episodeNumber} inputMode="numeric" placeholder={t("library.episodeNumber")} onChange={(event) => setEpisodeNumber(event.target.value)} />
+                <Button type="button" disabled={busy || !/^\d+$/.test(episodeNumber) || Number(episodeNumber) < 1} aria-busy={busy} onClick={() => onMarkTo(Number(episodeNumber))}>{t("library.markToEpisode")}</Button>
+              </div>
+              <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={onMarkAired}>{t("library.markAllAired")}</Button>
+              <Button type="button" variant="outline" className="w-full border-destructive text-destructive hover:bg-destructive/10" disabled={busy} onClick={onClearAll}>{t("library.clearAllWatched")}</Button>
+            </div>
+          </ScrollArea>
         </div>
       ) : null}
       {dialogOpen ? (
@@ -99,7 +107,7 @@ export function EpisodeTitleSettingsMenu({
               <Button type="button" variant="ghost" size="icon" onClick={() => setDialogOpen(false)}><X className="h-4 w-4" /></Button>
             </div>
 
-            <div className="flex-1 space-y-3 overflow-y-auto p-5">
+            <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-5">
               {isLoading ? <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">{t("app.loadingAccount")}</div> : null}
               {!isLoading && episodes.map((episode) => {
                 const availableNames = uniqueEpisodeNames(episode);
@@ -127,7 +135,7 @@ export function EpisodeTitleSettingsMenu({
                   </div>
                 );
               })}
-            </div>
+            </ScrollArea>
 
             <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t bg-background/65 p-5 backdrop-blur-xl dark:bg-background/65">
               <Button type="button" variant="outline" disabled={page <= 1 || isLoading} onClick={() => onPageChange(page - 1)}>{t("library.previous")}</Button>

@@ -7,7 +7,8 @@ export function Input({ className, type, ...props }: InputHTMLAttributes<HTMLInp
     <input
       type={type}
       className={cn(
-        "flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        "interactive-surface flex h-11 w-full rounded-[var(--radius-input)] border border-input bg-[var(--surface-card)] px-3 py-2 text-base shadow-[var(--shadow-low)] file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:border-[rgb(102_87_232_/_45%)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[rgb(102_87_232_/_12%)] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        type === "search" && "rounded-[var(--radius-pill)]",
         className,
       )}
       {...props}

@@ -1,285 +1,293 @@
 "use client";
 
-import { Check, ChevronDown, SlidersHorizontal, X } from "lucide-react";
+import { Search, SlidersHorizontal, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
+import { useDesktopPlatform } from "@/components/layout/platform-layout";
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { SelectField } from "@/components/ui/select-field";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import type { ImportProvider, LibraryListFilter, LibrarySeasonZeroFilter, LibrarySort, LibraryStatusFilter, SortOrder } from "@/features/library/types";
 
-type Props = {
-  q: string;
+type Options = {
   status: LibraryStatusFilter;
   provider: string;
   list: LibraryListFilter;
   seasonZero: LibrarySeasonZeroFilter;
-  providers: ImportProvider[];
   sort: LibrarySort;
   order: SortOrder;
-  onSearchChange: (value: string) => void;
-  onOptionsChange: (value: { status?: LibraryStatusFilter; provider?: string; list?: LibraryListFilter; seasonZero?: LibrarySeasonZeroFilter; sort?: LibrarySort; order?: SortOrder }) => void;
 };
 
-export function LibraryToolbar({ q, status, provider, list, seasonZero, providers, sort, order, onSearchChange, onOptionsChange }: Props) {
-  const t = useTranslations();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
-
-  return (
-    <FloatingSearchInput
-      value={q}
-      placeholder={t("library.searchPlaceholder")}
-      aria-label={t("library.searchPlaceholder")}
-      onChange={(event) => onSearchChange(event.target.value)}
-      leading={(
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="rounded-full"
-          aria-label={t("library.openFilters")}
-          aria-expanded={open}
-          onClick={() => setOpen((current) => !current)}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-        </Button>
-      )}
-    >
-      {open ? (
-        <div className="glass-dialog absolute left-0 top-14 z-40 w-full rounded-2xl border p-4 text-foreground sm:left-2 sm:w-[28rem]">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">{t("library.filters")}</h2>
-            <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full" aria-label={t("library.closeFilters")} onClick={() => setOpen(false)}>
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
-          <OptionGroup
-            label={t("library.statusFilter")}
-            options={["all", "plan_to_watch", "watching", "completed", "on_hold"]}
-            value={status}
-            render={(item) => t(item === "all" ? "library.allStatuses" : `library.status.${item}`)}
-            onChange={(next) => onOptionsChange({ status: next as LibraryStatusFilter })}
-          />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <ProviderSelect
-              label={t("library.providerFilter")}
-              value={provider}
-              providers={providers}
-              allLabel={t("library.allProviders")}
-              onChange={(next) => onOptionsChange({ provider: next })}
-            />
-            <SeasonZeroSelect
-              label={t("library.seasonZeroFilter")}
-              value={seasonZero}
-              options={[
-                { name: "exclude", label: t("library.seasonZero.exclude") },
-                { name: "include", label: t("library.seasonZero.include") },
-                { name: "only", label: t("library.seasonZero.only") },
-              ]}
-              onChange={(next) => onOptionsChange({ seasonZero: next })}
-            />
-          </div>
-          <OptionGroup
-            label={t("library.listFilter")}
-            options={["all", "tracking", "backlog"]}
-            value={list}
-            render={(item) => t(`library.list.${item}`)}
-            onChange={(next) => onOptionsChange({ list: next as LibraryListFilter })}
-          />
-          <OptionGroup
-            label={t("library.sortField")}
-            options={["updatedAt", "name", "airDate"]}
-            value={sort}
-            render={(item) => t(`library.sort.${item}`)}
-            onChange={(next) => onOptionsChange({ sort: next as LibrarySort })}
-          />
-          <OptionGroup
-            label={t("library.sortOrder")}
-            options={["desc", "asc"]}
-            value={order}
-            render={(item) => t(`library.order.${item}`)}
-            onChange={(next) => onOptionsChange({ order: next as SortOrder })}
-          />
-        </div>
-      ) : null}
-    </FloatingSearchInput>
-  );
-}
-
-function SeasonZeroSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: LibrarySeasonZeroFilter;
-  options: { name: LibrarySeasonZeroFilter; label: string }[];
-  onChange: (value: LibrarySeasonZeroFilter) => void;
-}) {
-  return (
-    <ProviderLikeSelect
-      label={label}
-      value={value}
-      options={options}
-      onChange={onChange}
-    />
-  );
-}
-
-function ProviderSelect({
-  label,
-  value,
-  providers,
-  allLabel,
-  onChange,
-}: {
-  label: string;
-  value: string;
+type Props = Options & {
+  q: string;
   providers: ImportProvider[];
-  allLabel: string;
-  onChange: (value: string) => void;
-}) {
-  const options = [{ name: "all", label: allLabel }, ...providers];
+  total: number;
+  busy: boolean;
+  onSearchChange: (value: string) => void;
+  onOptionsChange: (value: Partial<Options>) => void;
+};
 
-  return (
-    <ProviderLikeSelect
-      label={label}
-      value={value}
-      options={options}
-      disabled={providers.length === 0 && value === "all"}
-      onChange={onChange}
-    />
-  );
-}
+const DEFAULT_OPTIONS: Options = {
+  status: "all",
+  provider: "all",
+  list: "all",
+  seasonZero: "exclude",
+  sort: "updatedAt",
+  order: "desc",
+};
 
-function ProviderLikeSelect<T extends string>({
-  label,
-  value,
-  options,
-  disabled = false,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { name: T; label: string }[];
-  disabled?: boolean;
-  onChange: (value: T) => void;
-}) {
+export function LibraryToolbar(props: Props) {
+  const { q, providers, total, busy, onSearchChange, onOptionsChange } = props;
+  const t = useTranslations();
+  const desktop = useDesktopPlatform();
   const [open, setOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const activeLabel = options.find((item) => item.name === value)?.label ?? value;
+  const [draft, setDraft] = useState<Options>(() => currentOptions(props));
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
+  const activeCount = countActiveOptions(props);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
+  function openFilters() {
+    setDraft(currentOptions(props));
+    setOpen(true);
+  }
 
-    function handlePointerDown(event: PointerEvent) {
-      if (dropdownRef.current?.contains(event.target as Node)) {
-        return;
-      }
-      setOpen(false);
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  function selectOption(nextValue: T) {
-    onChange(nextValue);
+  function closeFilters() {
     setOpen(false);
   }
 
+  function changeOptions(next: Partial<Options>) {
+    if (desktop) {
+      onOptionsChange(next);
+      return;
+    }
+    setDraft((current) => ({ ...current, ...next }));
+  }
+
+  function clearOptions() {
+    if (desktop) {
+      onOptionsChange(DEFAULT_OPTIONS);
+      return;
+    }
+    setDraft(DEFAULT_OPTIONS);
+  }
+
+  const closeFiltersEvent = useEffectEvent(closeFilters);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFiltersEvent();
+        return;
+      }
+      if (desktop || event.key !== "Tab") return;
+      const focusable = Array.from(panelRef.current?.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+      ) ?? []);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      if (!desktop || panelRef.current?.contains(event.target as Node) || triggerRef.current?.contains(event.target as Node)) return;
+      closeFiltersEvent();
+    }
+
+    const appShell = document.getElementById("app-shell");
+    const scrollContainer = document.getElementById("app-mobile-scroll-container");
+    const triggerElement = triggerRef.current?.querySelector("button");
+    const previousInert = appShell?.inert ?? false;
+    const previousOverflow = scrollContainer?.style.overflow ?? "";
+    if (!desktop) {
+      appShell?.setAttribute("inert", "");
+      if (scrollContainer) scrollContainer.style.overflow = "hidden";
+      document.documentElement.classList.add("dialog-scroll-lock");
+      document.body.classList.add("dialog-scroll-lock");
+    }
+    const frame = requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLElement>(desktop ? "button, select" : "[data-filter-close]")?.focus();
+    });
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+      if (!desktop) {
+        if (appShell && !previousInert) appShell.removeAttribute("inert");
+        if (scrollContainer) scrollContainer.style.overflow = previousOverflow;
+        document.documentElement.classList.remove("dialog-scroll-lock");
+        document.body.classList.remove("dialog-scroll-lock");
+      }
+      triggerElement?.focus();
+    };
+  }, [desktop, open]);
+
+  const values = desktop ? currentOptions(props) : draft;
+  const panel = open ? (
+    <FilterPanel
+      ref={panelRef}
+      titleId={titleId}
+      modal={!desktop}
+      values={values}
+      providers={providers}
+      activeCount={countActiveOptions(values)}
+      onChange={changeOptions}
+      onClear={clearOptions}
+      onClose={closeFilters}
+      onApply={() => {
+        onOptionsChange(draft);
+        closeFilters();
+      }}
+    />
+  ) : null;
+
   return (
-    <div className="space-y-2 py-2">
-      <div className="text-xs font-semibold uppercase tracking-wide text-foreground">{label}</div>
-      <div ref={dropdownRef} className="relative flex h-10 items-center gap-2 rounded-full px-3">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-8 max-w-full gap-2 rounded-full px-3 text-xs"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          disabled={disabled}
-          onClick={() => setOpen((current) => !current)}
-        >
-          <span className="truncate">{activeLabel}</span>
-          <ChevronDown className="h-3.5 w-3.5" />
-        </Button>
-        {open ? (
-          <div className="glass-dialog absolute left-3 top-full z-40 mt-2 w-44 overflow-hidden rounded-2xl border p-1 text-foreground shadow-lg" role="menu">
-            {options.map((item) => {
-              const active = value === item.name;
-              return (
-                <button
-                  key={item.name}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={active}
-                  className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
-                  onClick={() => selectOption(item.name)}
-                >
-                  <span>{item.label}</span>
-                  {active ? <Check className="h-4 w-4 text-primary" /> : null}
-                </button>
-              );
-            })}
-          </div>
+    <>
+      <FloatingSearchInput
+        type="search"
+        value={q}
+        placeholder={t("library.searchPlaceholder")}
+        aria-label={t("library.searchPlaceholder")}
+        aria-describedby="library-results-summary"
+        onChange={(event) => {
+          if (!(event.nativeEvent as InputEvent).isComposing) onSearchChange(event.target.value);
+        }}
+        onCompositionStart={(event) => event.currentTarget.setAttribute("data-composing", "true")}
+        onCompositionEnd={(event) => {
+          event.currentTarget.removeAttribute("data-composing");
+          onSearchChange(event.currentTarget.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && q) {
+            event.preventDefault();
+            onSearchChange("");
+          }
+        }}
+        leading={<Search className="ml-3 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+      >
+        {q ? (
+          <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0 rounded-full" aria-label={t("library.clearSearch")} onClick={() => onSearchChange("")}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
         ) : null}
+        <span ref={triggerRef} className="contents">
+          <Button
+            type="button"
+            variant="ghost"
+            className="relative h-11 min-w-11 shrink-0 rounded-full px-3"
+            aria-label={activeCount ? t("library.openFiltersActive", { count: activeCount }) : t("library.openFilters")}
+            aria-expanded={open}
+            aria-haspopup={desktop ? "true" : "dialog"}
+            onClick={() => open ? closeFilters() : openFilters()}
+          >
+            <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            {activeCount ? <span className="ml-1.5 min-w-5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{activeCount}</span> : null}
+          </Button>
+        </span>
+        {desktop ? panel : null}
+      </FloatingSearchInput>
+
+      <div id="library-results-summary" className="mx-auto mt-2 flex min-h-7 w-full max-w-5xl items-center justify-between gap-3 px-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+        <span>{busy ? t("library.updatingResults") : t(activeCount ? "library.filteredResults" : "library.results", { count: total })}</span>
+        {activeCount ? <button type="button" className="min-h-7 font-medium text-foreground underline-offset-4 hover:underline" onClick={() => onOptionsChange(DEFAULT_OPTIONS)}>{t("library.clearAll")}</button> : null}
       </div>
-    </div>
+
+      {!desktop && open && typeof document !== "undefined" ? createPortal(panel, document.body) : null}
+    </>
   );
 }
 
-function OptionGroup<T extends string>({
-  label,
-  options,
-  value,
-  render,
-  onChange,
-}: {
-  label: string;
-  options: T[];
-  value: string;
-  render: (value: T) => string;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div className="space-y-2 py-2">
-      <div className="text-xs font-semibold uppercase tracking-wide text-foreground">{label}</div>
-      <SlidingOptionGroup
-        options={options}
-        value={value as T}
-        render={render}
-        buttonClassName="whitespace-nowrap text-[11px] sm:text-xs"
-        onChange={onChange}
-      />
+const FilterPanel = forwardRef<HTMLDivElement, {
+  titleId: string;
+  modal: boolean;
+  values: Options;
+  providers: ImportProvider[];
+  activeCount: number;
+  onChange: (next: Partial<Options>) => void;
+  onClear: () => void;
+  onClose: () => void;
+  onApply: () => void;
+}>(function FilterPanel({ titleId, modal, values, providers, activeCount, onChange, onClear, onClose, onApply }, ref) {
+  const t = useTranslations();
+  const content = (
+    <div
+      ref={ref}
+      className={modal ? "library-filter-sheet" : "library-filter-popover"}
+      role={modal ? "dialog" : "region"}
+      aria-modal={modal || undefined}
+      aria-labelledby={titleId}
+    >
+      <div className="library-filter-header">
+        <div>
+          <h2 id={titleId} className="text-lg font-semibold tracking-tight">{t("library.filters")}</h2>
+          <p className="text-sm text-muted-foreground">{activeCount ? t("library.activeFilterCount", { count: activeCount }) : t("library.noActiveFilters")}</p>
+        </div>
+        <Button data-filter-close type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full" aria-label={t("library.closeFilters")} onClick={onClose}>
+          <X className="h-5 w-5" aria-hidden="true" />
+        </Button>
+      </div>
+
+      <ScrollArea ariaLabel={t("app.scrollableContent")} className="library-filter-content" viewportClassName="library-filter-content-viewport">
+        {modal ? (
+          <SelectField
+            label={t("library.statusFilter")}
+            value={values.status}
+            options={(["all", "plan_to_watch", "watching", "completed", "on_hold"] as LibraryStatusFilter[]).map((value) => ({ value, label: t(value === "all" ? "library.allStatuses" : `library.status.${value}`) }))}
+            onValueChange={(status) => onChange({ status })}
+          />
+        ) : (
+          <ChoiceGroup label={t("library.statusFilter")} options={["all", "plan_to_watch", "watching", "completed", "on_hold"] as LibraryStatusFilter[]} value={values.status} render={(item) => t(item === "all" ? "library.allStatuses" : `library.status.${item}`)} onChange={(status) => onChange({ status })} />
+        )}
+        <ChoiceGroup label={t("library.listFilter")} options={["all", "tracking", "backlog"] as LibraryListFilter[]} value={values.list} render={(item) => t(`library.list.${item}`)} onChange={(list) => onChange({ list })} />
+        <SelectField label={t("library.providerFilter")} value={values.provider} onValueChange={(provider) => onChange({ provider })} options={[{ value: "all", label: t("library.allProviders") }, ...providers.map((provider) => ({ value: provider.name, label: provider.label }))]} />
+        <ChoiceGroup
+          label={t("library.seasonZeroFilter")}
+          options={["exclude", "include", "only"] as LibrarySeasonZeroFilter[]}
+          value={values.seasonZero}
+          render={(item) => t(`library.seasonZero.${item}`)}
+          onChange={(seasonZero) => onChange({ seasonZero })}
+        />
+        <ChoiceGroup label={t("library.sortField")} options={["updatedAt", "name", "airDate"] as LibrarySort[]} value={values.sort} render={(item) => t(`library.sort.${item}`)} onChange={(sort) => onChange({ sort })} />
+        <ChoiceGroup label={t("library.sortOrder")} options={["desc", "asc"] as SortOrder[]} value={values.order} render={(item) => t(`library.order.${item}`)} onChange={(order) => onChange({ order })} />
+      </ScrollArea>
+
+      <div className="library-filter-actions">
+        <Button type="button" variant="outline" className="min-h-11 flex-1" onClick={onClear}>{t("library.resetFilters")}</Button>
+        {modal ? <Button type="button" className="min-h-11 flex-1" onClick={onApply}>{t("library.applyFilters")}</Button> : null}
+      </div>
     </div>
   );
+  return modal ? <div className="library-filter-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>{content}</div> : content;
+});
+
+function ChoiceGroup<T extends string>({ label, options, value, render, onChange }: { label: string; options: T[]; value: T; render: (value: T) => string; onChange: (value: T) => void }) {
+  return (
+    <fieldset className="space-y-2 py-2">
+      <legend className="text-xs font-semibold uppercase tracking-wide text-foreground">{label}</legend>
+      <SlidingOptionGroup ariaLabel={label} options={options} value={value} render={render} buttonClassName="whitespace-normal text-xs" onChange={onChange} />
+    </fieldset>
+  );
+}
+
+function currentOptions(value: Options): Options {
+  return { status: value.status, provider: value.provider, list: value.list, seasonZero: value.seasonZero, sort: value.sort, order: value.order };
+}
+
+function countActiveOptions(value: Options) {
+  return Number(value.status !== DEFAULT_OPTIONS.status) + Number(value.provider !== DEFAULT_OPTIONS.provider) + Number(value.list !== DEFAULT_OPTIONS.list) + Number(value.seasonZero !== DEFAULT_OPTIONS.seasonZero) + Number(value.sort !== DEFAULT_OPTIONS.sort || value.order !== DEFAULT_OPTIONS.order);
 }

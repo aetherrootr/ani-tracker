@@ -865,6 +865,74 @@ def get_episode_rows_for_progress(
     return rows, total, True
 
 
+def set_episode_watch_state_bulk(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+    watched: bool,
+    scope: str,
+    through_episode_number: int | None = None,
+) -> tuple[int, int]:
+    now = datetime.now(UTC)
+    matched_count = 0
+    changed_count = 0
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot = _active_metadata_snapshot(session, progress=progress)
+        if snapshot is None:
+            return 0, 0
+        snapshot_statement = select(UserAnimeMetadataEpisodeSnapshot).where(
+            UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id,
+        )
+        if scope == 'aired':
+            snapshot_statement = snapshot_statement.where(UserAnimeMetadataEpisodeSnapshot.status == EpisodeStatus.AIRED.value)
+        elif scope == 'through':
+            snapshot_statement = snapshot_statement.where(UserAnimeMetadataEpisodeSnapshot.episode_number <= through_episode_number)
+        snapshot_episodes = session.scalars(snapshot_statement).all()
+        matched_count = len(snapshot_episodes)
+        for snapshot_episode in snapshot_episodes:
+            if snapshot_episode.watched == watched:
+                continue
+            snapshot_episode.watched = watched
+            snapshot_episode.watched_at = now if watched else None
+            changed_count += 1
+    else:
+        episode_statement = select(Episode).where(Episode.anime_id == progress.anime_id)
+        if scope == 'aired':
+            episode_statement = episode_statement.where(Episode.status == EpisodeStatus.AIRED)
+        elif scope == 'through':
+            episode_statement = episode_statement.where(Episode.episode_number <= through_episode_number)
+        upstream_episodes = session.scalars(episode_statement).all()
+        matched_count = len(upstream_episodes)
+        episode_ids = [episode.id for episode in upstream_episodes]
+        existing = {
+            item.episode_id: item
+            for item in session.scalars(
+                select(UserEpisodeProgress).where(
+                    UserEpisodeProgress.user_id == progress.user_id,
+                    UserEpisodeProgress.episode_id.in_(episode_ids),
+                ),
+            ).all()
+        } if episode_ids else {}
+        for upstream_episode in upstream_episodes:
+            watch_progress = existing.get(upstream_episode.id)
+            current = bool(watch_progress and watch_progress.watched)
+            if current == watched:
+                continue
+            if watch_progress is None:
+                watch_progress = UserEpisodeProgress(user_id=progress.user_id, episode_id=upstream_episode.id)
+                session.add(watch_progress)
+            watch_progress.watched = watched
+            watch_progress.watched_at = now if watched else None
+            changed_count += 1
+
+    if watched and changed_count > 0 and progress.status == UserAnimeStatus.PLAN_TO_WATCH:
+        progress.status = UserAnimeStatus.WATCHING
+    session.flush()
+    recalculate_user_anime_progress(session, progress=progress, marked_watched=watched and changed_count > 0)
+    session.commit()
+    return matched_count, changed_count
+
+
 def update_user_anime_status(
     session: Session,
     *,
