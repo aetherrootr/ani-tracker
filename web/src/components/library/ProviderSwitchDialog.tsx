@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FloatingSearchInput } from "@/components/ui/floating-search-input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchResultCard } from "@/components/search/SearchResultCard";
 import { getImportProviders, switchAnimeProvider, updateMetadataSource } from "@/features/library/api";
 import type { Anime, AnimeProgress, EpisodeConflict, ImportProvider, MetadataSnapshot } from "@/features/library/types";
@@ -234,7 +235,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
             barClassName={isSearchLocked ? "bg-muted/45" : undefined}
             leading={<Search className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />}
           >
-            <button type="button" role="switch" aria-checked={isSearchLocked} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" disabled={isSwitching} onClick={toggleSearchLock}>
+            <button type="button" role="switch" aria-checked={isSearchLocked} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border bg-background px-3 text-sm font-medium transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50" disabled={isSwitching} onClick={toggleSearchLock}>
               {isSearchLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
               <span className="hidden sm:inline">{isSearchLocked ? t("library.searchLocked") : t("library.searchUnlocked")}</span>
             </button>
@@ -252,7 +253,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
 
         {error ? <div className="border-b p-4 text-sm font-medium text-destructive">{error}</div> : null}
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4">
           {targetProvider === "local" ? (
             <div className="rounded-2xl border bg-card p-4">
               <div className="space-y-1">
@@ -287,7 +288,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
               }}
             />
           )) : null}
-        </div>
+        </ScrollArea>
       </div>
       {confirmUnlockOpen ? (
         <div className="mobile-fixed-below-top-nav fixed inset-0 z-[90] flex items-stretch justify-center bg-background/80 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="provider-switch-unlock-title" onClick={() => setConfirmUnlockOpen(false)}>
@@ -314,7 +315,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
               </div>
               <Button type="button" variant="ghost" size="icon" aria-label={t("library.cancel")} onClick={() => setTvdbSeasonTarget(null)}><X className="h-4 w-4" /></Button>
             </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4">
               {isLoadingTvdbSeasons ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("search.loadingTvdbSeasons")}</p> : null}
               {tvdbSeasonsError ? <p className="rounded-2xl border bg-card p-4 text-sm font-medium text-destructive">{tvdbSeasonsError}</p> : null}
               {!isLoadingTvdbSeasons && !tvdbSeasonsError && tvdbSeasons.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.tvdbSeasonsEmpty")}</p> : null}
@@ -334,7 +335,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
                   }}
                 />
               ))}
-            </div>
+            </ScrollArea>
           </div>
         </div>
       ) : null}
@@ -345,7 +346,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
               <h2 id="provider-switch-conflicts-title" className="text-lg font-semibold tracking-tight">{t("library.switchProviderEpisodeConflictsTitle")}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{t("library.switchProviderPreflightConflictsDescription")}</p>
             </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4">
               {pendingSwitch.conflicts.map((conflict) => (
                 <div key={conflict.episodeId} className="rounded-2xl border bg-card p-4">
                   <p className="font-medium">{t("library.conflictEpisode", { episode: conflict.episodeNumber })}</p>
@@ -356,7 +357,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
                   </p>
                 </div>
               ))}
-            </div>
+            </ScrollArea>
             <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
               <Button type="button" variant="outline" disabled={isSwitching} onClick={() => setPendingSwitch(null)}>{t("library.cancel")}</Button>
               <Button type="button" variant="outline" disabled={isSwitching} onClick={() => void switchToLocalSnapshot()}>{t("library.useLocalSnapshot")}</Button>

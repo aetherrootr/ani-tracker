@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify, redirect, session
+import time
+
+from flask import Blueprint, current_app, jsonify, redirect, request, session
 from flask.typing import ResponseReturnValue
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.utils.auth import user_to_auth_dict
+from app.api.utils.auth import user_to_auth_dict, verify_password
 from app.api.utils.oidc import (
     OIDC_AUTH_FAILED,
     create_oidc_identity,
@@ -20,6 +22,7 @@ from app.db import get_db
 from app.models.user import User, UserOidcIdentity
 
 oidc_bp = Blueprint("oidc", __name__)
+PASSWORD_SETUP_MAX_AGE_SECONDS = 600
 
 
 @oidc_bp.get("/config")
@@ -92,6 +95,66 @@ def oidc_link() -> ResponseReturnValue:
     return client.authorize_redirect(redirect_uri=get_oidc_redirect_uri("oidc.oidc_link_callback"))
 
 
+@oidc_bp.get("/password-setup")
+def oidc_password_setup() -> ResponseReturnValue:
+    client = get_oidc_client()
+    if client is None:
+        return oidc_not_configured()
+
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int) or get_db().get(User, user_id) is None:
+        session.clear()
+        return jsonify({"message": "Authentication required"}), 401
+
+    session["oidc_password_setup_user_id"] = user_id
+    return client.authorize_redirect(redirect_uri=get_oidc_redirect_uri("oidc.oidc_password_setup_callback"))
+
+
+@oidc_bp.get("/password-setup/callback")
+def oidc_password_setup_callback() -> ResponseReturnValue:
+    client = get_oidc_client()
+    if client is None:
+        return oidc_not_configured()
+
+    user_id = session.get("user_id")
+    setup_user_id = session.get("oidc_password_setup_user_id")
+    if not isinstance(user_id, int) or user_id != setup_user_id:
+        return jsonify({"message": "Authentication required"}), 401
+
+    claims, error = fetch_oidc_claims(client)
+    if error is not None or claims is None:
+        return jsonify({"message": error}), 400
+
+    identity = get_db().scalar(
+        select(UserOidcIdentity).where(
+            UserOidcIdentity.user_id == user_id,
+            UserOidcIdentity.issuer == get_oidc_issuer(),
+            UserOidcIdentity.subject == str(claims["sub"]),
+        ),
+    )
+    if identity is None:
+        return jsonify({"message": "OIDC authentication failed"}), 403
+
+    session.pop("oidc_password_setup_user_id", None)
+    session["oidc_password_setup_authorized_user_id"] = user_id
+    session["oidc_password_setup_authorized_at"] = time.time()
+    return redirect(str(current_app.config["OIDC_POST_PASSWORD_SETUP_REDIRECT"]))
+
+
+@oidc_bp.get("/password-setup/status")
+def oidc_password_setup_status() -> ResponseReturnValue:
+    user_id = session.get("user_id")
+    authorized_user_id = session.get("oidc_password_setup_authorized_user_id")
+    authorized_at = session.get("oidc_password_setup_authorized_at")
+    authorized = (
+        isinstance(user_id, int)
+        and authorized_user_id == user_id
+        and isinstance(authorized_at, (int, float))
+        and time.time() - authorized_at <= PASSWORD_SETUP_MAX_AGE_SECONDS
+    )
+    return jsonify({"authorized": authorized}), 200
+
+
 @oidc_bp.get("/link/callback")
 def oidc_link_callback() -> ResponseReturnValue:
     client = get_oidc_client()
@@ -161,6 +224,14 @@ def oidc_unlink() -> ResponseReturnValue:
     if user is None:
         session.clear()
         return jsonify({"message": "Authentication required"}), 401
+
+    if not user.password_login_enabled:
+        return jsonify({"message": "Set a password before unlinking the only available login method"}), 409
+
+    payload = request.get_json(silent=True)
+    current_password = payload.get("currentPassword") if isinstance(payload, dict) else None
+    if not isinstance(current_password, str) or not current_password or not verify_password(user.password_hash, current_password):
+        return jsonify({"message": "Current password could not be verified"}), 403
 
     identity = db.scalar(
         select(UserOidcIdentity).where(

@@ -14,9 +14,10 @@ type AuthContextValue = {
   login: (input: LoginInput) => Promise<AuthUser>;
   register: (input: RegisterInput) => Promise<AuthUser>;
   logout: () => Promise<void>;
-  unlinkOidc: () => Promise<AuthUser>;
+  unlinkOidc: (currentPassword: string) => Promise<AuthUser>;
   updateLanguagePreference: (input: AuthUser["languagePreference"]) => Promise<AuthUser>;
   updateWeekStartDay: (input: number) => Promise<AuthUser>;
+  updateTimeZonePreference: (mode: AuthUser["timeZoneMode"], timeZone: string) => Promise<AuthUser>;
   updateImportProviderPreference: (input: string) => Promise<AuthUser>;
   updateIncludeUnwatchedSeasonZeroInTracking: (input: boolean) => Promise<AuthUser>;
   updateIncludeUnwatchedSeasonZeroInStatistics: (input: boolean) => Promise<AuthUser>;
@@ -34,14 +35,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
 
     getCurrentUser()
-      .then((response) => {
+      .then(async (response) => {
         if (!isMounted) {
           return;
         }
 
-        setUser(response.user);
-        if (response.user) {
-          setLocale(response.user.languagePreference);
+        const nextUser = response.user ? await syncAutomaticTimeZone(response.user) : null;
+        if (!isMounted) return;
+        setUser(nextUser);
+        if (nextUser) {
+          setLocale(nextUser.languagePreference);
         }
         setError(null);
       })
@@ -66,18 +69,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function handleLogin(input: LoginInput) {
     const response = await login(input);
-    setUser(response.user);
-    setLocale(response.user.languagePreference);
+    const nextUser = await syncAutomaticTimeZone(response.user);
+    setUser(nextUser);
+    setLocale(nextUser.languagePreference);
     setError(null);
-    return response.user;
+    return nextUser;
   }
 
   async function handleRegister(input: RegisterInput) {
     const response = await register(input);
-    setUser(response.user);
-    setLocale(response.user.languagePreference);
+    const nextUser = await syncAutomaticTimeZone(response.user);
+    setUser(nextUser);
+    setLocale(nextUser.languagePreference);
     setError(null);
-    return response.user;
+    return nextUser;
   }
 
   async function handleLogout() {
@@ -86,8 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
   }
 
-  async function handleUnlinkOidc() {
-    const response = await unlinkOidc();
+  async function handleUnlinkOidc(currentPassword: string) {
+    const response = await unlinkOidc(currentPassword);
     setUser(response.user);
     setError(null);
     return response.user;
@@ -103,6 +108,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function handleUpdateWeekStartDay(weekStartDay: number) {
     const response = await updatePreferences({ weekStartDay });
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
+  async function handleUpdateTimeZonePreference(timeZoneMode: AuthUser["timeZoneMode"], timeZone: string) {
+    const response = await updatePreferences({ timeZoneMode, timeZone });
     setUser(response.user);
     setError(null);
     return response.user;
@@ -141,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         unlinkOidc: handleUnlinkOidc,
         updateLanguagePreference: handleUpdateLanguagePreference,
         updateWeekStartDay: handleUpdateWeekStartDay,
+        updateTimeZonePreference: handleUpdateTimeZonePreference,
         updateImportProviderPreference: handleUpdateImportProviderPreference,
         updateIncludeUnwatchedSeasonZeroInTracking: handleUpdateIncludeUnwatchedSeasonZeroInTracking,
         updateIncludeUnwatchedSeasonZeroInStatistics: handleUpdateIncludeUnwatchedSeasonZeroInStatistics,
@@ -149,6 +162,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+async function syncAutomaticTimeZone(user: AuthUser) {
+  if (user.timeZoneMode !== "auto" || typeof Intl === "undefined") return user;
+  const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!browserTimeZone || browserTimeZone === user.timeZone) return user;
+  try {
+    return (await updatePreferences({ timeZone: browserTimeZone, timeZoneMode: "auto" })).user;
+  } catch {
+    return user;
+  }
 }
 
 export function useAuth() {

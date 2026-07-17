@@ -17,19 +17,25 @@ export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
 
   if (!mounted) {
-    return <Button aria-label={t("app.toggleTheme")} disabled size="icon" variant="ghost" />;
+    return <Button className="navigation-focus" aria-label={t("app.toggleTheme")} disabled size="icon" variant="ghost" />;
   }
 
   const isDark = resolvedTheme === "dark";
 
   return (
-    <Button
-      aria-label={t("app.toggleTheme")}
-      size="icon"
-      variant="ghost"
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-    >
-      {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-    </Button>
+    <>
+      <Button
+        className="navigation-focus"
+        aria-label={t(isDark ? "app.toggleToLightTheme" : "app.toggleToDarkTheme")}
+        size="icon"
+        variant="ghost"
+        onClick={() => setTheme(isDark ? "light" : "dark")}
+      >
+        {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+      </Button>
+      <span className="sr-only" aria-live="polite">
+        {t(isDark ? "app.darkThemeActive" : "app.lightThemeActive")}
+      </span>
+    </>
   );
 }

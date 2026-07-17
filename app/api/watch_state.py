@@ -26,6 +26,7 @@ from app.models.user import User
 from app.services.anime_library import (
     get_user_progress,
     set_episode_watch_state,
+    set_episode_watch_state_bulk,
     set_snapshot_episode_watch_state,
 )
 from app.services.anime_statistics import get_watch_timeline
@@ -118,3 +119,32 @@ def update_episode_watch_state(db: Session, user: User, anime_id: int, episode_i
             'progress': serialize_progress(progress),
         },
     )
+
+
+@watch_state_bp.patch('/anime/<int:anime_id>/episodes')
+@require_auth_user
+def update_episode_watch_state_bulk(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get('watched'), bool):
+        return jsonify({'message': 'Episode watched state is required'}), 400
+    scope = payload.get('scope')
+    if scope not in {'all', 'aired', 'through'}:
+        return jsonify({'message': 'Episode scope is invalid'}), 400
+    through_episode_number = payload.get('throughEpisodeNumber')
+    if scope == 'through' and (not isinstance(through_episode_number, int) or through_episode_number < 1):
+        return jsonify({'message': 'throughEpisodeNumber must be a positive integer'}), 400
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    matched_count, changed_count = set_episode_watch_state_bulk(
+        db,
+        progress=progress,
+        watched=payload['watched'],
+        scope=scope,
+        through_episode_number=through_episode_number,
+    )
+    return jsonify({
+        'matchedCount': matched_count,
+        'changedCount': changed_count,
+        'progress': serialize_progress(progress),
+    })

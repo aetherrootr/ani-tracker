@@ -148,6 +148,7 @@ class UserAnimeMetadataEpisodeSnapshot(TimestampedBase):
     __table_args__ = (
         UniqueConstraint("snapshot_id", "episode_number", name="uq_user_anime_metadata_episode_snapshot_number"),
         Index("ix_user_anime_metadata_episode_snapshot_snapshot_number", "snapshot_id", "episode_number"),
+        Index("ix_user_anime_metadata_episode_snapshot_watched_at", "snapshot_id", "watched", "watched_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -1,56 +1,75 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { CalendarDays, Clock3 } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 
 import type { Episode } from "@/features/library/types";
-import { cn } from "@/lib/utils";
 
-import { EpisodeWatchToggle } from "./EpisodeWatchToggle";
+import { EpisodeTicket } from "./EpisodeTicket";
 
-export function EpisodeRow({ episode, disabled, onWatchChange }: { episode: Episode; disabled?: boolean; onWatchChange: (episode: Episode, watched: boolean) => Promise<void> }) {
+type Props = {
+  episode: Episode;
+  isNext?: boolean;
+  disabled?: boolean;
+  onWatchChange: (episode: Episode, watched: boolean) => Promise<void>;
+};
+
+export function EpisodeRow({ episode, isNext = false, disabled, onWatchChange }: Props) {
   const t = useTranslations();
-  const showOriginal = episode.originalTitle && episode.originalTitle !== episode.displayName;
+  const locale = useLocale();
+  const title = episode.displayName?.trim() || episode.originalTitle?.trim() || t("library.episodeFallbackTitle", { episode: episode.episodeNumber });
+  const originalTitle = episode.originalTitle?.trim();
+  const upcoming = episode.status !== "aired";
+  const stateText = episode.watched ? t("library.episodeFilter.watched") : upcoming ? t("library.upcomingStatus") : t("library.unwatched");
+  const accessibleLabel = t("library.episodeAccessibleLabel", {
+    episode: episode.episodeNumber,
+    title,
+    airStatus: upcoming ? t("library.upcomingStatus") : t("library.airedStatus"),
+    watchStatus: stateText,
+  });
 
   return (
-    <EpisodeWatchToggle
+    <EpisodeTicket
+      id={`episode-${episode.id}`}
       watched={episode.watched}
-      requireWatchConfirm={!episode.watched && episode.status !== "aired"}
       disabled={disabled}
-      label={t("library.toggleEpisode", { episode: episode.episodeNumber })}
+      requireWatchConfirm={!episode.watched && upcoming}
+      label={t("library.episodeWatchStateLabel", { episode: episode.episodeNumber })}
+      accessibleLabel={accessibleLabel}
       onChange={(watched) => onWatchChange(episode, watched)}
     >
-      {(style, backdrop, handlers, isDragging, dragState) => (
-        <div id={`episode-${episode.id}`} className="relative scroll-mt-24 overflow-hidden rounded-2xl border bg-card touch-auto target:ring-2 target:ring-primary target:ring-offset-2">
-          {backdrop}
-          <div
-            {...handlers}
-            className={cn(
-              "relative z-10 min-h-24 select-none bg-card p-4 pr-16 motion-reduce:transition-none",
-              isDragging ? "cursor-grabbing shadow-lg transition-none" : "cursor-grab transition-[transform,box-shadow] duration-200 ease-out",
-              episode.watched && "bg-primary/5",
-              dragState.triggered && dragState.unavailable && "bg-muted shadow-muted",
-              dragState.triggered && !dragState.unavailable && dragState.direction === "watched" && "bg-emerald-500/20 shadow-emerald-500/20",
-              dragState.triggered && !dragState.unavailable && dragState.direction === "unwatched" && "bg-sky-500/20 shadow-sky-500/20",
-            )}
-            style={style}
-          >
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-                {episode.episodeNumber}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="line-clamp-2 font-medium leading-snug">{episode.displayName}</h3>
-                {showOriginal ? <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{episode.originalTitle}</p> : null}
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span>{episode.status}</span>
-                  <span>{episode.airAt?.slice(0, 10) ?? "-"}</span>
-                  <span>{episode.duration ?? "-"}</span>
-                </div>
-              </div>
-            </div>
+      <div className="episode-detail-content">
+        <div className="episode-number" aria-hidden="true">
+          <span>{t("library.episodeShort")}</span>
+          <strong>{episode.episodeNumber}</strong>
+        </div>
+        <div className="episode-copy">
+          <div className="episode-ticket-badges">
+            {isNext ? <span className="episode-badge episode-badge-next">{t("library.nextEpisodeBadge")}</span> : null}
+            {episode.watched ? <span className="episode-badge episode-badge-watched"><span aria-hidden="true">✓</span>{t("library.episodeFilter.watched")}</span> : null}
+            {upcoming && !episode.watched ? <span className="episode-badge">{t("library.upcomingStatus")}</span> : null}
+          </div>
+          <h3>{title}</h3>
+          {originalTitle && originalTitle !== title ? <p className="episode-original-title">{originalTitle}</p> : null}
+          <div className="episode-ticket-metadata">
+            <span><CalendarDays aria-hidden="true" />{formatEpisodeDate(episode.airAt, locale, t("library.episodeAirDateUnknown"))}</span>
+            {episode.duration ? <span><Clock3 aria-hidden="true" />{episode.duration}</span> : null}
           </div>
         </div>
-      )}
-    </EpisodeWatchToggle>
+      </div>
+    </EpisodeTicket>
   );
+}
+
+function formatEpisodeDate(value: string | null, locale: string, fallback: string) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

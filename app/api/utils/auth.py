@@ -56,9 +56,12 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'username': user.username,
         'displayName': user.display_name,
         'email': user.email,
+        'passwordLoginEnabled': user.password_login_enabled,
         'languagePreference': user.language_preference,
         'importProviderPreference': user.import_provider_preference,
         'weekStartDay': user.week_start_day,
+        'timeZone': user.time_zone,
+        'timeZoneMode': user.time_zone_mode,
         'includeUnwatchedSeasonZeroInTracking': user.include_unwatched_season_zero_in_tracking,
         'includeUnwatchedSeasonZeroInStatistics': user.include_unwatched_season_zero_in_statistics,
         'oidcLinked': bool(user.oidc_identities),
@@ -130,17 +133,20 @@ def validate_login_payload(data: object) -> tuple[dict[str, str] | None, str | N
     return {'username': username.strip(), 'password': password}, None
 
 
-def validate_password_reset_payload(data: object) -> tuple[str | None, str | None]:
+def validate_password_update_payload(data: object) -> tuple[dict[str, str | None] | None, str | None]:
     if not isinstance(data, dict):
         return None, 'Request body must be a JSON object'
 
-    password = data.get('password')
-    if not isinstance(password, str) or not password:
-        return None, 'Password is required'
-    if len(password) < 8:
+    current_password = data.get('currentPassword')
+    new_password = data.get('newPassword')
+    if current_password is not None and not isinstance(current_password, str):
+        return None, 'Current password is invalid'
+    if not isinstance(new_password, str) or not new_password:
+        return None, 'New password is required'
+    if len(new_password) < 8:
         return None, 'Password must be at least 8 characters'
 
-    return password, None
+    return {'current_password': current_password or None, 'new_password': new_password}, None
 
 
 def validate_language_preference_payload(data: object) -> tuple[str | None, str | None]:

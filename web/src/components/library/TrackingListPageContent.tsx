@@ -1,56 +1,57 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 
-import { scrollPageTo } from "@/components/layout/mobile-scroll-container";
+import { useDesktopPlatform } from "@/components/layout/platform-layout";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { getTrackingList, getTrackingListPage, updateEpisodeWatchState } from "@/features/library/api";
 import type { TrackingListKey } from "@/features/library/api";
 import { useTrackingList } from "@/features/library/hooks";
 import type { TrackingListItem, TrackingListResponse } from "@/features/library/types";
+import { useLocaleControls } from "@/i18n/provider";
 import { cn } from "@/lib/utils";
 
 import { SkeletonBlock } from "./LibraryPagination";
 import { TrackingEpisodeRow } from "./TrackingEpisodeRow";
 
 const TRACKING_TABS = ["tracking", "backlog", "recentlyWatched"] as const satisfies readonly TrackingListKey[];
+const DESKTOP_QUEUE_TABS = ["tracking", "backlog"] as const satisfies readonly TrackingListKey[];
+const SHORT_DESKTOP_QUEUE_LENGTH = 3;
+const DESKTOP_PREVIEW_ITEMS = 3;
 
 export function TrackingListPageContent() {
   const t = useTranslations();
   const { data, setData, isLoading, error, retry } = useTrackingList();
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
   const [loadingMoreKey, setLoadingMoreKey] = useState<TrackingListKey | null>(null);
   const [activeMobileTab, setActiveMobileTab] = useState<TrackingListKey>("tracking");
-  const tabSwitchTimeoutRef = useRef<number | null>(null);
-  const isDesktop = useDesktopLayout();
+  const [activeDesktopQueue, setActiveDesktopQueue] = useState<(typeof DESKTOP_QUEUE_TABS)[number]>("tracking");
+  const [successNotice, setSuccessNotice] = useState<number | null>(null);
+  const isDesktop = useDesktopPlatform();
   const tracking = data?.tracking.items ?? [];
   const backlog = data?.backlog.items ?? [];
   const recentlyWatched = data?.recentlyWatched.items ?? [];
   const hasQueueItems = tracking.length > 0 || backlog.length > 0;
-  const activeMobileTabIndex = TRACKING_TABS.indexOf(activeMobileTab);
+  const activeDesktopItems = activeDesktopQueue === "tracking" ? tracking : backlog;
+  const secondaryDesktopQueue = activeDesktopQueue === "tracking" ? "backlog" : "tracking";
+  const secondaryDesktopItems = secondaryDesktopQueue === "tracking" ? tracking : backlog;
+  const showSecondaryDesktopPreview = activeDesktopItems.length <= SHORT_DESKTOP_QUEUE_LENGTH && secondaryDesktopItems.length > 0;
+  const queueTotal = (data?.tracking.total ?? tracking.length) + (data?.backlog.total ?? backlog.length);
 
-  useEffect(() => () => {
-    if (tabSwitchTimeoutRef.current !== null) {
-      window.clearTimeout(tabSwitchTimeoutRef.current);
-    }
-  }, []);
-
-  function handleMobileTabChange(tab: TrackingListKey) {
-    if (tab === activeMobileTab) {
+  useEffect(() => {
+    if (successNotice === null) {
       return;
     }
+    const timeoutId = window.setTimeout(() => setSuccessNotice(null), 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [successNotice]);
 
-    if (tabSwitchTimeoutRef.current !== null) {
-      window.clearTimeout(tabSwitchTimeoutRef.current);
-    }
-
-    scrollPageTo({ top: 0, behavior: "smooth" });
-    tabSwitchTimeoutRef.current = window.setTimeout(() => {
-      setActiveMobileTab(tab);
-      tabSwitchTimeoutRef.current = null;
-    }, 260);
+  function handleMobileTabChange(tab: TrackingListKey) {
+    setActiveMobileTab(tab);
   }
 
   async function handleWatchChange(listKey: TrackingListKey, item: TrackingListItem, watched: boolean) {
@@ -60,16 +61,21 @@ export function TrackingListPageContent() {
 
     const previousIndex = data[listKey].items.findIndex((candidate) => candidate.episode.id === item.episode.id);
     const operationKey = `${listKey}-${item.anime.id}-${item.episode.id}`;
-    setSavingKey(operationKey);
+    setSavingKeys((current) => new Set(current).add(operationKey));
 
     try {
       await updateEpisodeWatchState(item.anime.id, item.episode.id, watched);
       const next = await getTrackingList();
       setData(watched && listKey !== "recentlyWatched" ? keepAnimeAtPosition(next, listKey, item.anime.id, previousIndex) : next);
-    } catch {
-      // Keep the current row visible if saving fails; this path has no optimistic mutation to roll back.
+      setSuccessNotice(Date.now());
+    } catch (error) {
+      throw error;
     } finally {
-      setSavingKey(null);
+      setSavingKeys((current) => {
+        const next = new Set(current);
+        next.delete(operationKey);
+        return next;
+      });
     }
   }
 
@@ -99,11 +105,16 @@ export function TrackingListPageContent() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="mx-auto max-w-5xl space-y-2 text-center">
-        <p className="text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground">{t("tracking.eyebrow")}</p>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("tracking.title")}</h1>
-      </div>
+    <div className="tracking-page-container space-y-6">
+      {!isDesktop ? (
+        <div className="mx-auto max-w-5xl space-y-2 text-center">
+          <p className="hidden text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground min-[360px]:block">{t("tracking.eyebrow")}</p>
+          <h1 className="text-3xl font-semibold tracking-tight">{t("tracking.title")}</h1>
+          <p className="text-sm font-medium text-muted-foreground">
+            {t("tracking.mobileQueueSummary", { current: data?.[activeMobileTab].total ?? 0, total: queueTotal })}
+          </p>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mx-auto max-w-5xl rounded-2xl border bg-card p-8 text-center shadow-sm">
@@ -114,162 +125,211 @@ export function TrackingListPageContent() {
       ) : null}
 
       {!error ? (
-        <main className="mx-auto w-full max-w-5xl space-y-4 sm:block sm:rounded-3xl sm:border sm:bg-card/70 sm:p-5 sm:shadow-sm">
+        <div className="mx-auto w-full max-w-[1200px] space-y-4">
           {!isLoading && !hasQueueItems ? (
             <div className="mb-4 rounded-2xl bg-background/60 p-6 text-center font-medium sm:mb-6 sm:p-8">
               {t("tracking.emptyAll")}
             </div>
           ) : null}
 
-          <div className="mobile-sticky-below-top-nav sticky z-30 mx-auto w-full max-w-5xl sm:hidden">
-            <div className="glass-surface relative grid grid-cols-3 gap-1 rounded-2xl border p-1">
-              <div
-                className="absolute left-1 top-1 h-[calc(100%-0.5rem)] w-[calc((100%-0.5rem)/3)] rounded-xl bg-primary shadow-md transition-transform duration-300 ease-out"
-                style={{ transform: `translateX(calc(${activeMobileTabIndex} * (100% + 0.25rem)))` }}
-                aria-hidden="true"
+          {!isDesktop ? (
+            <div className="tracking-mobile-tabs mobile-sticky-below-top-nav sticky z-30 mx-auto w-full max-w-5xl">
+              <SlidingOptionGroup
+                ariaLabel={t("tracking.chooseQueue")}
+                options={TRACKING_TABS}
+                value={activeMobileTab}
+                size="lg"
+                className="w-full"
+                buttonClassName="min-h-11 px-1 text-xs min-[360px]:text-sm"
+                onChange={handleMobileTabChange}
+                render={(tab) => tab === "tracking" ? t("tracking.trackingSection") : tab === "backlog" ? t("tracking.backlogSection") : t("tracking.recentlyWatchedSection")}
               />
-              {TRACKING_TABS.map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  className={cn(
-                    "relative z-10 rounded-xl px-2 py-2 text-sm font-medium text-muted-foreground transition-colors duration-300",
-                    activeMobileTab === tab && "text-primary-foreground",
-                  )}
-                  onClick={() => handleMobileTabChange(tab)}
-                >
-                  {tab === "tracking" ? t("tracking.trackingSection") : tab === "backlog" ? t("tracking.backlogSection") : t("tracking.recentlyWatchedSection")}
-                </button>
-              ))}
             </div>
-          </div>
+          ) : null}
 
           {isDesktop ? (
-          <div className="space-y-8">
-            <TrackingSection
-              title={t("tracking.trackingSection")}
-              items={tracking}
-              total={data?.tracking.total ?? 0}
-              hasMore={data?.tracking.hasMore ?? false}
-              isLoading={isLoading}
-              isLoadingMore={loadingMoreKey === "tracking"}
-              emptyText={t("tracking.emptyTracking")}
-              savingKey={savingKey}
-              listKey="tracking"
-              onWatchChange={handleWatchChange}
-              onLoadMore={handleLoadMore}
-            />
-            <TrackingSection
-              title={t("tracking.backlogSection")}
-              items={backlog}
-              total={data?.backlog.total ?? 0}
-              hasMore={data?.backlog.hasMore ?? false}
-              countMode="total"
-              isLoading={isLoading}
-              isLoadingMore={loadingMoreKey === "backlog"}
-              emptyText={t("tracking.emptyBacklog")}
-              savingKey={savingKey}
-              listKey="backlog"
-              onWatchChange={handleWatchChange}
-              onLoadMore={handleLoadMore}
-            />
-            <TrackingSection
-              title={t("tracking.recentlyWatchedSection")}
-              items={recentlyWatched}
-              total={data?.recentlyWatched.total ?? 0}
-              hasMore={data?.recentlyWatched.hasMore ?? false}
-              allowLoadMore={false}
-              showItemCount={false}
-              showEpisodeProgress={false}
-              isLoading={isLoading}
-              isLoadingMore={loadingMoreKey === "recentlyWatched"}
-              emptyText={t("tracking.emptyRecentlyWatched")}
-              savingKey={savingKey}
-              listKey="recentlyWatched"
-              onWatchChange={handleWatchChange}
-              onLoadMore={handleLoadMore}
-            />
-          </div>
+            <div className="tracking-desktop-layout">
+              <div className="floating-surface rounded-[var(--radius-panel)] p-5">
+                <div className="mb-5 rounded-[calc(var(--radius-panel)-0.35rem)] border border-[var(--border-subtle)] bg-[linear-gradient(135deg,var(--surface-card),var(--accent-soft))] p-5 shadow-[var(--shadow-low)]">
+                  <div className="tracking-header-content flex flex-col gap-5">
+                    <div>
+                      <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">{t("tracking.eyebrow")}</p>
+                      <h1 className="mt-2 text-3xl font-semibold tracking-tight">{t("tracking.title")}</h1>
+                    </div>
+                    <div className="tracking-header-controls">
+                      <div className="rounded-[var(--radius-panel)] bg-[var(--surface-card)] px-4 py-3 shadow-[var(--shadow-low)]">
+                        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t("tracking.queueSummary")}</p>
+                        <p className="mt-1 text-3xl font-semibold tracking-tight">{queueTotal}</p>
+                      </div>
+                      <SlidingOptionGroup
+                        ariaLabel={t("tracking.chooseQueue")}
+                        options={DESKTOP_QUEUE_TABS}
+                        value={activeDesktopQueue}
+                        className="w-full"
+                        onChange={setActiveDesktopQueue}
+                        render={(tab) => tab === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection")}
+                      />
+                    </div>
+                  </div>
+                </div>
+                {activeDesktopQueue === "tracking" ? (
+                  <TrackingSection
+                    title={t("tracking.trackingSection")}
+                    items={tracking}
+                    total={data?.tracking.total ?? 0}
+                    hasMore={data?.tracking.hasMore ?? false}
+                    isLoading={isLoading}
+                    isLoadingMore={loadingMoreKey === "tracking"}
+                    emptyText={t("tracking.emptyTracking")}
+                    savingKeys={savingKeys}
+                    listKey="tracking"
+                    hideHeaderOnDesktop
+                    onWatchChange={handleWatchChange}
+                    onLoadMore={handleLoadMore}
+                  />
+                ) : (
+                  <TrackingSection
+                    title={t("tracking.backlogSection")}
+                    items={backlog}
+                    total={data?.backlog.total ?? 0}
+                    hasMore={data?.backlog.hasMore ?? false}
+                    countMode="total"
+                    isLoading={isLoading}
+                    isLoadingMore={loadingMoreKey === "backlog"}
+                    emptyText={t("tracking.emptyBacklog")}
+                    savingKeys={savingKeys}
+                    listKey="backlog"
+                    hideHeaderOnDesktop
+                    onWatchChange={handleWatchChange}
+                    onLoadMore={handleLoadMore}
+                  />
+                )}
+                {showSecondaryDesktopPreview ? (
+                  <div className="mt-6 border-t border-[var(--divider)] pt-5">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">{t("tracking.itemCount", { count: secondaryDesktopItems.length })}</p>
+                        <h3 className="text-lg font-semibold tracking-tight">
+                          {secondaryDesktopQueue === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection")}
+                        </h3>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setActiveDesktopQueue(secondaryDesktopQueue)}>
+                        {t("tracking.viewQueue", { queue: secondaryDesktopQueue === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection") })}
+                      </Button>
+                    </div>
+                    <TrackingSection
+                      title={secondaryDesktopQueue === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection")}
+                      items={secondaryDesktopItems.slice(0, DESKTOP_PREVIEW_ITEMS)}
+                      total={data?.[secondaryDesktopQueue].total ?? 0}
+                      hasMore={false}
+                      allowLoadMore={false}
+                      showItemCount={false}
+                      countMode={secondaryDesktopQueue === "backlog" ? "total" : "loaded"}
+                      isLoading={isLoading}
+                      isLoadingMore={loadingMoreKey === secondaryDesktopQueue}
+                      emptyText={secondaryDesktopQueue === "tracking" ? t("tracking.emptyTracking") : t("tracking.emptyBacklog")}
+                       savingKeys={savingKeys}
+                      listKey={secondaryDesktopQueue}
+                      hideHeaderOnDesktop
+                      compact
+                      onWatchChange={handleWatchChange}
+                      onLoadMore={handleLoadMore}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <aside className="tracking-recent-panel floating-surface min-w-0 rounded-[var(--radius-panel)] p-4">
+                <TrackingSection
+                  title={t("tracking.recentlyWatchedSection")}
+                  items={recentlyWatched}
+                  total={data?.recentlyWatched.total ?? 0}
+                  hasMore={data?.recentlyWatched.hasMore ?? false}
+                  allowLoadMore={false}
+                  showItemCount={false}
+                showEpisodeProgress={false}
+                  isLoading={isLoading}
+                  isLoadingMore={loadingMoreKey === "recentlyWatched"}
+                  emptyText={t("tracking.emptyRecentlyWatched")}
+                   savingKeys={savingKeys}
+                  listKey="recentlyWatched"
+                  compact
+                  timeline
+                  variant="recent"
+                  onWatchChange={handleWatchChange}
+                  onLoadMore={handleLoadMore}
+                />
+              </aside>
+            </div>
           ) : null}
 
           {!isDesktop ? (
-          <div className="pt-1">
-            {activeMobileTab === "tracking" ? (
-              <TrackingSection
-                title={t("tracking.trackingSection")}
-                items={tracking}
-                total={data?.tracking.total ?? 0}
-                hasMore={data?.tracking.hasMore ?? false}
-                isLoading={isLoading}
-                isLoadingMore={loadingMoreKey === "tracking"}
-                emptyText={t("tracking.emptyTracking")}
-                savingKey={savingKey}
-                listKey="tracking"
-                hideHeaderOnMobile
-                onWatchChange={handleWatchChange}
-                onLoadMore={handleLoadMore}
-              />
-            ) : null}
-            {activeMobileTab === "backlog" ? (
-              <TrackingSection
-                title={t("tracking.backlogSection")}
-                items={backlog}
-                total={data?.backlog.total ?? 0}
-                hasMore={data?.backlog.hasMore ?? false}
-                countMode="total"
-                isLoading={isLoading}
-                isLoadingMore={loadingMoreKey === "backlog"}
-                emptyText={t("tracking.emptyBacklog")}
-                savingKey={savingKey}
-                listKey="backlog"
-                hideHeaderOnMobile
-                onWatchChange={handleWatchChange}
-                onLoadMore={handleLoadMore}
-              />
-            ) : null}
-            {activeMobileTab === "recentlyWatched" ? (
-              <TrackingSection
-                title={t("tracking.recentlyWatchedSection")}
-                items={recentlyWatched}
-                total={data?.recentlyWatched.total ?? 0}
-                hasMore={data?.recentlyWatched.hasMore ?? false}
-                allowLoadMore={false}
-                showItemCount={false}
-                showEpisodeProgress={false}
-                isLoading={isLoading}
-                isLoadingMore={loadingMoreKey === "recentlyWatched"}
-                emptyText={t("tracking.emptyRecentlyWatched")}
-                savingKey={savingKey}
-                listKey="recentlyWatched"
-                hideHeaderOnMobile
-                onWatchChange={handleWatchChange}
-                onLoadMore={handleLoadMore}
-              />
-            ) : null}
-          </div>
+            <div className="pt-1">
+              {activeMobileTab === "tracking" ? (
+                <TrackingSection
+                  title={t("tracking.trackingSection")}
+                  items={tracking}
+                  total={data?.tracking.total ?? 0}
+                  hasMore={data?.tracking.hasMore ?? false}
+                  isLoading={isLoading}
+                  isLoadingMore={loadingMoreKey === "tracking"}
+                  emptyText={t("tracking.emptyTracking")}
+                  savingKeys={savingKeys}
+                  listKey="tracking"
+                  hideHeaderOnMobile
+                  onWatchChange={handleWatchChange}
+                  onLoadMore={handleLoadMore}
+                />
+              ) : null}
+              {activeMobileTab === "backlog" ? (
+                <TrackingSection
+                  title={t("tracking.backlogSection")}
+                  items={backlog}
+                  total={data?.backlog.total ?? 0}
+                  hasMore={data?.backlog.hasMore ?? false}
+                  countMode="total"
+                  isLoading={isLoading}
+                  isLoadingMore={loadingMoreKey === "backlog"}
+                  emptyText={t("tracking.emptyBacklog")}
+                  savingKeys={savingKeys}
+                  listKey="backlog"
+                  hideHeaderOnMobile
+                  onWatchChange={handleWatchChange}
+                  onLoadMore={handleLoadMore}
+                />
+              ) : null}
+              {activeMobileTab === "recentlyWatched" ? (
+                <TrackingSection
+                  title={t("tracking.recentlyWatchedSection")}
+                  items={recentlyWatched}
+                  total={data?.recentlyWatched.total ?? 0}
+                  hasMore={data?.recentlyWatched.hasMore ?? false}
+                  allowLoadMore={false}
+                  showItemCount={false}
+                  showEpisodeProgress={false}
+                  isLoading={isLoading}
+                  isLoadingMore={loadingMoreKey === "recentlyWatched"}
+                  emptyText={t("tracking.emptyRecentlyWatched")}
+                  savingKeys={savingKeys}
+                  listKey="recentlyWatched"
+                  hideHeaderOnMobile
+                  timeline
+                  variant="recent"
+                  onWatchChange={handleWatchChange}
+                  onLoadMore={handleLoadMore}
+                />
+              ) : null}
+            </div>
           ) : null}
-        </main>
+        </div>
+      ) : null}
+      {successNotice !== null ? (
+        <div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[var(--surface-solid)] px-4 py-2.5 text-sm font-medium text-foreground shadow-[var(--shadow-medium)]" role="status" aria-live="polite">
+          <CheckCircle2 className="h-5 w-5 text-[var(--watched)]" aria-hidden="true" />
+          {t("tracking.updateSucceeded")}
+        </div>
       ) : null}
     </div>
   );
-}
-
-function useDesktopLayout() {
-  return useSyncExternalStore(subscribeToViewport, getDesktopSnapshot, getServerSnapshot);
-}
-
-function subscribeToViewport(onStoreChange: () => void) {
-  const query = window.matchMedia("(min-width: 640px)");
-  query.addEventListener("change", onStoreChange);
-  return () => query.removeEventListener("change", onStoreChange);
-}
-
-function getDesktopSnapshot() {
-  return window.matchMedia("(min-width: 640px)").matches;
-}
-
-function getServerSnapshot() {
-  return false;
 }
 
 function TrackingSection({
@@ -281,13 +341,16 @@ function TrackingSection({
   showItemCount = true,
   countMode = "loaded",
   showEpisodeProgress = true,
-  fillAvailableHeight = false,
   hideHeaderOnMobile = false,
+  hideHeaderOnDesktop = false,
+  compact = false,
+  timeline = false,
   isLoading,
   isLoadingMore,
   emptyText,
-  savingKey,
+  savingKeys,
   listKey,
+  variant = "queue",
   onWatchChange,
   onLoadMore,
 }: {
@@ -299,61 +362,83 @@ function TrackingSection({
   showItemCount?: boolean;
   countMode?: "loaded" | "total";
   showEpisodeProgress?: boolean;
-  fillAvailableHeight?: boolean;
   hideHeaderOnMobile?: boolean;
+  hideHeaderOnDesktop?: boolean;
+  compact?: boolean;
+  timeline?: boolean;
   isLoading: boolean;
   isLoadingMore: boolean;
   emptyText: string;
-  savingKey: string | null;
+  savingKeys: Set<string>;
   listKey: TrackingListKey;
+  variant?: "queue" | "recent";
   onWatchChange: (listKey: TrackingListKey, item: TrackingListItem, watched: boolean) => Promise<void>;
   onLoadMore: (listKey: TrackingListKey) => Promise<void>;
 }) {
   const t = useTranslations();
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [canScrollUp, setCanScrollUp] = useState(false);
-  const [canScrollDown, setCanScrollDown] = useState(false);
+  const { locale } = useLocaleControls();
+  const currentDateKey = useCurrentDateKey();
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const [scrollState, setScrollState] = useState({ up: false, down: false });
+  const headerClassName = cn(
+    "mb-3 flex items-center justify-between gap-3 sm:mb-4",
+    (hideHeaderOnMobile || hideHeaderOnDesktop) && "hidden",
+  );
 
-  function updateScrollHints() {
-    const element = scrollRef.current;
-    if (!element) {
-      setCanScrollUp(false);
-      setCanScrollDown(false);
-      return;
+  function getTimelineLabel(item: TrackingListItem, previous?: TrackingListItem) {
+    const currentDate = getTimelineDateKey(item);
+    if (previous !== undefined && currentDate === getTimelineDateKey(previous)) {
+      return null;
     }
 
-    const maxScrollTop = element.scrollHeight - element.clientHeight;
-    setCanScrollUp(element.scrollTop > 1);
-    setCanScrollDown(element.scrollTop < maxScrollTop - 1);
+    if (!currentDate) {
+      return t("tracking.watchedDateUnknown");
+    }
+
+    if (currentDate === currentDateKey) {
+      return t("tracking.today");
+    }
+    if (currentDate === getPreviousDateKey(currentDateKey)) {
+      return t("tracking.yesterday");
+    }
+    return t("tracking.watchedOn", { date: formatTimelineDate(currentDate, currentDateKey, locale) });
   }
 
-  function scrollList(direction: "up" | "down") {
+  const updateScrollState = useCallback(() => {
     const element = scrollRef.current;
-    if (!element) {
-      return;
-    }
+    if (!element || variant !== "recent") return;
+    const max = element.scrollHeight - element.clientHeight;
+    const next = { up: element.scrollTop > 2, down: element.scrollTop < max - 2 };
+    setScrollState((current) => current.up === next.up && current.down === next.down ? current : next);
+  }, [variant]);
+
+  function scrollRecent(direction: 1 | -1) {
+    const element = scrollRef.current;
+    if (!element) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     element.scrollBy({
-      top: (direction === "up" ? -1 : 1) * Math.max(element.clientHeight * 0.65, 220),
-      behavior: "smooth",
+      top: direction * Math.max(element.clientHeight * 0.72, 220),
+      behavior: reduceMotion ? "auto" : "smooth",
     });
   }
 
   useEffect(() => {
-    updateScrollHints();
+    if (variant !== "recent") return;
     const element = scrollRef.current;
-    if (!element) {
-      return;
-    }
-
-    const observer = new ResizeObserver(updateScrollHints);
+    if (!element) return;
+    const frame = requestAnimationFrame(updateScrollState);
+    const observer = new ResizeObserver(updateScrollState);
     observer.observe(element);
-    Array.from(element.children).forEach((child) => observer.observe(child));
-    return () => observer.disconnect();
-  }, [items.length, isLoading, hasMore]);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [isLoading, items.length, updateScrollState, variant]);
 
   return (
-    <section className={fillAvailableHeight ? "flex h-full min-h-0 flex-col" : undefined}>
-      <div className={hideHeaderOnMobile ? "mb-3 hidden items-center justify-between gap-3 sm:mb-4 sm:flex" : "mb-3 flex items-center justify-between gap-3 sm:mb-4"}>
+    <section>
+      <div className={headerClassName}>
         <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
         {showItemCount ? (
           <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
@@ -363,63 +448,128 @@ function TrackingSection({
         ) : null}
       </div>
 
-      <div className={fillAvailableHeight ? "relative min-h-0 flex-1" : "relative"}>
-        {canScrollUp ? (
-          <button
-            type="button"
-            className="pointer-events-none absolute inset-x-0 top-0 z-20 hidden justify-center bg-gradient-to-b from-card/80 to-transparent pb-5 pt-2 sm:flex sm:pointer-events-auto"
-            aria-label={t("tracking.scrollUp")}
-            onClick={() => scrollList("up")}
-          >
-            <ChevronUp className="h-7 w-7 text-foreground/45" />
+      <div className="tracking-section-scroll-shell relative min-h-0">
+        {variant === "recent" && scrollState.up ? (
+          <button type="button" className="tracking-scroll-hint tracking-scroll-hint-top" aria-label={t("tracking.scrollUp")} onClick={() => scrollRecent(-1)}>
+            <ChevronUp className="h-5 w-5" aria-hidden="true" />
           </button>
         ) : null}
-        {canScrollDown ? (
-          <button
-            type="button"
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden justify-center bg-gradient-to-t from-card/80 to-transparent pb-2 pt-5 sm:flex sm:pointer-events-auto"
-            aria-label={t("tracking.scrollDown")}
-            onClick={() => scrollList("down")}
-          >
-            <ChevronDown className="h-7 w-7 text-foreground/45" />
+        {variant === "recent" && scrollState.down ? (
+          <button type="button" className="tracking-scroll-hint tracking-scroll-hint-bottom" aria-label={t("tracking.scrollDown")} onClick={() => scrollRecent(1)}>
+            <ChevronDown className="h-5 w-5" aria-hidden="true" />
           </button>
         ) : null}
-        <div ref={scrollRef} className={fillAvailableHeight ? "tracking-section-scroll scrollbar-none h-full overflow-y-auto overscroll-contain" : "tracking-section-scroll scrollbar-none overflow-visible sm:max-h-[34rem] sm:overflow-y-auto"} onScroll={updateScrollHints}>
-        <div className="space-y-3 pb-1">
-          {isLoading ? (
-            Array.from({ length: 4 }).map((_, index) => <SkeletonBlock key={index} className="h-28 rounded-2xl" />)
-          ) : items.length > 0 ? (
-            items.map((item) => (
+        <ScrollArea
+          ref={scrollRef}
+          ariaLabel={t("app.scrollableContent")}
+          className="tracking-section-scroll-area min-h-0"
+          showScrollbar={variant !== "recent"}
+          viewportClassName={cn("tracking-section-list space-y-3 pb-1", compact && "space-y-2.5", variant === "recent" && "tracking-recent-list")}
+          viewportTabIndex={compact && items.length > 0 ? 0 : undefined}
+          onViewportScroll={updateScrollState}
+        >
+        {isLoading ? (
+          Array.from({ length: compact ? 3 : 4 }).map((_, index) => <SkeletonBlock key={index} className={cn("rounded-2xl", compact ? "h-24" : "h-28")} />)
+        ) : items.length > 0 ? (
+          items.map((item, index) => {
+            const timelineLabel = timeline ? getTimelineLabel(item, items[index - 1]) : null;
+            return (
+            <div key={`${listKey}-${item.anime.id}-${item.episode.id}`} className={cn(timeline && "relative pl-4", variant === "recent" && "tracking-recent-item") }>
+              {timelineLabel ? (
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  <span className="h-3 w-3 rounded-full border-2 border-[var(--accent-solid)]" aria-hidden="true" />
+                  {timelineLabel}
+                </div>
+              ) : null}
               <TrackingEpisodeRow
-                key={`${listKey}-${item.anime.id}-${item.episode.id}`}
                 item={item}
-                disabled={savingKey !== null}
-                isSaving={savingKey === `${listKey}-${item.anime.id}-${item.episode.id}`}
+                disabled={savingKeys.has(`${listKey}-${item.anime.id}-${item.episode.id}`)}
+                isSaving={savingKeys.has(`${listKey}-${item.anime.id}-${item.episode.id}`)}
                 showProgress={showEpisodeProgress}
+                compact={compact}
+                variant={variant}
                 onWatchChange={(nextItem, watched) => onWatchChange(listKey, nextItem, watched)}
               />
-            ))
-          ) : (
-            <div className="rounded-2xl border border-dashed bg-background/60 p-8 text-center text-sm text-muted-foreground">
-              {emptyText}
             </div>
-          )}
-          {!isLoading && hasMore && allowLoadMore ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={isLoadingMore || savingKey !== null}
-              onClick={() => void onLoadMore(listKey)}
-            >
-              {isLoadingMore ? t("search.loadingMore") : t("tracking.loadMore")}
-            </Button>
-          ) : null}
-        </div>
-        </div>
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-dashed bg-background/60 p-8 text-center text-sm text-muted-foreground">
+            {emptyText}
+          </div>
+        )}
+        {!isLoading && hasMore && allowLoadMore ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={isLoadingMore}
+            onClick={() => void onLoadMore(listKey)}
+          >
+            {isLoadingMore ? t("search.loadingMore") : t("tracking.loadMore")}
+          </Button>
+        ) : null}
+        </ScrollArea>
       </div>
     </section>
   );
+}
+
+function getTimelineDateKey(item?: TrackingListItem) {
+  const value = item?.episode.watchedAt;
+  return value ? parseLocalDateKey(value) : null;
+}
+
+function parseLocalDateKey(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10);
+  }
+  return formatDateKey(date);
+}
+
+function useCurrentDateKey() {
+  const [dateKey, setDateKey] = useState(() => formatDateKey(new Date()));
+
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now);
+    nextMidnight.setHours(24, 0, 0, 0);
+    const timeoutId = window.setTimeout(() => {
+      setDateKey(formatDateKey(new Date()));
+    }, nextMidnight.getTime() - now.getTime() + 1000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [dateKey]);
+
+  return dateKey;
+}
+
+function getPreviousDateKey(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setDate(date.getDate() - 1);
+  return formatDateKey(date);
+}
+
+function formatTimelineDate(dateKey: string, currentDateKey: string, locale: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  const currentYear = Number(currentDateKey.slice(0, 4));
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() === currentYear ? {} : { year: "numeric" }),
+  }).format(date);
+}
+
+function formatDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function keepAnimeAtPosition(data: TrackingListResponse, listKey: "tracking" | "backlog", animeId: number, index: number) {

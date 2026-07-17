@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
 DEFAULT_LANGUAGE_PREFERENCE = "zh-CN"
 DEFAULT_IMPORT_PROVIDER_PREFERENCE = "bangumi"
+DEFAULT_TIME_ZONE = "UTC"
+DEFAULT_TIME_ZONE_MODE = "auto"
 
 
 class User(TimestampedBase):
@@ -23,12 +25,15 @@ class User(TimestampedBase):
     display_name: Mapped[str | None] = mapped_column(String(100))
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_login_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     language_preference: Mapped[str] = mapped_column(
         String(10),
         nullable=False,
         default=DEFAULT_LANGUAGE_PREFERENCE,
     )
     week_start_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    time_zone: Mapped[str] = mapped_column(String(64), nullable=False, default=DEFAULT_TIME_ZONE, server_default=DEFAULT_TIME_ZONE)
+    time_zone_mode: Mapped[str] = mapped_column(String(16), nullable=False, default=DEFAULT_TIME_ZONE_MODE, server_default=DEFAULT_TIME_ZONE_MODE)
     import_provider_preference: Mapped[str] = mapped_column(
         String(64),
         nullable=False,

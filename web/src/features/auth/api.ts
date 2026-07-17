@@ -6,6 +6,7 @@ import type {
   LoginInput,
   LogoutResponse,
   OidcConfigResponse,
+  OidcPasswordSetupStatus,
   UpdatePasswordInput,
   UpdatePasswordResponse,
   RegisterInput,
@@ -41,9 +42,14 @@ export function getOidcConfig(): Promise<OidcConfigResponse> {
   return apiFetch<OidcConfigResponse>("/api/oidc/config");
 }
 
-export function unlinkOidc(): Promise<AuthResponse> {
+export function getOidcPasswordSetupStatus(): Promise<OidcPasswordSetupStatus> {
+  return apiFetch<OidcPasswordSetupStatus>("/api/oidc/password-setup/status");
+}
+
+export function unlinkOidc(currentPassword: string): Promise<AuthResponse> {
   return apiFetch<AuthResponse>("/api/oidc/link", {
     method: "DELETE",
+    body: JSON.stringify({ currentPassword }),
   });
 }
 

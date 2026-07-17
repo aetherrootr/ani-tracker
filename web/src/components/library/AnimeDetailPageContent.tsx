@@ -3,13 +3,16 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw, Repeat2, Search, X } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, ExternalLink, LoaderCircle, Plus, Search, X } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { assetUrl, createManualRelatedAnime, deleteManualRelatedAnime, dismissDeletedRelatedAnime, discoverRelatedAnime, getAnimeDetail, getCurrentRelatedAnimeDiscoveryJob, getLibrary, getManualRelatedAnime, getRelatedAnimeDiscoveryJob, keepDeletedRelatedAnime, syncAnime, updateAnimeStatus, updateManualRelatedAnime, updateMetadataSource, updateRelatedAnimeOverride, updateRelatedAnimeProviderImport } from "@/features/library/api";
 import { useAnimeDetail } from "@/features/library/hooks";
 import type { Anime, AnimeProgress, EpisodeConflict, LibraryItem, LibraryRefreshJob, ManualRelatedAnime, RelatedAnime, RelatedAnimeDiscoveryResponse, UserAnimeStatus } from "@/features/library/types";
@@ -42,10 +45,13 @@ const RELATED_ANIME_DISCOVERY_MESSAGES = {
 
 export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const { data, setData, isLoading, error, retry } = useAnimeDetail(animeId);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const statusMenuRef = useRef<HTMLDivElement | null>(null);
+  const [statusMenuRect, setStatusMenuRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const statusTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const statusPopoverRef = useRef<HTMLDivElement | null>(null);
   const posterPollingAnimeIdRef = useRef<number | null>(null);
   const relatedDiscoveryJobIdRef = useRef<string | null>(null);
   const [dropConfirm, setDropConfirm] = useState(false);
@@ -59,6 +65,8 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [providerSwitchOpen, setProviderSwitchOpen] = useState(false);
   const [manualRelatedOpen, setManualRelatedOpen] = useState(false);
+  const [statusPending, setStatusPending] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const applyRelatedAnimeDiscoveryJob = useCallback(async (job: LibraryRefreshJob) => {
     const result = relatedAnimeDiscoverySummary(job.summary);
@@ -78,35 +86,26 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }, [animeId, setData, t]);
 
   useEffect(() => {
-    if (!summaryDialogOpen) {
-      return;
-    }
-
-    document.documentElement.classList.add("dialog-scroll-lock");
-    document.body.classList.add("dialog-scroll-lock");
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setSummaryDialogOpen(false);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.documentElement.classList.remove("dialog-scroll-lock");
-      document.body.classList.remove("dialog-scroll-lock");
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [summaryDialogOpen]);
-
-  useEffect(() => {
     if (!statusMenuOpen) {
       return;
     }
 
+    function updateStatusMenuPosition() {
+      const trigger = statusTriggerRef.current;
+      if (!trigger) {
+        return;
+      }
+      const rect = trigger.getBoundingClientRect();
+      const width = Math.max(rect.width, 180);
+      const left = Math.min(Math.max(16, rect.left), Math.max(16, window.innerWidth - width - 16));
+      setStatusMenuRect({ left, top: rect.bottom + 8, width });
+    }
+
+    const frame = requestAnimationFrame(updateStatusMenuPosition);
+
     function handlePointerDown(event: PointerEvent) {
-      if (statusMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (statusTriggerRef.current?.contains(target) || statusPopoverRef.current?.contains(target)) {
         return;
       }
       setStatusMenuOpen(false);
@@ -120,10 +119,15 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
 
     window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateStatusMenuPosition);
+    window.addEventListener("scroll", updateStatusMenuPosition, true);
 
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateStatusMenuPosition);
+      window.removeEventListener("scroll", updateStatusMenuPosition, true);
     };
   }, [statusMenuOpen]);
 
@@ -195,15 +199,25 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }, [animeId, applyRelatedAnimeDiscoveryJob, data, isDiscoveringSeasons, t]);
 
   async function setStatus(status: UserAnimeStatus) {
-    if (!data || status === data.progress.status) {
-      return;
+    if (!data || statusPending || status === data.progress.status) {
+      return false;
     }
     if (status === "dropped") {
       setDropConfirm(true);
-      return;
+      return false;
     }
-    const result = await updateAnimeStatus(animeId, status);
-    updateProgress(result.progress);
+    setStatusPending(true);
+    setStatusError(null);
+    try {
+      const result = await updateAnimeStatus(animeId, status);
+      updateProgress(result.progress);
+      return true;
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : t("library.statusUpdateFailed"));
+      return false;
+    } finally {
+      setStatusPending(false);
+    }
   }
 
   function updateProgress(progress: AnimeProgress) {
@@ -301,18 +315,37 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const summary = data.anime.summary?.summary?.trim() || t("anime.noSummary");
   const showOriginal = data.anime.originalName !== data.anime.displayName;
   const isLocalSnapshot = data.progress.metadataSource === "local_snapshot";
-  const providerDisplayName = isLocalSnapshot ? t("library.localSnapshotProvider") : data.anime.provider;
+  const providerDisplayName = isLocalSnapshot ? t("library.localSnapshotProvider") : formatProvider(data.anime.provider);
   const canDiscoverRelatedAnime = Boolean(!isLocalSnapshot && data.features?.seasonDiscovery && RELATED_ANIME_DISCOVERY_BY_PROVIDER[data.anime.provider as keyof typeof RELATED_ANIME_DISCOVERY_BY_PROVIDER]);
   const activeEpisodeConflicts = episodeConflicts.length > 0 ? episodeConflicts : data.episodeConflicts;
+  const totalEpisodes = data.anime.episodeCount || data.anime.totalEpisodes || 0;
+  const watchedEpisodes = Math.max(data.progress.lastWatchedEpisodeNumber ?? 0, 0);
+  const nextEpisodeNumber = totalEpisodes > 0 ? Math.min(watchedEpisodes + 1, totalEpisodes) : null;
+  const progressPercent = totalEpisodes > 0 ? Math.min(100, Math.round((watchedEpisodes / totalEpisodes) * 100)) : 0;
+  const heroActionLabel = nextEpisodeNumber ? t(`library.primaryAction.${data.progress.status}`, { episode: nextEpisodeNumber }) : t("library.noEpisodeAction");
+
+  function handleHeroAction() {
+    if (!data) {
+      return;
+    }
+    if (!nextEpisodeNumber) {
+      return;
+    }
+    if (data.progress.status === "plan_to_watch" || data.progress.status === "on_hold" || data.progress.status === "dropped") {
+      void setStatus("watching").then((updated) => { if (updated) document.getElementById("episode-list")?.scrollIntoView({ behavior: "smooth", block: "start" }); });
+    } else {
+      document.getElementById("episode-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-[1440px] space-y-8">
       {data.progress.status === "dropped" ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-destructive">{t("library.droppedBanner")}</p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => void setStatus("watching")}>{t("library.restoreWatching")}</Button>
-            <Link className="inline-flex h-10 items-center justify-center rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent" href="/library">{t("library.backToLibrary")}</Link>
+            <Link className="inline-flex h-10 items-center justify-center rounded-md border bg-background px-4 text-sm font-medium hover:bg-[var(--surface-hover)]" href="/library">{t("library.backToLibrary")}</Link>
           </div>
         </div>
       ) : null}
@@ -321,6 +354,10 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-medium text-destructive">
           {syncError}
         </div>
+      ) : null}
+
+      {statusError ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-medium text-destructive" role="alert">{statusError}</div>
       ) : null}
 
       {seasonDiscoveryMessage ? (
@@ -340,8 +377,8 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         </div>
       ) : null}
 
-      <section className="relative rounded-3xl border bg-card shadow-sm">
-        <div className="absolute inset-0 overflow-hidden rounded-3xl">
+      <section className="anime-detail-hero floating-surface relative overflow-hidden rounded-[var(--radius-modal)]">
+        <div className="hero-visual absolute inset-0 overflow-hidden rounded-[inherit]">
           {poster ? (
             <Image
               key={poster}
@@ -350,14 +387,15 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               fill
               unoptimized
               sizes="100vw"
-              className="scale-110 object-cover opacity-25 blur-2xl"
+              className="scale-110 object-cover opacity-20 blur-2xl"
             />
           ) : <div className="absolute inset-0 bg-gradient-to-br from-muted to-card" />}
-          <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/80 to-background/50" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgb(170_165_255_/_0.22),transparent_34%),linear-gradient(105deg,rgb(250_250_255_/_0.74)_0%,rgb(250_250_255_/_0.88)_42%,rgb(250_250_255_/_0.8)_100%)] dark:bg-[radial-gradient(circle_at_18%_18%,rgb(155_140_255_/_0.18),transparent_34%),linear-gradient(105deg,rgb(13_12_18_/_0.86)_0%,rgb(20_17_30_/_0.9)_42%,rgb(20_17_30_/_0.82)_100%)]" />
+          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[var(--surface-solid)]/80 to-transparent dark:from-[var(--surface-solid)]/70" />
         </div>
 
-        <div className="relative z-10 grid gap-6 p-5 sm:grid-cols-[220px_1fr] sm:p-8">
-          <div className="relative mx-auto hidden aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:block sm:w-full">
+        <div className="anime-detail-hero-grid relative z-10 grid gap-4 p-4 sm:p-6">
+          <div className="anime-detail-poster relative aspect-[2/3] overflow-hidden rounded-2xl border bg-muted shadow-xl">
             {poster ? (
               <Image
                 key={poster}
@@ -371,146 +409,116 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
             ) : <NoPoster />}
           </div>
 
-          <div className="min-w-0 space-y-4">
-            <div>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h1 className="min-w-0 text-3xl font-semibold tracking-tight sm:text-5xl">{data.anime.displayName}</h1>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8 rounded-full px-3 text-xs"
-                      disabled={isSyncing || isLocalSnapshot}
-                      onClick={() => void syncCurrentAnime()}
-                    >
-                      <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
-                      {isSyncing ? t("library.syncing") : t("library.syncAnime")}
-                    </Button>
-                    {canDiscoverRelatedAnime ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8 rounded-full px-3 text-xs"
-                        disabled={isDiscoveringSeasons}
-                        onClick={() => void discoverSeasons()}
-                      >
-                        {isDiscoveringSeasons ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                        {isDiscoveringSeasons ? t("library.tvdbSeasonDiscovering") : t("library.tvdbSeasonDiscovery")}
-                      </Button>
-                    ) : null}
-                    <span>{isLocalSnapshot ? t("library.localSnapshotActive") : t("library.lastSynced", { time: formatLastSynced(data.anime.lastSyncedAt, t("library.neverSynced")) })}</span>
-                    {isPosterRefreshing ? <span>{t("library.posterRefreshing")}</span> : null}
-                  </div>
+          <div className="anime-detail-identity min-w-0 space-y-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+              <div className="min-w-0">
+                <h1 className="line-clamp-2 min-w-0 [overflow-wrap:anywhere] text-[clamp(24px,7cqw,52px)] font-semibold leading-[1.06] tracking-tight">{data.anime.displayName}</h1>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent-solid)]">
+                    {t(`library.status.${data.progress.status}`)}
+                  </span>
+                  <span>{formatAnimeType(data.anime.type, t)}</span>
+                  <span>{totalEpisodes > 0 ? t("library.relatedAnimeEpisodeCount", { count: totalEpisodes }) : t("library.episodeCountUnknown")}</span>
+                  <span>{data.anime.airDate?.slice(0, 4) ?? t("anime.unknown")}</span>
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    {isLocalSnapshot ? t("library.localSnapshotActive") : t("library.lastSynced", { time: formatLastSynced(data.anime.lastSyncedAt, t("library.neverSynced"), locale) })}
+                  </span>
+                  {isPosterRefreshing ? <span className="text-xs text-[var(--text-tertiary)]">{t("library.posterRefreshing")}</span> : null}
                 </div>
-                <AnimeHeroSettingsMenu anime={data.anime} onAnimeChange={updateAnime} onManageManualRelated={() => setManualRelatedOpen(true)} />
               </div>
-              {showOriginal ? <p className="mt-2 text-muted-foreground">{data.anime.originalName}</p> : null}
-            </div>
-            <div className="relative mx-auto aspect-[2/3] w-44 overflow-hidden rounded-2xl border bg-muted shadow-2xl sm:hidden">
-              {poster ? (
-                <Image
-                  key={poster}
-                  src={poster}
-                  alt={t("anime.coverAlt", { title: data.anime.displayName })}
-                  fill
-                  unoptimized
-                  sizes="176px"
-                  className="object-cover"
+              <div className="flex items-center gap-1">
+                <CopyAnimeTitleButton title={data.anime.displayName} />
+                <AnimeHeroSettingsMenu
+                  anime={data.anime}
+                  isSyncing={isSyncing}
+                  isDiscoveringSeasons={isDiscoveringSeasons}
+                  canDiscoverRelatedAnime={canDiscoverRelatedAnime}
+                  isLocalSnapshot={isLocalSnapshot}
+                  onAnimeChange={updateAnime}
+                  onSyncAnime={() => void syncCurrentAnime()}
+                  onDiscoverRelatedAnime={() => void discoverSeasons()}
+                  onManageManualRelated={() => setManualRelatedOpen(true)}
                 />
-              ) : <NoPoster />}
-            </div>
-            <button
-              type="button"
-              className="relative block max-h-28 w-full max-w-3xl overflow-hidden rounded-2xl bg-background/15 p-3 text-left text-xs leading-6 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
-              onClick={() => setSummaryDialogOpen(true)}
-            >
-              <p className="whitespace-pre-wrap">{summary}</p>
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/70 to-transparent" aria-hidden="true" />
-            </button>
-            <div className="scrollbar-none hidden max-h-32 max-w-3xl overflow-y-auto rounded-2xl bg-background/15 p-3 text-sm leading-6 text-muted-foreground backdrop-blur-sm sm:block">
-              <p className="whitespace-pre-wrap">{summary}</p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div ref={statusMenuRef} className="relative z-20 rounded-2xl border bg-background/35 p-3 backdrop-blur">
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-3 text-left"
-                  aria-expanded={statusMenuOpen}
-                  aria-haspopup="menu"
-                  onClick={() => setStatusMenuOpen((current) => !current)}
-                >
-                  <span>
-                    <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("library.statusLabel")}</span>
-                    <span className="mt-1 block font-semibold">{t(`library.status.${data.progress.status}`)}</span>
-                  </span>
-                  <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", statusMenuOpen && "rotate-180")} />
-                </button>
-                {statusMenuOpen ? (
-                  <div className="glass-dialog absolute left-0 top-full z-40 mt-2 w-40 max-w-full overflow-hidden rounded-2xl border p-1 text-foreground sm:w-44" role="menu">
-                    {STATUS_OPTIONS.map((status) => {
-                      const active = data.progress.status === status;
-                      return (
-                        <button
-                          key={status}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={active}
-                          className={cn(
-                            "flex min-h-10 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground sm:min-h-11",
-                            active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-                            status === "dropped" && !active && "text-destructive hover:bg-destructive/10 hover:text-destructive",
-                          )}
-                          onClick={() => { setStatusMenuOpen(false); void setStatus(status); }}
-                        >
-                          <span>{t(`library.status.${status}`)}</span>
-                          {active ? <Check className="h-4 w-4" /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
               </div>
-
-              <InfoCard label={t("anime.platform")} value={data.anime.type} />
-              <InfoCard label={t("anime.episodes")} value={String(data.anime.totalEpisodes ?? data.anime.episodeCount)} />
-              <InfoCard label={t("anime.airDate")} value={data.anime.airDate ?? t("anime.unknown")} />
-              <button type="button" className="group relative rounded-2xl border bg-background/35 p-3 text-left backdrop-blur transition-colors hover:bg-background/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setProviderSwitchOpen(true)}>
-                <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</span>
-                <span className="mt-1 flex items-center justify-between gap-3 font-semibold">
-                  <span>{providerDisplayName}</span>
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/60 text-muted-foreground transition-colors group-hover:border-primary/40 group-hover:text-primary" aria-hidden="true">
-                    <Repeat2 className="h-4 w-4" />
-                  </span>
-                </span>
-                <span className="glass-dialog pointer-events-none absolute left-3 top-full z-30 mt-2 hidden w-52 rounded-2xl border p-3 text-foreground shadow-lg group-hover:block group-focus-visible:block">
-                  <span className="flex items-center gap-2 text-sm font-semibold">
-                    <Repeat2 className="h-4 w-4 text-primary" />
-                    {t("library.switchProvider")}
-                  </span>
-                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t("library.switchProviderHint")}</span>
-                </span>
-              </button>
-              {data.anime.url ? (
-                <a className="rounded-2xl border bg-background/35 p-3 backdrop-blur transition-colors hover:bg-background/55" href={data.anime.url} target="_blank" rel="noreferrer">
-                  <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("anime.viewOnProvider", { provider: providerDisplayName })}</span>
-                  <span className="mt-1 inline-flex items-center gap-2 font-semibold">
-                    {data.anime.externalId}<ExternalLink className="h-4 w-4" />
-                  </span>
-                </a>
-              ) : null}
             </div>
+            {showOriginal ? <p className="text-muted-foreground">{data.anime.originalName}</p> : null}
+          </div>
+
+          <div className="anime-detail-summary max-w-[72ch] min-w-0">
+            <div className="hero-description relative text-[15px] leading-[1.65] text-[var(--text-secondary)]" data-expanded="false">
+              <p className="whitespace-pre-wrap">{summary}</p>
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[rgb(250_250_255_/_0.92)] to-transparent dark:from-[rgb(20_17_30_/_0.9)]" aria-hidden="true" />
+            </div>
+            <button type="button" className="mt-2 text-sm font-semibold text-[var(--accent-solid)] transition-colors hover:text-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]" onClick={() => setSummaryDialogOpen(true)}>
+              {t("anime.viewFullSummary")}
+            </button>
+          </div>
+
+          <div className="anime-detail-progress rounded-[var(--radius-panel)] border border-[var(--border-subtle)] bg-[var(--surface-card)]/95 p-4 shadow-[var(--shadow-low)] sm:p-5">
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-muted-foreground">
+                  {watchedEpisodes > 0 ? t("library.progressSummary", { watched: watchedEpisodes, total: totalEpisodes || "?" }) : t("library.notStarted")}
+                </p>
+                <p className="mt-1 text-lg font-semibold tracking-tight">{nextEpisodeNumber ? t("library.nextEpisodeNumber", { episode: nextEpisodeNumber }) : t("library.noNextEpisode")}</p>
+              </div>
+              <Button type="button" className="min-h-11 sm:justify-self-end" disabled={!nextEpisodeNumber || statusPending} aria-busy={statusPending} onClick={handleHeroAction}>
+                {statusPending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{heroActionLabel}
+              </Button>
+              <div className="grid items-center gap-3 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="h-2 overflow-hidden rounded-full bg-[rgb(95_87_125_/_0.09)] dark:bg-[rgb(255_255_255_/_0.1)]" role="progressbar" aria-label={t("library.watchProgress")} aria-valuemin={0} aria-valuemax={totalEpisodes} aria-valuenow={watchedEpisodes}>
+                  <div className={cn("h-full rounded-full transition-all", progressPercent >= 100 ? "bg-[var(--watched)]" : "bg-[var(--accent-solid)]")} style={{ width: `${progressPercent}%` }} />
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">{progressPercent}%</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="anime-detail-metadata grid grid-cols-2 gap-3">
+            <button
+              ref={statusTriggerRef}
+              type="button"
+              className="metadata-card flex items-center justify-between gap-3 rounded-2xl border p-3 text-left transition-colors hover:bg-[var(--surface-card-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]"
+              aria-expanded={statusMenuOpen}
+              aria-haspopup="menu"
+              aria-controls="anime-status-menu"
+              onClick={() => setStatusMenuOpen((current) => !current)}
+            >
+              <span>
+                <span className="block text-xs font-medium text-muted-foreground">{t("library.statusLabel")}</span>
+                <span className="mt-1 block font-semibold">{t(`library.status.${data.progress.status}`)}</span>
+              </span>
+              <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", statusMenuOpen && "rotate-180")} />
+            </button>
+
+            <InfoCard label={t("library.dataSource")} value={providerDisplayName} />
+            <InfoCard label={t("anime.airDate")} value={formatDate(data.anime.airDate, locale, t("anime.unknown"))} />
+            {data.anime.url ? (
+              <a className="metadata-card rounded-2xl border p-3 transition-colors hover:bg-[var(--surface-card-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]" href={data.anime.url} target="_blank" rel="noreferrer">
+                <span className="block text-xs font-medium text-muted-foreground">{t("anime.viewOnProvider", { provider: providerDisplayName })}</span>
+                <span className="mt-1 inline-flex items-center gap-2 font-semibold">
+                  {data.anime.externalId}<ExternalLink className="h-4 w-4" />
+                </span>
+              </a>
+            ) : null}
           </div>
         </div>
       </section>
+      <StatusMenuPortal
+        open={statusMenuOpen}
+        rect={statusMenuRect}
+        popoverRef={statusPopoverRef}
+        currentStatus={data.progress.status}
+        triggerRef={statusTriggerRef}
+        onClose={() => setStatusMenuOpen(false)}
+        onSelect={(status) => { setStatusMenuOpen(false); void setStatus(status); }}
+      />
 
       <RelatedAnimeSection animeId={animeId} provider={providerDisplayName} items={data.anime.relatedAnime ?? []} onRefresh={() => void refreshDetail()} />
 
       <ManualRelatedAnimeDialog open={manualRelatedOpen} animeId={animeId} currentAnimeTitle={data.anime.displayName} relatedItems={data.anime.relatedAnime ?? []} existingRelatedAnimeIds={(data.anime.relatedAnime ?? []).filter((item) => item.source === "manual" && item.animeId !== null).map((item) => item.animeId as number)} onClose={() => setManualRelatedOpen(false)} onChanged={() => void refreshDetail()} />
 
-      <EpisodeList animeId={animeId} metadataSource={data.progress.metadataSource} refreshKey={episodeRefreshKey} onProgressChange={updateProgress} />
+      <EpisodeList animeId={animeId} metadataSource={data.progress.metadataSource} progress={data.progress} refreshKey={episodeRefreshKey} onProgressChange={updateProgress} />
 
       <ConfirmDialog
         open={dropConfirm}
@@ -521,7 +529,12 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         onCancel={() => setDropConfirm(false)}
         onConfirm={() => {
           setDropConfirm(false);
-          updateAnimeStatus(animeId, "dropped").then((result) => updateProgress(result.progress));
+          setStatusPending(true);
+          setStatusError(null);
+          updateAnimeStatus(animeId, "dropped")
+            .then((result) => updateProgress(result.progress))
+            .catch((err: unknown) => setStatusError(err instanceof Error ? err.message : t("library.statusUpdateFailed")))
+            .finally(() => setStatusPending(false));
         }}
       />
       <ProviderSwitchDialog
@@ -541,45 +554,175 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
           router.push(`/library/${targetAnimeId}`);
         }}
       />
-      {summaryDialogOpen ? (
-        <div
-          className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="summary-dialog-title"
-          onClick={() => setSummaryDialogOpen(false)}
-        >
-          <div
-            className="glass-dialog flex max-h-[80svh] w-full flex-col rounded-2xl border text-foreground sm:mx-auto sm:max-w-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b p-4">
-              <h2 id="summary-dialog-title" className="font-semibold tracking-tight">简介</h2>
-              <Button type="button" variant="ghost" size="icon" aria-label={t("library.closeFilters")} onClick={() => setSummaryDialogOpen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 text-sm leading-7 text-muted-foreground">
-              <p className="whitespace-pre-wrap">{summary}</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DescriptionSheet
+        open={summaryDialogOpen}
+        title={data.anime.displayName}
+        originalTitle={showOriginal ? data.anime.originalName : null}
+        meta={[data.anime.airDate?.slice(0, 4) ?? t("anime.unknown"), formatAnimeType(data.anime.type, t), providerDisplayName].join(" · ")}
+        summary={summary}
+        onClose={() => setSummaryDialogOpen(false)}
+      />
     </div>
   );
 }
 
-function formatLastSynced(value: string | null, fallback: string) {
+function CopyAnimeTitleButton({ title }: { title: string }) {
+  const t = useTranslations();
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const resetTimer = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+  }, []);
+
+  async function copyTitle() {
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+    try {
+      await writeClipboardText(title);
+      setStatus("success");
+    } catch {
+      setStatus("error");
+    }
+    resetTimer.current = window.setTimeout(() => setStatus("idle"), 1800);
+  }
+
+  const message = status === "success"
+    ? t("library.copyAnimeTitleSuccess", { title })
+    : status === "error"
+      ? t("library.copyAnimeTitleFailed")
+      : t("library.copyAnimeTitle", { title });
+  return <>
+    <button
+      type="button"
+      className={cn(
+        "interactive-surface inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]",
+        status === "success" && "text-[var(--watched)]",
+        status === "error" && "text-destructive",
+      )}
+      aria-label={message}
+      title={message}
+      onClick={() => void copyTitle()}
+    >
+      {status === "success" ? <Check className="h-[18px] w-[18px]" aria-hidden="true" /> : status === "error" ? <CircleAlert className="h-[18px] w-[18px]" aria-hidden="true" /> : <Copy className="h-[18px] w-[18px]" aria-hidden="true" />}
+    </button>
+    <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{status === "idle" ? "" : message}</span>
+  </>;
+}
+
+async function writeClipboardText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Copy failed");
+}
+
+function formatLastSynced(value: string | null, fallback: string, locale: string) {
   if (!value) {
     return fallback;
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function DescriptionSheet({ open, title, originalTitle, meta, summary, onClose }: { open: boolean; title: string; originalTitle: string | null; meta: string; summary: string; onClose: () => void }) {
+  const t = useTranslations();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const closeDialog = useEffectEvent(onClose);
+
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const appShell = document.getElementById("app-shell");
+    const scrollContainer = document.getElementById("app-mobile-scroll-container");
+    const previousInert = appShell?.inert ?? false;
+    const previousOverflow = scrollContainer?.style.overflow ?? "";
+    appShell?.setAttribute("inert", "");
+    if (scrollContainer) scrollContainer.style.overflow = "hidden";
+    document.documentElement.classList.add("dialog-scroll-lock");
+    document.body.classList.add("dialog-scroll-lock");
+    const frame = requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>("[data-summary-close]")?.focus());
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])") ?? []);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", handleKeyDown);
+      if (appShell && !previousInert) appShell.removeAttribute("inert");
+      if (scrollContainer) scrollContainer.style.overflow = previousOverflow;
+      document.documentElement.classList.remove("dialog-scroll-lock");
+      document.body.classList.remove("dialog-scroll-lock");
+      previouslyFocused?.focus();
+    };
+  }, [open]);
+
+  if (!open || typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="description-backdrop fixed inset-0 z-[90] flex items-end justify-center p-3 sm:items-center min-[1100px]:items-stretch min-[1100px]:justify-end min-[1100px]:p-4" role="presentation" onClick={onClose}>
+      <section
+        ref={dialogRef}
+        className="description-sheet grid max-h-[calc(100dvh-1.5rem)] w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[28px] border text-foreground min-[1100px]:h-[calc(100dvh-2rem)] min-[1100px]:w-[min(560px,42vw)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-[var(--divider)] px-5 py-4 sm:px-7">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 id={titleId} className="line-clamp-2 text-lg font-semibold tracking-tight">{t("anime.fullSummary")}</h2>
+              <p className="mt-2 line-clamp-2 text-sm font-medium text-foreground">{title}</p>
+              {originalTitle ? <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{originalTitle}</p> : null}
+              <p className="mt-1 text-xs text-muted-foreground">{meta}</p>
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11 shrink-0 rounded-full" data-summary-close aria-label={t("anime.closeFullSummary")} onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0" viewportClassName="h-full px-5 py-5 text-base leading-[1.8] text-[var(--text-secondary)] sm:px-7 sm:pb-8">
+          <p className="whitespace-pre-wrap">{summary}</p>
+        </ScrollArea>
+      </section>
+    </div>,
+    document.body,
+  );
 }
 
 function keepCurrentPoster(nextAnime: Anime, currentAnime: Anime) {
@@ -643,18 +786,136 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function StatusMenuPortal({
+  open,
+  rect,
+  popoverRef,
+  triggerRef,
+  currentStatus,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  rect: { left: number; top: number; width: number } | null;
+  popoverRef: RefObject<HTMLDivElement | null>;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  currentStatus: UserAnimeStatus;
+  onClose: () => void;
+  onSelect: (status: UserAnimeStatus) => void;
+}) {
+  const t = useTranslations();
+
+  useEffect(() => {
+    if (!open || !rect) return;
+    requestAnimationFrame(() => popoverRef.current?.querySelector<HTMLElement>("[aria-checked='true']")?.focus());
+  }, [currentStatus, open, popoverRef, rect]);
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(popoverRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitemradio']:not([disabled])") ?? []);
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = current;
+    if (event.key === "ArrowDown") next = (current + 1) % items.length;
+    else if (event.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = items.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      requestAnimationFrame(() => triggerRef.current?.focus());
+      return;
+    } else return;
+    event.preventDefault();
+    items[next]?.focus();
+  }
+
+  if (!open || !rect || typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      ref={popoverRef}
+      id="anime-status-menu"
+      className="select-content fixed z-[1000] rounded-2xl border text-foreground"
+      style={{ left: rect.left, top: rect.top, width: rect.width }}
+      role="menu"
+      onKeyDown={handleKeyDown}
+    >
+      <ScrollArea ariaLabel={t("app.scrollableContent")} className="max-h-[min(320px,calc(100svh-2rem))]" viewportClassName="max-h-[min(320px,calc(100svh-2rem))] p-1">
+        {STATUS_OPTIONS.map((status) => {
+          const active = currentStatus === status;
+          return (
+            <button
+              key={status}
+              type="button"
+              role="menuitemradio"
+              aria-checked={active}
+              className={cn(
+                "flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]",
+                active && "bg-[var(--accent-solid)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] hover:text-[var(--accent-foreground)]",
+                status === "dropped" && !active && "text-destructive hover:bg-destructive/10 hover:text-destructive",
+              )}
+              onClick={() => onSelect(status)}
+            >
+              <span>{t(`library.status.${status}`)}</span>
+              {active ? <Check className="h-4 w-4" /> : null}
+            </button>
+          );
+        })}
+      </ScrollArea>
+    </div>,
+    document.body,
+  );
+}
+
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border bg-background/35 p-3 backdrop-blur">
-      <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+    <div className="metadata-card rounded-2xl border p-3">
+      <span className="block text-xs font-medium text-muted-foreground">{label}</span>
       <span className="mt-1 block font-semibold">{value}</span>
     </div>
   );
 }
 
-function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId: number; provider: string; items: RelatedAnime[]; onRefresh: () => void }) {
+function formatProvider(provider: string) {
+  const providers: Record<string, string> = { bangumi: "Bangumi", tvdb: "TheTVDB", tmdb: "TMDB" };
+  return providers[provider.toLowerCase()] ?? provider;
+}
+
+function formatAnimeType(value: string, t: ReturnType<typeof useTranslations>) {
+  const key = value.toLowerCase();
+  const labels: Record<string, string> = {
+    tv: t("library.animeType.tv"),
+    movie: t("library.animeType.movie"),
+    ova: t("library.animeType.ova"),
+    ona: t("library.animeType.ona"),
+    special: t("library.animeType.special"),
+  };
+  return labels[key] ?? value;
+}
+
+function formatDate(value: string | null, locale: string, fallback: string) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
+function RelatedAnimeSection({
+  animeId,
+  provider,
+  items,
+  onRefresh,
+}: {
+  animeId: number;
+  provider: string;
+  items: RelatedAnime[];
+  onRefresh: () => void;
+}) {
   const t = useTranslations();
   const router = useRouter();
+  const visibleItems = items.filter((item) => item.animeId !== animeId);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -759,16 +1020,16 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
     observer.observe(element);
     Array.from(element.children).forEach((child) => observer.observe(child));
     return () => observer.disconnect();
-  }, [items.length]);
+  }, [visibleItems.length]);
 
-  if (items.length === 0) {
+  if (visibleItems.length === 0) {
     return null;
   }
 
   return (
-    <section className="space-y-3 rounded-3xl border bg-card p-5 shadow-sm">
+    <section className="space-y-3 rounded-[var(--radius-panel)] border bg-[var(--surface-card)] p-5 shadow-[var(--shadow-low)]">
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">{t("library.relatedAnimeTitle")}</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t("library.otherRelatedAnimeTitle")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeDescription", { provider })}</p>
       </div>
       <div className="relative">
@@ -776,7 +1037,7 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
           <button
             type="button"
             className="absolute inset-y-0 left-0 z-20 flex items-center bg-gradient-to-r from-card/90 to-transparent pl-1 pr-5 sm:pl-2 sm:pr-8"
-            aria-label="Scroll related anime left"
+            aria-label={t("library.scrollRelatedLeft")}
             onClick={() => scrollList("left")}
           >
             <ChevronLeft className="h-6 w-6 text-foreground/45 sm:h-7 sm:w-7" />
@@ -786,14 +1047,14 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
           <button
             type="button"
             className="absolute inset-y-0 right-0 z-20 flex items-center bg-gradient-to-l from-card/90 to-transparent pl-5 pr-1 sm:pl-8 sm:pr-2"
-            aria-label="Scroll related anime right"
+            aria-label={t("library.scrollRelatedRight")}
             onClick={() => scrollList("right")}
           >
             <ChevronRight className="h-6 w-6 text-foreground/45 sm:h-7 sm:w-7" />
           </button>
         ) : null}
       <div ref={scrollRef} className="scrollbar-none flex gap-3 overflow-x-auto overscroll-x-contain pb-1" onScroll={updateScrollHints}>
-        {items.map((item, index) => {
+        {visibleItems.map((item, index) => {
           const key = relatedAnimeItemKey(item, index);
           const poster = assetUrl(item.posterUrl);
           const badges = [
@@ -823,13 +1084,13 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
               </span>
             </>
           );
-          const className = "flex min-h-28 w-80 shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-accent sm:w-96";
+          const className = "flex min-h-28 w-[min(20rem,calc(100vw-4rem))] shrink-0 items-center gap-3 rounded-2xl border bg-background/60 p-3 transition-colors hover:bg-[var(--surface-hover)] sm:w-96";
           const cardContent = content;
           if (item.pendingUpstreamDeletion) {
             return <button key={key} type="button" className={`${className} text-left`} onClick={() => setSelectedItem(item)}>{cardContent}</button>;
           }
           if (item.inLibrary && item.animeId !== null) {
-            return <div key={key} role="button" tabIndex={0} className={`${className} cursor-pointer`} onClick={() => router.push(`/library/${item.animeId}`)} onKeyDown={(event) => { if (event.key === "Enter") router.push(`/library/${item.animeId}`); }}>{cardContent}</div>;
+            return <Link key={key} className={className} href={`/library/${item.animeId}`}>{cardContent}</Link>;
           }
           if (item.source === "manual") {
             return <div key={key} className={className}>{cardContent}</div>;
@@ -863,7 +1124,7 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
             </div>
 
             {duplicateConflict ? (
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+              <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4">
                 <p className="text-sm text-muted-foreground">{t("search.duplicateAnimeDescription")}</p>
                 {duplicateConflict.candidates.map((candidate) => (
                   <div key={candidate.animeId} className="rounded-2xl border bg-card p-4">
@@ -877,7 +1138,7 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
                     </div>
                   </div>
                 ))}
-              </div>
+              </ScrollArea>
             ) : null}
 
             <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
@@ -888,7 +1149,7 @@ function RelatedAnimeSection({ animeId, provider, items, onRefresh }: { animeId:
                   <Button type="button" disabled={isResolvingDeletion} onClick={() => void keepRemovedRelation(selectedItem)}>{t("library.relatedAnimeKeepManual")}</Button>
                 </>
               ) : selectedItem.url ? (
-                <a className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={selectedItem.url} target="_blank" rel="noreferrer">
+                <a className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={selectedItem.url} target="_blank" rel="noreferrer">
                   {t("library.relatedAnimeVisitProvider")}
                 </a>
               ) : null}
@@ -965,18 +1226,18 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
             <h2 className="text-lg font-semibold">{title}</h2>
             <Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
           </div>
-          <label className="mt-4 flex items-center gap-2 rounded-2xl border bg-background/50 px-3 py-2">
+          <label className="mt-4 flex items-center gap-2 rounded-[var(--radius-pill)] border bg-background/50 px-3 py-2">
             <Search className="h-4 w-4 text-muted-foreground" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("library.libraryPickerSearch")} className="border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" />
+            <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("library.libraryPickerSearch")} className="border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" />
           </label>
         </div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-2 p-4">
           {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.libraryPickerEmpty")}</p> : null}
           {items.map((item) => {
             const poster = assetUrl(item.anime.posterUrl);
             return (
-              <button key={item.anime.id} type="button" className="flex w-full items-center gap-3 rounded-2xl border bg-card p-3 text-left transition-colors hover:bg-accent" onClick={() => onSelect(item.anime)}>
+              <button key={item.anime.id} type="button" className="flex w-full items-center gap-3 rounded-2xl border bg-card p-3 text-left transition-colors hover:bg-[var(--surface-hover)]" onClick={() => onSelect(item.anime)}>
                 <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-xl border bg-muted">
                   {poster ? <Image src={poster} alt="" fill unoptimized sizes="56px" className="object-cover" /> : <NoPoster />}
                 </div>
@@ -992,7 +1253,7 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
               </button>
             );
           })}
-        </div>
+        </ScrollArea>
       </div>
     </div>
   );
@@ -1137,9 +1398,9 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
     return null;
   }
 
-  return (
+  return createPortal(
     <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
-      <div className="glass-dialog flex max-h-[88svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
+      <div className="glass-dialog flex max-h-[88svh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border text-foreground">
         <div className="border-b p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -1150,7 +1411,7 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
           </div>
           <Button type="button" className="mt-4" disabled={isSaving} onClick={() => setPickerOpen(true)}><Plus className="h-4 w-4" />{t("library.manualRelatedAdd")}</Button>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1 overflow-hidden" viewportClassName="h-full space-y-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.manualRelatedEmpty")}</p> : null}
           {items.map((item) => (
@@ -1207,11 +1468,12 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
               ))}
             </div>
           ) : null}
-        </div>
+        </ScrollArea>
       </div>
       <LibraryAnimePickerDialog open={pickerOpen} title={t("library.libraryPickerTitle")} excludeAnimeIds={[animeId, ...existingRelatedAnimeIds, ...items.map((item) => item.relatedAnimeId)]} onClose={() => setPickerOpen(false)} onSelect={(anime) => void addManualRelation(anime)} />
       <LibraryAnimePickerDialog open={mappingItem !== null} title={t("library.libraryPickerTitle")} excludeAnimeIds={[animeId]} initialQuery={mappingItem?.title ?? ""} onClose={() => setMappingItem(null)} onSelect={(anime) => { if (mappingItem) void mapRelatedToLibrary(mappingItem, anime.id); }} />
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -131,8 +131,8 @@ export type Episode = {
   id: number;
   episodeNumber: number;
   name: AnimeName | null;
-  displayName: string;
-  originalTitle: string;
+  displayName: string | null;
+  originalTitle: string | null;
   airAt: string | null;
   duration: string | null;
   status: string;

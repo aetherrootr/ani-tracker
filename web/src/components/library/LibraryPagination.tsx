@@ -12,17 +12,20 @@ type Props = {
   page: number;
   totalPages: number;
   total: number;
+  pageSize: number;
   disabled?: boolean;
   onPageChange: (page: number) => void;
 };
 
-export function LibraryPagination({ page, totalPages, total, disabled, onPageChange }: Props) {
+export function LibraryPagination({ page, totalPages, total, pageSize, disabled, onPageChange }: Props) {
   const t = useTranslations();
   const [inputPage, setInputPage] = useState({ page, value: String(page) });
   const inputPageValue = inputPage.page === page ? inputPage.value : String(page);
   const pages = buildPages(page, totalPages);
   const canPrevious = page > 1 && !disabled;
   const canNext = page < totalPages && !disabled;
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, total);
 
   function jump(target: number) {
     if (!Number.isFinite(target) || totalPages === 0) {
@@ -38,11 +41,15 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
 
   return (
     <nav
-      className="flex flex-col gap-3 rounded-2xl border bg-card/80 p-3 text-sm shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between"
+      className="library-pagination flex flex-col gap-3 rounded-2xl border p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
       aria-label={t("library.pagination")}
     >
       <div className="text-muted-foreground">
-        {t("library.pageSummary", {
+        {t("library.resultRange", {
+          start: rangeStart,
+          end: rangeEnd,
+          total,
+        })} · {t("library.pageSummary", {
           page: totalPages === 0 ? 0 : page,
           totalPages,
           total,
@@ -56,11 +63,16 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
           size="sm"
           className="h-12 min-w-14 px-4 text-base sm:h-9 sm:min-w-0 sm:px-3 sm:text-sm"
           disabled={!canPrevious}
+          aria-label={t("library.previous")}
           onClick={() => jump(page - 1)}
         >
-          <ChevronLeft className="h-6 w-6 sm:h-4 sm:w-4" />
+          <ChevronLeft className="h-6 w-6 sm:h-4 sm:w-4" aria-hidden="true" />
           <span className="hidden sm:inline">{t("library.previous")}</span>
         </Button>
+
+        <span className="library-mobile-page-indicator min-w-24 text-center font-medium" aria-current="page">
+          {t("library.currentPage", { page: totalPages === 0 ? 0 : page, totalPages })}
+        </span>
 
         <div className="hidden items-center gap-1 md:flex">
           {pages.map((item, index) =>
@@ -86,7 +98,7 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
         </div>
 
         <form
-          className="flex items-center gap-1"
+          className="library-page-jump flex items-center gap-1"
           onSubmit={(event) => {
             event.preventDefault();
             jump(Number.parseInt(inputPageValue, 10));
@@ -118,10 +130,11 @@ export function LibraryPagination({ page, totalPages, total, disabled, onPageCha
           size="sm"
           className="h-12 min-w-14 px-4 text-base sm:h-9 sm:min-w-0 sm:px-3 sm:text-sm"
           disabled={!canNext}
+          aria-label={t("library.next")}
           onClick={() => jump(page + 1)}
         >
           <span className="hidden sm:inline">{t("library.next")}</span>
-          <ChevronRight className="h-6 w-6 sm:h-4 sm:w-4" />
+          <ChevronRight className="h-6 w-6 sm:h-4 sm:w-4" aria-hidden="true" />
         </Button>
       </div>
     </nav>

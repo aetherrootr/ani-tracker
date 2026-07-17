@@ -216,6 +216,20 @@ export function updateEpisodeWatchState(animeId: number, episodeId: number, watc
   );
 }
 
+export function updateEpisodeWatchStateBulk(
+  animeId: number,
+  input: { watched: boolean; scope: "all" | "aired" | "through"; throughEpisodeNumber?: number },
+) {
+  return apiFetch<{
+    matchedCount: number;
+    changedCount: number;
+    progress: AnimeProgress;
+  }>(`/api/watch-state/anime/${animeId}/episodes`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function updateAnimeNamePreference(animeId: number, nameId: number | null) {
   return apiFetch<{ name: AnimeName | null; progress: { preferredNameId: number | null } }>(
     `/api/anime/library/${animeId}/name-preference`,

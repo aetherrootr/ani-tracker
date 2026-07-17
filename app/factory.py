@@ -137,6 +137,7 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
     cors_origin = str(app_config.get("CORS_ORIGIN") or "").rstrip("/")
     app_config["OIDC_POST_LOGIN_REDIRECT"] = f"{cors_origin}/tracking-list"
     app_config["OIDC_POST_LINK_REDIRECT"] = f"{cors_origin}/settings"
+    app_config["OIDC_POST_PASSWORD_SETUP_REDIRECT"] = f"{cors_origin}/settings#settings-account"
 
     # If OIDC_ENABLED is not explicit, enable it only when the required client settings exist.
     if app_config.get("OIDC_ENABLED") is None:

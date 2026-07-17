@@ -8,10 +8,10 @@ import type { AnimeSearchResult } from "./types";
 
 const SEARCH_PAGE_SIZE = 10;
 
-export function useAnimeSearch(provider = "bangumi") {
+export function useAnimeSearch(provider = "bangumi", initialKeyword = "") {
   const t = useTranslations();
-  const [keyword, setKeyword] = useState("");
-  const [debouncedKeyword, setDebouncedKeyword] = useState("");
+  const [keyword, setKeyword] = useState(initialKeyword);
+  const [debouncedKeyword, setDebouncedKeyword] = useState(initialKeyword.trim());
   const [retryKey, setRetryKey] = useState(0);
   const [results, setResults] = useState<AnimeSearchResult[]>([]);
   const [total, setTotal] = useState(0);
@@ -21,6 +21,15 @@ export function useAnimeSearch(provider = "bangumi") {
   const [paginationError, setPaginationError] = useState<string | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
   const paginationControllerRef = useRef<AbortController | null>(null);
+  const initialKeywordRef = useRef(initialKeyword);
+
+  useEffect(() => {
+    if (initialKeywordRef.current === initialKeyword) return;
+    initialKeywordRef.current = initialKeyword;
+    // URL navigation is an external state change and must restore the field.
+    setKeyword(initialKeyword);
+    setDebouncedKeyword(initialKeyword.trim());
+  }, [initialKeyword]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -48,6 +57,8 @@ export function useAnimeSearch(provider = "bangumi") {
         setIsLoadingMore(false);
         setError(null);
         setPaginationError(null);
+        setResults([]);
+        setTotal(0);
 
         const data = await searchAnime({
           keyword: debouncedKeyword,
@@ -156,6 +167,12 @@ export function useAnimeSearch(provider = "bangumi") {
     setRetryKey((current) => current + 1);
   }
 
+  function submitSearch() {
+    const trimmedKeyword = keyword.trim();
+    if (!trimmedKeyword || trimmedKeyword === debouncedKeyword) return;
+    setDebouncedKeyword(trimmedKeyword);
+  }
+
   function markResultInLibrary(provider: string, externalId: string, animeId: number, libraryStatus: string) {
     setResults((currentResults) =>
       currentResults.map((result) =>
@@ -169,6 +186,7 @@ export function useAnimeSearch(provider = "bangumi") {
   return {
     keyword,
     hasKeyword: Boolean(keyword.trim()),
+    isDebouncing: Boolean(keyword.trim()) && keyword.trim() !== debouncedKeyword,
     results,
     total,
     isLoading,
@@ -179,6 +197,7 @@ export function useAnimeSearch(provider = "bangumi") {
     updateKeyword,
     loadMore,
     retrySearch,
+    submitSearch,
     markResultInLibrary,
   };
 }

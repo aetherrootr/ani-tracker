@@ -5,7 +5,7 @@ import "./globals.css";
 import { MobileScrollRestorer } from "@/components/layout/MobileScrollRestorer";
 import { ServiceWorkerRegistrar } from "@/components/layout/ServiceWorkerRegistrar";
 import { translations } from "@/i18n";
-import { appleTouchIconUrl, pwaIcon192Url, pwaIcon512Url } from "@/lib/app-branding";
+import { appIconUrl, appleTouchIconUrl } from "@/lib/app-branding";
 
 import { Providers } from "./providers";
 
@@ -16,12 +16,11 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Ani Tracker",
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
   },
   icons: {
     icon: [
-      { url: pwaIcon192Url, sizes: "192x192", type: "image/png" },
-      { url: pwaIcon512Url, sizes: "512x512", type: "image/png" },
+      { url: appIconUrl, sizes: "any", type: "image/svg+xml" },
     ],
     apple: [
       { url: appleTouchIconUrl, sizes: "180x180", type: "image/png" },
@@ -32,9 +31,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  minimumScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f3f4f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0c12" },
+  ],
 };
 
 export default function RootLayout({
