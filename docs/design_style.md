@@ -7,7 +7,7 @@ This file is the canonical design-language specification for Ani Tracker.
 - The English document at `docs/design_style.md` is the source of truth.
 - The Chinese document at `docs/design_style.zh-CN.md` is a reference translation.
 - If the two documents differ, follow the English document.
-- Product and implementation decisions must consider Apple Human Interface Guidelines (HIG), adapted to the web and to each supported platform context.
+- The interface MUST apply applicable Apple Human Interface Guidelines principles in forms appropriate to the web and each supported platform.
 - Desktop and mobile are equal product targets. Neither is a reduced version of the other.
 
 ## Product Context
@@ -436,22 +436,22 @@ Mobile page gutters are generally `16px` to `20px`, adjusted for safe areas.
 
 ### Platform Adaptation Contract
 
-Every substantial feature must define both experiences.
+Every substantial feature MUST define both platform experiences.
 
-Desktop questions:
+Desktop behavior MUST define:
 
-- How is additional width used?
-- What context remains visible while acting?
-- How do keyboard and pointer users operate it?
-- What happens in a resized window?
+- intentional use of additional width;
+- context that remains visible during actions;
+- keyboard and pointer operation;
+- adaptation to window resizing.
 
-Mobile questions:
+Mobile behavior MUST define:
 
-- What is the first visible task and action?
-- What moves behind progressive disclosure?
-- Does a popover become a bottom sheet or full-screen flow?
-- Are targets, safe areas, and keyboard avoidance correct?
-- Does the gesture coexist with browser and scroll gestures?
+- the primary visible task and action;
+- progressive disclosure of secondary content;
+- adaptation of constrained overlays to sheets or full-screen flows;
+- target sizing, safe-area handling, and keyboard avoidance;
+- coexistence between application gestures, browser gestures, and scrolling.
 
 Responsive design is incomplete if only columns change while interaction remains desktop-oriented.
 
@@ -573,7 +573,7 @@ Reference implementation shape:
 }
 ```
 
-This code is a semantic starting point, not a fixed visual recipe. Dark appearance, wallpaper complexity, reduced transparency, safe areas, and the active scroll mode must adjust the final composition.
+This reference shape is nonnormative. A conforming composition MUST adapt it to dark appearance, wallpaper complexity, reduced transparency, safe areas, and the active scroll mode.
 
 ## Component Language
 
@@ -668,7 +668,7 @@ Mobile:
 
 - dedicated single-column flow;
 - tracking, backlog, and recent activity can use mobile-specific tabs or sections;
-- preserve vertical scrolling during horizontal drag;
+- preserve vertical scrolling while gesture intent is undecided, then lock it for the active pointer sequence after horizontal intent wins;
 - keep touch actions visible and reachable.
 
 ### Anime Detail
@@ -758,41 +758,26 @@ Related series:
 
 ## Protected Episode Interaction
 
-The episode watch toggle is protected product behavior and one of Ani Tracker's core episode-update interactions.
+The ticket-stub swipe episode watch control is protected product behavior and one of Ani Tracker's core episode-update interactions. Its complete normative specification is `docs/episode_ticket_stub_interaction.md`; the Chinese document at `docs/episode_ticket_stub_interaction.zh-CN.md` is a reference translation.
 
-The horizontal card gesture is an intentional product choice inspired by the interaction experience of TV Time. It is not an incidental animation or optional visual flourish. It provides a fast, direct way to update episode state and is the recommended interaction for mobile users.
+The dedicated specification is authoritative for the protected interaction. In summary:
 
-Ani Tracker also provides a visible checkbox-style state button. The gesture and checkbox are two first-class paths to the same episode state operation:
+- dragging toward the semantic leading edge marks watched, and dragging toward the semantic trailing edge restores unwatched;
+- crossing the platform-tuned commit threshold arms the action, while release commits it and moving back before release cancels it;
+- vertical scrolling and system back-edge gestures remain protected until horizontal intent is clear;
+- after horizontal intent wins, the active viewport's vertical scrolling is locked only for that pointer sequence and is restored immediately on release or cancellation;
+- the complete ticket, including its stub and state control, translates as one surface with approximately one-to-one pointer tracking before the threshold;
+- the visible checkbox-style control is always available as an equal, precise, and accessible path;
+- mobile ticket stubs normally center the circular checkbox without persistent “Watched/Unwatched” text; accessible state, action-rail copy, and desktop hover/focus tooltips preserve clarity;
+- every input path follows identical confirmation, explicit idempotent mutation, pending, rollback, and retry rules;
+- Emerald communicates watched/completed state, while Iris communicates interaction intent and focus;
+- implementations may differ by platform, but semantics, outcomes, accessibility, and truthful feedback remain equivalent.
+- a dedicated surface for one anime may use the specified Next Episode Ticket Stack to advance between that anime's episodes; ordinary episode lists may reuse its exit-and-depth-reveal motion only as a same-slot state transition, retaining the same episode and ordering. “Depth” follows the dedicated specification's Depth Underlayer term and never means the lower screen edge.
+- ticket bodies may display the current anime's `2:3` poster as noninteractive content; poster artwork never acts as a link or native drag source, and dragging over it continues the ticket gesture.
+- tickets in one presentation share a fixed height token, with a shared larger accessibility tier instead of content-driven per-row height;
+- gesture completion may use a longer expressive transition, while checkbox activation remains the concise path and both update data immediately.
 
-- Mobile users are encouraged to drag the episode card horizontally for fast updates.
-- Users can always activate the checkbox-style button to set or clear watched state.
-- Keyboard and assistive-technology users operate the checkbox-style button.
-- Neither route may produce different data semantics, confirmation rules, or rollback behavior.
-
-- Mobile drag threshold: `76px`.
-- Desktop drag threshold: `224px`.
-- Left drag marks watched.
-- Right drag cancels watched.
-- The API path remains `await onChange(next)`.
-- Optimistic update and failure rollback remain intact.
-- Mobile edge-back guard remains active.
-
-The current implementation is the behavioral authority for detailed interaction rules:
-
-- `web/src/components/library/EpisodeWatchToggle.tsx`
-- `web/src/components/library/TrackingEpisodeRow.tsx`
-- `web/src/components/library/EpisodeRow.tsx`
-
-In particular, preserve the current direction detection, axis locking, edge-back guard, unavailable-direction handling, confirmation behavior, pending state, checkbox semantics, API call, and failure rollback unless a product decision explicitly changes them.
-
-Visual structure:
-
-- action background is behind content;
-- content and its watch button move together;
-- green confirms watched/completed state;
-- purple may communicate interaction before completion.
-
-Platform behavior can use separate implementations, but direction semantics and data behavior must remain identical. The mobile presentation should teach or make the drag affordance discoverable without requiring a blocking tutorial. The checkbox-style button remains visible as the precise and accessible alternative.
+Conforming implementations MUST use the thresholds, semantic directions, explicit state mutations, and acceptance criteria defined in the dedicated specification.
 
 ## Settings And Maintenance Hierarchy
 
@@ -970,7 +955,7 @@ Every substantial visual change must be checked against:
 - Do not treat mobile as a compressed desktop layout.
 - Do not treat desktop as a widened mobile layout.
 - Do not hide essential actions behind hover.
-- Do not alter protected watch-swipe semantics without explicit product approval.
+- Conforming product variants MUST preserve the protected ticket-stub swipe semantics defined in `docs/episode_ticket_stub_interaction.md`.
 
 ## Product Identity
 
@@ -986,4 +971,4 @@ The design language is not generic glassmorphism. It is an adaptive layered syst
 - Emerald confirms completion;
 - platform-specific composition makes desktop and mobile each feel intentional.
 
-Future design work must preserve this hierarchy, follow Apple design principles, and be evaluated separately for desktop and mobile before it is considered complete.
+Conforming designs MUST preserve this hierarchy, apply the stated Apple design principles, and satisfy the desktop and mobile validation criteria independently.

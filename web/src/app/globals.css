@@ -570,17 +570,6 @@ input[type="search"]::-webkit-search-decoration {
     margin-top: 0;
   }
 
-  .episode-watch-button {
-    right: 1rem;
-    width: 2.5rem;
-    height: 2.5rem;
-  }
-
-  .episode-watch-button.desktop-compact-watch-button {
-    right: 0.75rem;
-    width: 2.375rem;
-    height: 2.375rem;
-  }
 }
 
 .layer-navigation {
@@ -1599,10 +1588,646 @@ input[type="search"]::-webkit-search-decoration {
   }
 }
 
-.drag-action-surface {
+.episode-ticket-group {
+  min-width: 0;
+}
+
+.episode-ticket {
+  --ticket-stub-width: 4rem;
+  position: relative;
+  isolation: isolate;
+  display: block;
+  height: 7rem;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--accent-soft) 74%, var(--surface-card));
+  box-shadow: var(--shadow-low);
+  scroll-margin-top: 6rem;
+}
+
+.episode-ticket-front,
+.episode-ticket-underlayer {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-neutral);
+  border-radius: inherit;
   background: var(--surface-card);
-  border-color: var(--border-neutral);
+  transition: border-color 160ms var(--ease-standard), background-color 160ms var(--ease-standard);
+}
+
+.episode-ticket-front {
+  position: relative;
+  z-index: 3;
+  cursor: grab;
   touch-action: pan-y;
+  will-change: transform;
+}
+
+.episode-ticket-body {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 0.875rem 1rem;
+  background: var(--surface-card);
+  transition: background-color 160ms var(--ease-standard);
+}
+
+.episode-ticket[data-phase="tracking"] .episode-ticket-front {
+  cursor: grabbing;
+  touch-action: none;
+  transition: none;
+}
+
+html.episode-ticket-drag-lock,
+body.episode-ticket-drag-lock {
+  overscroll-behavior: none;
+}
+
+.episode-ticket-drag-lock .app-main,
+.episode-ticket-drag-lock .scroll-area-viewport {
+  overscroll-behavior: none;
+}
+
+.episode-ticket[data-phase="returning"] .episode-ticket-front {
+  transition: transform 200ms var(--ease-standard);
+}
+
+.episode-ticket[data-phase="restoring"] .episode-ticket-front {
+  animation: episode-ticket-restore 280ms var(--ease-emphasized) forwards;
+  transition: border-color 280ms var(--ease-standard), background-color 280ms var(--ease-standard);
+}
+
+.episode-ticket[data-phase="restoring"] .episode-ticket-body,
+.episode-ticket[data-phase="restoring"] .episode-ticket-stub {
+  transition: background-color 280ms var(--ease-standard), border-color 280ms var(--ease-standard);
+}
+
+.episode-ticket[data-phase="restoring"] .episode-ticket-checkbox {
+  transition: border-color 280ms var(--ease-standard), background-color 280ms var(--ease-standard), box-shadow 280ms var(--ease-standard);
+}
+
+.episode-ticket[data-phase="committing"] .episode-ticket-front {
+  animation: episode-ticket-commit-leading 340ms var(--ease-emphasized) forwards;
+}
+
+.episode-ticket[data-phase="committing"]:dir(rtl) .episode-ticket-front {
+  animation-name: episode-ticket-commit-leading-rtl;
+}
+
+.episode-ticket-underlayer {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.99);
+}
+
+.episode-ticket[data-phase="committing"] .episode-ticket-underlayer {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 180ms linear, transform 300ms var(--ease-emphasized);
+}
+
+.episode-ticket[data-watched] .episode-ticket-front .episode-ticket-body,
+.episode-ticket[data-watched] .episode-ticket-front .episode-ticket-stub,
+.episode-ticket-underlayer .episode-ticket-body,
+.episode-ticket-underlayer .episode-ticket-stub {
+  background: color-mix(in srgb, var(--watched) 6%, var(--surface-card));
+}
+
+.episode-ticket[data-phase="committing"]:not([data-outgoing-watched]) .episode-ticket-front .episode-ticket-body,
+.episode-ticket[data-phase="committing"]:not([data-outgoing-watched]) .episode-ticket-front .episode-ticket-stub {
+  background: var(--surface-card);
+}
+
+.episode-ticket[data-phase="committing"]:not([data-outgoing-watched]) .episode-ticket-front {
+  border-color: var(--border-neutral);
+}
+
+.episode-ticket[data-watched] .episode-ticket-front,
+.episode-ticket-underlayer {
+  border-color: color-mix(in srgb, var(--watched) 32%, var(--border-neutral));
+}
+
+.episode-ticket-rail {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent-soft) 74%, var(--surface-card));
+  color: var(--accent-solid);
+}
+
+.episode-ticket-rail[data-target="watched"] {
+  background: color-mix(in srgb, var(--watched) 28%, var(--surface-card));
+  color: color-mix(in srgb, var(--watched) 86%, var(--text-primary));
+}
+
+.episode-ticket-rail[data-target="unwatched"] {
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface-card));
+  color: var(--accent-solid);
+}
+
+.episode-ticket[data-armed="watched"] .episode-ticket-rail {
+  background: var(--watched);
+  color: white;
+}
+
+.episode-ticket[data-armed="unwatched"] .episode-ticket-rail {
+  background: color-mix(in srgb, var(--accent-solid) 18%, var(--surface-card));
+  color: var(--accent-solid);
+}
+
+.episode-ticket-rail[data-unavailable] {
+  background: color-mix(in srgb, var(--text-secondary) 10%, var(--surface-card));
+  color: var(--text-secondary);
+}
+
+.episode-ticket-rail-action {
+  display: none;
+  max-width: 55%;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 1.25rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.2;
+  opacity: var(--ticket-progress);
+  white-space: nowrap;
+}
+
+.episode-ticket-rail-action svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+.episode-ticket-rail[data-target="watched"] .episode-ticket-rail-action-watched,
+.episode-ticket-rail[data-target="unwatched"] .episode-ticket-rail-action-unwatched {
+  display: flex;
+}
+
+.episode-ticket-rail-action-watched {
+  margin-inline-start: auto;
+}
+
+.episode-ticket-rail-action-unwatched {
+  margin-inline-end: auto;
+}
+
+@media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .episode-ticket-front {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .episode-ticket-rail-action {
+    width: 4.5rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .episode-ticket-rail-action > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+}
+
+.episode-ticket[data-density="compact"] .episode-ticket-rail-action,
+.episode-ticket[data-density="recent"] .episode-ticket-rail-action {
+  width: 4.5rem;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.episode-ticket[data-density="compact"] .episode-ticket-rail-action > span,
+.episode-ticket[data-density="recent"] .episode-ticket-rail-action > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.episode-ticket-stub {
+  position: relative;
+  display: flex;
+  width: var(--ticket-stub-width);
+  height: 100%;
+  flex: 0 0 var(--ticket-stub-width);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-inline-start: 1px dashed color-mix(in srgb, var(--text-secondary) 42%, transparent);
+  background: color-mix(in srgb, var(--text-secondary) 4%, var(--surface-card));
+  transition: background-color 160ms var(--ease-standard);
+}
+
+.episode-ticket[data-phase="tracking"] .episode-ticket-front .episode-ticket-stub {
+  border-inline-start-color: color-mix(in srgb, var(--text-primary) 58%, transparent);
+}
+
+.episode-ticket-notch {
+  position: absolute;
+  inset-inline-start: -0.4375rem;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  border: 1px solid var(--border-neutral);
+  border-radius: 50%;
+  background: var(--canvas);
+}
+
+.episode-ticket-notch-top { top: -0.45rem; }
+.episode-ticket-notch-bottom { bottom: -0.45rem; }
+
+.episode-ticket-check-label {
+  position: relative;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.episode-ticket-checkbox {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  border: 2px solid color-mix(in srgb, var(--text-secondary) 62%, transparent);
+  border-radius: 50%;
+  background: var(--surface-solid);
+  cursor: pointer;
+  transition: border-color var(--motion-fast), background-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.episode-ticket-checkbox:checked {
+  border-color: var(--watched);
+  background: var(--watched);
+}
+
+.episode-ticket-checkbox-visual {
+  border-color: var(--watched);
+  background: var(--watched);
+}
+
+.episode-ticket-checkbox-visual + .episode-ticket-check-glyph {
+  color: white;
+}
+
+.episode-ticket-checkbox:hover:not(:disabled) {
+  border-color: var(--accent-solid);
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+.episode-ticket-checkbox:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.episode-ticket-checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.episode-ticket-check-glyph {
+  z-index: 1;
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  color: transparent;
+  pointer-events: none;
+}
+
+.episode-ticket-check-glyph svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 3;
+}
+
+.episode-ticket-checkbox:checked + .episode-ticket-check-glyph,
+.episode-ticket-checkbox[aria-busy="true"] + .episode-ticket-check-glyph {
+  color: white;
+}
+
+.episode-ticket-checkbox:not(:checked)[aria-busy="true"] + .episode-ticket-check-glyph {
+  color: var(--accent-solid);
+}
+
+.episode-ticket[data-phase="restoring"] .episode-ticket-check-glyph {
+  animation: episode-ticket-restore-control 280ms var(--ease-standard);
+}
+
+.episode-ticket-spinner {
+  animation: spin 900ms linear infinite;
+}
+
+.episode-ticket-saving {
+  position: absolute;
+  z-index: 4;
+  inset-block-start: 0.5rem;
+  inset-inline-end: calc(var(--ticket-stub-width) + 0.5rem);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-neutral);
+  border-radius: var(--radius-pill);
+  background: var(--surface-solid);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  box-shadow: var(--shadow-low);
+}
+
+.episode-ticket-error {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.5rem 0.375rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--destructive) 9%, var(--surface-card));
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+.episode-ticket-error span,
+.episode-ticket-error button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.episode-ticket-error svg { width: 1rem; height: 1rem; }
+.episode-ticket-error span svg { color: var(--destructive); }
+
+.episode-ticket-error button {
+  min-height: 2rem;
+  flex: none;
+  padding-inline: 0.625rem;
+  border-radius: 0.5rem;
+  color: var(--destructive);
+  font-weight: 650;
+}
+
+.episode-ticket-error button:hover { background: color-mix(in srgb, var(--destructive) 9%, transparent); }
+.episode-ticket-error button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+
+.episode-detail-content,
+.tracking-ticket-content {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.episode-number {
+  display: flex;
+  width: 3.25rem;
+  height: 3.25rem;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-neutral);
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--accent-soft) 56%, var(--surface-solid));
+  color: var(--accent-solid);
+}
+
+.episode-number span { font-size: 0.5625rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.episode-number strong { font-size: 1.125rem; line-height: 1.15; }
+.episode-copy,
+.tracking-ticket-copy { min-width: 0; flex: 1; }
+.episode-copy h3,
+.tracking-ticket-copy h3 { color: var(--text-primary); font-size: 1rem; font-weight: 650; line-height: 1.35; }
+.episode-copy h3 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.episode-original-title { overflow: hidden; margin-top: 0.2rem; color: var(--text-secondary); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.episode-ticket-badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.3rem;
+}
+
+.episode-badge,
+.episode-progress {
+  display: inline-flex;
+  min-height: 1.35rem;
+  align-items: center;
+  gap: 0.25rem;
+  padding-inline: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-secondary) 9%, var(--surface-card));
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.episode-badge svg { width: 0.75rem; height: 0.75rem; }
+.episode-badge-next { background: var(--accent-soft); color: var(--accent-solid); }
+.episode-badge-watched { background: color-mix(in srgb, var(--watched) 12%, var(--surface-card)); color: color-mix(in srgb, var(--watched) 82%, var(--text-primary)); }
+.episode-badge-number { color: var(--text-primary); }
+.episode-progress { background: transparent; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+.episode-ticket-metadata,
+.tracking-ticket-date {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  margin-top: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.episode-ticket-metadata span,
+.tracking-ticket-date { align-items: center; }
+.episode-ticket-metadata span { display: inline-flex; gap: 0.3rem; }
+.episode-ticket-metadata svg,
+.tracking-ticket-date svg { width: 0.875rem; height: 0.875rem; flex: none; }
+
+.tracking-ticket-poster {
+  position: relative;
+  width: 3.5rem;
+  aspect-ratio: 2 / 3;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--border-neutral);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--text-secondary) 8%, var(--surface-card));
+}
+
+.tracking-ticket-poster > svg {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--text-tertiary);
+  transform: translate(-50%, -50%);
+}
+
+.tracking-ticket-copy h3 a {
+  display: -webkit-box;
+  overflow: hidden;
+  border-radius: 0.25rem;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tracking-ticket-copy h3 a:hover { text-decoration: underline; text-underline-offset: 0.18em; }
+.tracking-ticket-copy h3 a:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.tracking-ticket-episode-title { display: -webkit-box; overflow: hidden; margin-top: 0.2rem; color: var(--text-secondary); font-size: 0.8125rem; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.tracking-ticket-date { flex-wrap: nowrap; overflow: hidden; margin-top: 0.45rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.episode-ticket[data-density="compact"] .episode-ticket-body { padding: 0.625rem 0.75rem; }
+.episode-ticket[data-density="compact"] .tracking-ticket-poster { width: 3rem; }
+.episode-ticket[data-density="compact"] .tracking-ticket-content { gap: 0.65rem; }
+.episode-ticket[data-density="compact"] .tracking-ticket-copy h3 { font-size: 0.875rem; }
+.episode-ticket[data-density="compact"] .tracking-ticket-episode-title { -webkit-line-clamp: 1; font-size: 0.75rem; }
+
+.episode-ticket[data-density="recent"] { height: 6rem; }
+.episode-ticket[data-density="recent"] .episode-ticket-body { padding: 0.5rem 0.625rem; }
+.episode-ticket[data-density="recent"] .tracking-ticket-poster { width: 2.75rem; }
+.episode-ticket[data-density="recent"] .tracking-ticket-content { gap: 0.6rem; }
+.episode-ticket[data-density="recent"] .tracking-ticket-copy h3 { font-size: 0.8125rem; }
+.episode-ticket[data-density="recent"] .tracking-ticket-episode-title { -webkit-line-clamp: 1; font-size: 0.6875rem; }
+.episode-ticket[data-density="recent"] .episode-ticket-badges { margin-block: 0.2rem; }
+.episode-ticket[data-density="recent"] .episode-progress,
+.episode-ticket[data-density="recent"] .tracking-ticket-date { display: none; }
+
+@media (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .episode-ticket { --ticket-stub-width: 3.5rem; }
+  .episode-ticket { height: 6.5rem; }
+  .episode-ticket[data-density="compact"],
+  .episode-ticket[data-density="recent"] { height: 5.5rem; }
+  .episode-ticket-body { padding: 0.75rem 0.875rem; }
+  .episode-ticket-check-label { width: 2.125rem; height: 2.125rem; }
+  .episode-ticket:hover { box-shadow: var(--shadow-medium); }
+  .episode-ticket:hover .episode-ticket-front { border-color: color-mix(in srgb, var(--text-secondary) 28%, var(--border-neutral)); }
+  .episode-ticket-front { cursor: default; }
+  .episode-ticket:hover .episode-ticket-front { cursor: grab; }
+  .episode-copy h3,
+  .tracking-ticket-copy h3 { font-size: 0.9375rem; }
+  .tracking-ticket-poster { width: 3.25rem; }
+}
+
+@media (max-width: 380px) {
+  .episode-ticket { --ticket-stub-width: 3.75rem; }
+  .episode-ticket-body { padding-inline: 0.75rem; }
+  .episode-number { width: 2.75rem; height: 2.75rem; }
+  .episode-ticket-metadata span:last-child { display: none; }
+  .tracking-ticket-poster { width: 3.25rem; }
+  .episode-progress { display: none; }
+}
+
+@media (max-height: 500px) and (any-pointer: coarse) {
+  .episode-ticket { height: 6rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .episode-ticket-front,
+  .episode-ticket-underlayer,
+  .episode-ticket-checkbox { transition-duration: 0.12s !important; }
+  .episode-ticket[data-phase="committing"] .episode-ticket-front {
+    animation: episode-ticket-commit-fade 130ms linear forwards;
+    transform: none !important;
+  }
+  .episode-ticket[data-phase="restoring"] .episode-ticket-front {
+    animation: none;
+    transform: none !important;
+  }
+  .episode-ticket[data-phase="restoring"] .episode-ticket-check-glyph {
+    animation: none;
+  }
+  .episode-ticket-underlayer { transform: none; }
+  .episode-ticket-spinner { animation: none; }
+}
+
+@keyframes episode-ticket-commit-leading {
+  0% {
+    opacity: 1;
+    transform: translate3d(var(--ticket-commit-start-x), 0, 0) scale(0.994);
+  }
+  72% { opacity: 1; }
+  100% {
+    opacity: 0.2;
+    transform: translate3d(calc(-100% - var(--ticket-stub-width)), 0, 0);
+  }
+}
+
+@keyframes episode-ticket-commit-leading-rtl {
+  0% {
+    opacity: 1;
+    transform: translate3d(var(--ticket-commit-start-x), 0, 0) scale(0.994);
+  }
+  72% { opacity: 1; }
+  100% {
+    opacity: 0.2;
+    transform: translate3d(calc(100% + var(--ticket-stub-width)), 0, 0);
+  }
+}
+
+@keyframes episode-ticket-commit-fade {
+  to { opacity: 0; }
+}
+
+@keyframes episode-ticket-restore {
+  0% { transform: translate3d(var(--ticket-commit-start-x), 0, 0) scale(0.994); }
+  72% { transform: translate3d(0, 0, 0) scale(0.998); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes episode-ticket-restore-control {
+  0% { opacity: 0.55; transform: scale(0.82); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .episode-ticket,
+  .episode-ticket-body,
+  .episode-ticket-underlayer,
+  .episode-ticket-stub,
+  .episode-ticket-rail { background-color: var(--surface-solid); }
+}
+
+@media (forced-colors: active) {
+  .episode-ticket-front,
+  .episode-ticket-underlayer,
+  .episode-ticket-stub,
+  .episode-ticket-checkbox { border-color: CanvasText; }
+  .episode-ticket-checkbox:checked { background: Highlight; color: HighlightText; }
+  .episode-ticket[data-watched] .episode-ticket-front { border-inline-start: 4px solid Highlight; }
+  .episode-ticket-rail { background: Canvas; color: CanvasText; }
 }
 
 .segmented-track {
@@ -1751,18 +2376,6 @@ input[type="search"]::-webkit-search-decoration {
   .anime-detail-metadata {
     grid-template-columns: 1fr;
   }
-}
-
-.episode-card-shadow {
-  box-shadow:
-    0 1px 2px rgb(18 20 32 / 0.05),
-    0 8px 24px rgb(18 20 32 / 0.06);
-}
-
-.dark .episode-card-shadow {
-  box-shadow:
-    0 1px 1px rgb(255 255 255 / 0.025) inset,
-    0 14px 34px rgb(0 0 0 / 0.28);
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -2043,16 +2656,6 @@ html.document-scroll-mode body {
     overflow: hidden;
   }
 
-  html.episode-horizontal-drag-lock,
-  body.episode-horizontal-drag-lock {
-    overflow: hidden;
-    overscroll-behavior: none;
-  }
-
-  html.episode-horizontal-drag-lock .tracking-section-scroll {
-    overflow-y: hidden;
-    overscroll-behavior: none;
-  }
 }
 
 .library-confetti-piece {

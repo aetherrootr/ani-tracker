@@ -1,77 +1,63 @@
 "use client";
 
+import { CalendarDays, Clock3 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 
 import type { Episode } from "@/features/library/types";
-import { cn } from "@/lib/utils";
 
-import { EpisodeWatchToggle } from "./EpisodeWatchToggle";
+import { EpisodeTicket } from "./EpisodeTicket";
 
-export function EpisodeRow({ episode, isNext = false, disabled, onWatchChange }: { episode: Episode; isNext?: boolean; disabled?: boolean; onWatchChange: (episode: Episode, watched: boolean) => Promise<void> }) {
+type Props = {
+  episode: Episode;
+  isNext?: boolean;
+  disabled?: boolean;
+  onWatchChange: (episode: Episode, watched: boolean) => Promise<void>;
+};
+
+export function EpisodeRow({ episode, isNext = false, disabled, onWatchChange }: Props) {
   const t = useTranslations();
   const locale = useLocale();
-  const displayName = episode.displayName?.trim() || episode.originalTitle?.trim() || t("library.episodeFallbackTitle", { episode: episode.episodeNumber });
+  const title = episode.displayName?.trim() || episode.originalTitle?.trim() || t("library.episodeFallbackTitle", { episode: episode.episodeNumber });
   const originalTitle = episode.originalTitle?.trim();
-  const showOriginal = Boolean(originalTitle && originalTitle !== displayName);
-  const isUpcoming = episode.status !== "aired";
-  const watchLabel = episode.watched
-    ? t("library.markEpisodeUnwatched", { episode: episode.episodeNumber })
-    : t("library.markEpisodeWatched", { episode: episode.episodeNumber });
-  const rowLabel = t("library.episodeAccessibleLabel", {
+  const upcoming = episode.status !== "aired";
+  const stateText = episode.watched ? t("library.episodeFilter.watched") : upcoming ? t("library.upcomingStatus") : t("library.unwatched");
+  const accessibleLabel = t("library.episodeAccessibleLabel", {
     episode: episode.episodeNumber,
-    title: displayName,
-    airStatus: isUpcoming ? t("library.upcomingStatus") : t("library.airedStatus"),
-    watchStatus: episode.watched ? t("library.episodeFilter.watched") : t("library.episodeFilter.unwatched"),
+    title,
+    airStatus: upcoming ? t("library.upcomingStatus") : t("library.airedStatus"),
+    watchStatus: stateText,
   });
 
   return (
-    <EpisodeWatchToggle
+    <EpisodeTicket
+      id={`episode-${episode.id}`}
       watched={episode.watched}
-      requireWatchConfirm={!episode.watched && episode.status !== "aired"}
       disabled={disabled}
-      label={watchLabel}
+      requireWatchConfirm={!episode.watched && upcoming}
+      label={t("library.episodeWatchStateLabel", { episode: episode.episodeNumber })}
+      accessibleLabel={accessibleLabel}
       onChange={(watched) => onWatchChange(episode, watched)}
     >
-      {(style, backdrop, handlers, isDragging, dragState, watchButton) => (
-        <article id={`episode-${episode.id}`} aria-label={rowLabel} className={cn(
-          "relative scroll-mt-24 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--surface-card)] touch-auto target:ring-2 target:ring-primary target:ring-offset-2",
-          episode.watched && "border-[color-mix(in_srgb,var(--watched)_24%,transparent)] bg-[color-mix(in_srgb,var(--watched)_6%,var(--surface-card))]",
-          isNext && "border-[color-mix(in_srgb,var(--accent-solid)_28%,transparent)] bg-[var(--accent-soft)] shadow-[var(--shadow-low)]",
-        )}>
-          {backdrop}
-          <div
-            {...handlers}
-            className={cn(
-              "relative z-10 min-h-24 select-none bg-transparent p-4 pr-16 motion-reduce:transition-none",
-              isDragging ? "cursor-grabbing shadow-lg transition-none" : "cursor-grab transition-[transform,box-shadow] duration-200 ease-out",
-              dragState.triggered && dragState.unavailable && "bg-muted shadow-muted",
-            )}
-            style={style}
-          >
-            {watchButton}
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-                {episode.episodeNumber}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  {isNext ? <span className="rounded-full bg-[var(--accent-solid)] px-2.5 py-0.5 text-xs font-medium text-accent-foreground">{t("library.nextEpisodeBadge")}</span> : null}
-                  {episode.watched ? <span className="rounded-full bg-[color-mix(in_srgb,var(--watched)_16%,transparent)] px-2.5 py-0.5 text-xs font-medium text-[var(--watched)]">{t("library.episodeFilter.watched")}</span> : null}
-                  {isUpcoming && !episode.watched ? <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">{t("library.upcomingStatus")}</span> : null}
-                </div>
-                <h3 className="mt-1 font-medium leading-snug">{displayName}</h3>
-                {showOriginal ? <p className="mt-1 text-xs text-muted-foreground">{originalTitle}</p> : null}
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span>{episode.status === "aired" ? t("library.airedStatus") : t("library.upcomingStatus")}</span>
-                  <span>{formatEpisodeDate(episode.airAt, locale, t("library.episodeAirDateUnknown"))}</span>
-                  {episode.duration ? <span>{episode.duration}</span> : null}
-                </div>
-              </div>
-            </div>
+      <div className="episode-detail-content">
+        <div className="episode-number" aria-hidden="true">
+          <span>{t("library.episodeShort")}</span>
+          <strong>{episode.episodeNumber}</strong>
+        </div>
+        <div className="episode-copy">
+          <div className="episode-ticket-badges">
+            {isNext ? <span className="episode-badge episode-badge-next">{t("library.nextEpisodeBadge")}</span> : null}
+            {episode.watched ? <span className="episode-badge episode-badge-watched"><span aria-hidden="true">✓</span>{t("library.episodeFilter.watched")}</span> : null}
+            {upcoming && !episode.watched ? <span className="episode-badge">{t("library.upcomingStatus")}</span> : null}
           </div>
-        </article>
-      )}
-    </EpisodeWatchToggle>
+          <h3>{title}</h3>
+          {originalTitle && originalTitle !== title ? <p className="episode-original-title">{originalTitle}</p> : null}
+          <div className="episode-ticket-metadata">
+            <span><CalendarDays aria-hidden="true" />{formatEpisodeDate(episode.airAt, locale, t("library.episodeAirDateUnknown"))}</span>
+            {episode.duration ? <span><Clock3 aria-hidden="true" />{episode.duration}</span> : null}
+          </div>
+        </div>
+      </div>
+    </EpisodeTicket>
   );
 }
 
