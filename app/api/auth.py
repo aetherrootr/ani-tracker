@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, session
+import secrets
+
+from flask import Blueprint, current_app, jsonify, request, send_file, session
 from flask.typing import ResponseReturnValue
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.utils.auth import (
@@ -13,9 +15,45 @@ from app.api.utils.auth import (
     verify_password,
 )
 from app.db import get_db
-from app.models.user import User
+from app.models.user import User, UserWallpaper
+from app.services.user_wallpaper import ALLOWED_VARIANTS, resolve_wallpaper_path
 
 auth_bp = Blueprint("auth", __name__)
+
+
+@auth_bp.get("/background/<variant>")
+def login_background(variant: str) -> ResponseReturnValue:
+    if variant not in ALLOWED_VARIANTS:
+        return jsonify({"message": "Wallpaper variant is invalid"}), 404
+
+    db = get_db()
+    eligible = (
+        UserWallpaper.variant == variant,
+        User.share_wallpapers_on_login.is_(True),
+    )
+    count = db.scalar(select(func.count()).select_from(UserWallpaper).join(User).where(*eligible)) or 0
+    if count == 0:
+        return jsonify({"message": "Login background not found"}), 404
+
+    wallpaper = db.scalar(
+        select(UserWallpaper)
+        .join(User)
+        .where(*eligible)
+        .order_by(UserWallpaper.id)
+        .offset(secrets.randbelow(count))
+        .limit(1),
+    )
+    if wallpaper is None:
+        return jsonify({"message": "Login background not found"}), 404
+
+    path = resolve_wallpaper_path(str(current_app.config["USER_WALLPAPER_STORAGE_DIR"]), wallpaper.storage_path)
+    if path is None or not path.is_file():
+        return jsonify({"message": "Login background not found"}), 404
+
+    response = send_file(path, mimetype=wallpaper.mime_type)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @auth_bp.post("/register")

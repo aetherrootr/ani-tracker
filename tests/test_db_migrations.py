@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Integer, create_engine, inspect, text
 
 from app import create_app
 
@@ -22,7 +22,21 @@ def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -
         assert "alembic_version" in inspector.get_table_names()
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "202607180001"
+        assert version == "202607180002"
+        assert "user_wallpapers" in inspector.get_table_names()
+        user_columns = {column["name"]: column for column in inspector.get_columns("users")}
+        assert {
+            "desktop_wallpaper_mode",
+            "mobile_wallpaper_mode",
+            "share_wallpapers_on_login",
+            "wallpaper_glass_style",
+            "wallpaper_glass_intensity",
+        } <= user_columns.keys()
+        assert isinstance(user_columns["wallpaper_glass_intensity"]["type"], Integer)
+        episode_columns = {column["name"] for column in inspector.get_columns("episode")}
+        snapshot_episode_columns = {column["name"] for column in inspector.get_columns("user_anime_metadata_episode_snapshot")}
+        assert "air_at_has_time" in episode_columns
+        assert "air_at_has_time" in snapshot_episode_columns
     finally:
         engine.dispose()
 

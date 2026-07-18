@@ -5,6 +5,8 @@ export type LibraryListFilter = "all" | "tracking" | "backlog";
 export type LibrarySeasonZeroFilter = "include" | "exclude" | "only";
 export type LibrarySort = "updatedAt" | "name" | "airDate";
 export type SortOrder = "asc" | "desc";
+export type EpisodeFilter = "all" | "watched" | "unwatched";
+export type EpisodeOrder = "asc" | "desc";
 
 export type AnimeName = {
   id: number;
@@ -134,6 +136,7 @@ export type Episode = {
   displayName: string | null;
   originalTitle: string | null;
   airAt: string | null;
+  airAtPrecision: "date" | "datetime" | null;
   duration: string | null;
   status: string;
   watched: boolean;
@@ -149,6 +152,23 @@ export type EpisodeListResponse = {
   offset: number;
   page: number;
   totalPages: number;
+  q: string;
+  filter: EpisodeFilter;
+  order: EpisodeOrder;
+  location: {
+    id: number;
+    episodeNumber: number;
+    index: number;
+    offset: number;
+    page: number;
+  } | null;
+  ranges: Array<{
+    page: number;
+    startIndex: number;
+    endIndex: number;
+    firstEpisodeNumber: number;
+    lastEpisodeNumber: number;
+  }>;
   episodes: Episode[];
 };
 
@@ -179,6 +199,7 @@ export type MetadataSnapshotEpisode = {
   episodeNumber: number;
   displayName: string | null;
   airAt: string | null;
+  airAtPrecision: "date" | "datetime" | null;
   duration: string | null;
   status: string;
   watched: boolean;

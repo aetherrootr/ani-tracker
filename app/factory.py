@@ -39,7 +39,7 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Vary"] = "Origin"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
         return response
 
     return app
@@ -96,6 +96,12 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         ),
         "ANIME_POSTER_MAX_BYTES": env_int("ANIME_POSTER_MAX_BYTES", default=5 * 1024 * 1024, minimum=1),
         "ANIME_POSTER_REQUEST_TIMEOUT": env_float("ANIME_POSTER_REQUEST_TIMEOUT", default=5, minimum=0),
+        "USER_WALLPAPER_STORAGE_DIR": os.environ.get(
+            "USER_WALLPAPER_STORAGE_DIR",
+            str(Path(app.instance_path) / "user_wallpapers"),
+        ),
+        "USER_WALLPAPER_MAX_BYTES": env_int("USER_WALLPAPER_MAX_BYTES", default=10 * 1024 * 1024, minimum=1),
+        "USER_WALLPAPER_MAX_IMAGES_PER_USER": env_int("USER_WALLPAPER_MAX_IMAGES_PER_USER", default=12, minimum=1),
         # TODO(aetherrootr): Deprecate TVTIME_IMPORT_REPORT_DIR and use ANIME_TRACKER_INSTANCE_PATH/tvtime_import_reports only.
         "TVTIME_IMPORT_REPORT_DIR": os.environ.get(
             "TVTIME_IMPORT_REPORT_DIR",

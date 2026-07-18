@@ -10,7 +10,7 @@ const buttonVariants = cva(
       variant: {
         default: "bg-[var(--accent-solid)] text-accent-foreground shadow-[0_8px_24px_rgb(102_87_232_/_0.24),inset_0_1px_rgb(255_255_255_/_0.22)] hover:bg-[var(--accent-hover)] active:bg-[var(--accent-pressed)]",
         ghost: "hover:bg-[var(--surface-hover)] hover:text-foreground",
-        outline: "border bg-[var(--surface-card)] shadow-[var(--shadow-low)] hover:bg-[var(--surface-hover)] hover:text-foreground",
+        outline: "border bg-card text-card-foreground shadow-[var(--shadow-low)] hover:bg-[var(--surface-card-hover)] hover:text-card-foreground",
         secondary: "bg-[var(--surface-glass-subtle)] text-foreground hover:bg-[var(--surface-hover)]",
       },
       size: {

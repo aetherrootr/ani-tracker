@@ -7,8 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.api.utils.auth import require_auth_user
 from app.api.utils.parsing import (
+    parse_episode_filter,
+    parse_episode_order,
     parse_library_limit,
     parse_library_offset,
+    parse_optional_positive_int,
     total_pages,
 )
 from app.api.utils.serializers import (
@@ -42,7 +45,32 @@ def list_episodes(db: Session, user: User, anime_id: int) -> ResponseReturnValue
     offset, error = parse_library_offset(request.args.get('offset'))
     if error is not None:
         return jsonify({'message': error}), 400
-    rows, total, is_local_snapshot = get_episode_rows_for_progress(db, progress=progress, limit=limit, offset=offset)
+    episode_filter, error = parse_episode_filter(request.args.get('filter'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    order, error = parse_episode_order(request.args.get('order'))
+    if error is not None:
+        return jsonify({'message': error}), 400
+    locate_episode_number, error = parse_optional_positive_int(request.args.get('locateEpisodeNumber'), label='Episode number')
+    if error is not None:
+        return jsonify({'message': error}), 400
+    locate_episode_id, error = parse_optional_positive_int(request.args.get('locateEpisodeId'), label='Episode ID')
+    if error is not None:
+        return jsonify({'message': error}), 400
+    q = request.args.get('q', '').strip()
+    if len(q) > 100:
+        return jsonify({'message': 'Episode query is invalid'}), 400
+    rows, total, is_local_snapshot, offset, location, ranges = get_episode_rows_for_progress(
+        db,
+        progress=progress,
+        limit=limit,
+        offset=offset,
+        q=q,
+        episode_filter=episode_filter,
+        order=order,
+        locate_episode_number=locate_episode_number,
+        locate_episode_id=locate_episode_id,
+    )
     episode_ids = [row['episode_id'] for row in rows]
     names_by_episode: dict[int, list[EpisodeName]] = {episode_id: [] for episode_id in episode_ids}
     if episode_ids and not is_local_snapshot:
@@ -61,6 +89,11 @@ def list_episodes(db: Session, user: User, anime_id: int) -> ResponseReturnValue
             'offset': offset,
             'page': offset // limit + 1,
             'totalPages': total_pages(total, limit),
+            'q': q,
+            'filter': episode_filter,
+            'order': order,
+            'location': location,
+            'ranges': ranges,
             'episodes': [
                 {
                     **serialize_episode_with_watch_state(

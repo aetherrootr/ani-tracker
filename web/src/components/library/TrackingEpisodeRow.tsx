@@ -8,6 +8,7 @@ import { useState } from "react";
 
 import { assetUrl } from "@/features/library/api";
 import type { TrackingListItem } from "@/features/library/types";
+import { formatEpisodeAirAt } from "@/features/library/format-episode-air-at";
 import { useLocaleControls } from "@/i18n/provider";
 
 import { EpisodeTicket } from "./EpisodeTicket";
@@ -88,19 +89,12 @@ export function TrackingEpisodeRow({ item, disabled, isSaving, showProgress = tr
             <CalendarDays aria-hidden="true" />
             {variant === "recent"
               ? formatWatchedTime(item.episode.watchedAt, locale, t("tracking.watchedTimeUnknown"))
-              : `${t("tracking.airedAt")}: ${formatDate(item.episode.airAt, locale)}`}
+              : `${t("tracking.airedAt")}: ${formatEpisodeAirAt(item.episode.airAt, item.episode.airAtPrecision, locale, "-")}`}
           </p>
         </div>
       </div>
     </EpisodeTicket>
   );
-}
-
-function formatDate(value: string | null, locale: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
 }
 
 function formatWatchedTime(value: string | null, locale: string, fallback: string) {

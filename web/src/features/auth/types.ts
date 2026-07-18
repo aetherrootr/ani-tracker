@@ -13,7 +13,24 @@ export type AuthUser = {
   timeZoneMode: "auto" | "manual";
   includeUnwatchedSeasonZeroInTracking: boolean;
   includeUnwatchedSeasonZeroInStatistics: boolean;
+  desktopWallpaperMode: WallpaperMode;
+  mobileWallpaperMode: WallpaperMode;
+  wallpaperGlassStyle: WallpaperGlassStyle;
+  wallpaperGlassIntensity: number;
+  shareWallpapersOnLogin: boolean;
+  desktopWallpapers: UserWallpaper[];
+  mobileWallpapers: UserWallpaper[];
+  wallpaperUploadLimit: number;
   oidcLinked: boolean;
+};
+
+export type WallpaperVariant = "desktop" | "mobile";
+export type WallpaperMode = "default" | "fixed" | "random";
+export type WallpaperGlassStyle = "clear" | "regular" | "frosted";
+export type UserWallpaper = {
+  id: number;
+  url: string;
+  selected: boolean;
 };
 
 export type OidcConfigResponse = {
@@ -44,6 +61,14 @@ export type UpdatePreferencesInput = {
   importProviderPreference?: string;
   includeUnwatchedSeasonZeroInTracking?: boolean;
   includeUnwatchedSeasonZeroInStatistics?: boolean;
+  wallpaperGlassStyle?: WallpaperGlassStyle;
+  wallpaperGlassIntensity?: number;
+  shareWallpapersOnLogin?: boolean;
+};
+
+export type WallpaperGlassAppearanceInput = {
+  wallpaperGlassStyle?: WallpaperGlassStyle;
+  wallpaperGlassIntensity?: number;
 };
 
 export type UpdatePasswordInput = {

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import String, and_, cast, delete, exists, false, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
@@ -523,6 +525,7 @@ def _current_metadata_episode_rows(session: Session, *, progress: UserAnimeProgr
                 'episode_number': episode.episode_number,
                 'title': episode.title,
                 'air_at': episode.air_at,
+                'air_at_has_time': episode.air_at_has_time,
                 'duration': episode.duration,
                 'status': episode.status,
                 'watched': episode.watched,
@@ -552,6 +555,7 @@ def _current_metadata_episode_rows(session: Session, *, progress: UserAnimeProgr
                 'episode_number': episode.episode_number,
                 'title': episode.original_title,
                 'air_at': episode.air_at,
+                'air_at_has_time': episode.air_at_has_time,
                 'duration': episode.duration,
                 'status': episode.status.value if hasattr(episode.status, 'value') else episode.status,
                 'watched': bool(watch_progress.watched) if watch_progress is not None else False,
@@ -799,6 +803,7 @@ def create_or_update_metadata_snapshot(session: Session, *, progress: UserAnimeP
                 episode_number=row['episode_number'],
                 title=row['title'],
                 air_at=row['air_at'],
+                air_at_has_time=bool(row['air_at_has_time']),
                 duration=row['duration'],
                 status=row['status'],
                 watched=bool(row['watched']),
@@ -831,23 +836,124 @@ def get_episode_rows_for_progress(
     progress: UserAnimeProgress,
     limit: int,
     offset: int,
-) -> tuple[list[dict[str, Any]], int, bool]:
+    q: str = '',
+    episode_filter: str = 'all',
+    order: str = 'asc',
+    locate_episode_number: int | None = None,
+    locate_episode_id: int | None = None,
+) -> tuple[list[dict[str, Any]], int, bool, int, dict[str, int] | None, list[dict[str, int]]]:
     if progress.metadata_source != UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
-        from app.models.progress import get_anime_episodes_with_watch_state
-
-        rows = get_anime_episodes_with_watch_state(session, anime_id=progress.anime_id, user_id=progress.user_id, limit=limit, offset=offset)
-        total = session.scalar(select(func.count(Episode.id)).where(Episode.anime_id == progress.anime_id)) or 0
-        return rows, total, False
+        watch_join = and_(
+            UserEpisodeProgress.episode_id == Episode.id,
+            UserEpisodeProgress.user_id == progress.user_id,
+        )
+        watched = func.coalesce(UserEpisodeProgress.watched, False)
+        conditions: list[Any] = [Episode.anime_id == progress.anime_id]
+        conditions.extend(_episode_query_conditions(q, Episode.episode_number, Episode.original_title, Episode.id))
+        if episode_filter == 'watched':
+            conditions.append(watched.is_(True))
+        elif episode_filter == 'unwatched':
+            conditions.append(watched.is_(False))
+        total = session.scalar(
+            select(func.count(Episode.id)).outerjoin(UserEpisodeProgress, watch_join).where(*conditions),
+        ) or 0
+        target_number = None
+        if locate_episode_id is not None:
+            target_number = session.scalar(
+                select(Episode.episode_number).where(Episode.anime_id == progress.anime_id, Episode.id == locate_episode_id),
+            )
+        if target_number is None:
+            target_number = locate_episode_number
+        location = None
+        if target_number is not None:
+            located = session.execute(
+                select(Episode.id, Episode.episode_number)
+                .outerjoin(UserEpisodeProgress, watch_join)
+                .where(*conditions, Episode.episode_number == target_number),
+            ).first()
+            if located is not None:
+                before = Episode.episode_number < located.episode_number if order == 'asc' else Episode.episode_number > located.episode_number
+                index = session.scalar(
+                    select(func.count(Episode.id)).outerjoin(UserEpisodeProgress, watch_join).where(*conditions, before),
+                ) or 0
+                offset = index // limit * limit
+                location = _episode_location(located.id, located.episode_number, index, offset, limit)
+        ordering = Episode.episode_number.asc() if order == 'asc' else Episode.episode_number.desc()
+        episode_numbers = session.scalars(
+            select(Episode.episode_number)
+            .outerjoin(UserEpisodeProgress, watch_join)
+            .where(*conditions)
+            .order_by(ordering),
+        ).all()
+        statement = (
+            select(
+                Episode.id.label('episode_id'),
+                Episode.episode_number,
+                Episode.original_title,
+                Episode.air_at,
+                Episode.air_at_has_time,
+                Episode.duration,
+                Episode.status,
+                watched.label('watched'),
+                UserEpisodeProgress.watched_at,
+                UserEpisodeProgress.preferred_name_id,
+            )
+            .outerjoin(UserEpisodeProgress, watch_join)
+            .where(*conditions)
+            .order_by(ordering)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = [dict(row) for row in session.execute(statement).mappings().all()]
+        return rows, total, False, offset, location, _episode_ranges(episode_numbers, limit)
     snapshot = _active_metadata_snapshot(session, progress=progress)
     if snapshot is None:
-        return [], 0, True
-    total = session.scalar(select(func.count(UserAnimeMetadataEpisodeSnapshot.id)).where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id)) or 0
+        return [], 0, True, 0, None, []
+    snapshot_conditions: list[Any] = [UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id]
+    snapshot_conditions.extend(_episode_query_conditions(q, UserAnimeMetadataEpisodeSnapshot.episode_number, UserAnimeMetadataEpisodeSnapshot.title))
+    if episode_filter == 'watched':
+        snapshot_conditions.append(UserAnimeMetadataEpisodeSnapshot.watched.is_(True))
+    elif episode_filter == 'unwatched':
+        snapshot_conditions.append(UserAnimeMetadataEpisodeSnapshot.watched.is_(False))
+    total = session.scalar(
+        select(func.count(UserAnimeMetadataEpisodeSnapshot.id)).where(*snapshot_conditions),
+    ) or 0
+    target_number = None
+    if locate_episode_id is not None:
+        target_number = session.scalar(
+            select(UserAnimeMetadataEpisodeSnapshot.episode_number).where(
+                UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id,
+                UserAnimeMetadataEpisodeSnapshot.id == locate_episode_id,
+            ),
+        )
+    if target_number is None:
+        target_number = locate_episode_number
+    location = None
+    if target_number is not None:
+        located = session.execute(
+            select(UserAnimeMetadataEpisodeSnapshot.id, UserAnimeMetadataEpisodeSnapshot.episode_number)
+            .where(*snapshot_conditions, UserAnimeMetadataEpisodeSnapshot.episode_number == target_number),
+        ).first()
+        if located is not None:
+            before = UserAnimeMetadataEpisodeSnapshot.episode_number < located.episode_number if order == 'asc' else UserAnimeMetadataEpisodeSnapshot.episode_number > located.episode_number
+            index = session.scalar(
+                select(func.count(UserAnimeMetadataEpisodeSnapshot.id)).where(*snapshot_conditions, before),
+            ) or 0
+            offset = index // limit * limit
+            location = _episode_location(located.id, located.episode_number, index, offset, limit)
+    ordering = UserAnimeMetadataEpisodeSnapshot.episode_number.asc() if order == 'asc' else UserAnimeMetadataEpisodeSnapshot.episode_number.desc()
+    episode_numbers = session.scalars(
+        select(UserAnimeMetadataEpisodeSnapshot.episode_number)
+        .where(*snapshot_conditions)
+        .order_by(ordering),
+    ).all()
     rows = [
         {
             'episode_id': episode.id,
             'episode_number': episode.episode_number,
             'original_title': episode.title,
             'air_at': episode.air_at,
+            'air_at_has_time': episode.air_at_has_time,
             'duration': episode.duration,
             'status': episode.status,
             'watched': episode.watched,
@@ -856,13 +962,59 @@ def get_episode_rows_for_progress(
         }
         for episode in session.scalars(
             select(UserAnimeMetadataEpisodeSnapshot)
-            .where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id)
-            .order_by(UserAnimeMetadataEpisodeSnapshot.episode_number)
+            .where(*snapshot_conditions)
+            .order_by(ordering)
             .limit(limit)
             .offset(offset),
         ).all()
     ]
-    return rows, total, True
+    return rows, total, True, offset, location, _episode_ranges(episode_numbers, limit)
+
+
+def _episode_query_conditions(q: str, number_column: Any, title_column: Any, episode_id_column: Any | None = None) -> list[Any]:
+    keyword = unicodedata.normalize('NFKC', q).strip().lower()
+    if not keyword:
+        return []
+    episode_match = re.fullmatch(r'e\s*:\s*(\d+)', keyword, re.IGNORECASE)
+    if episode_match is not None:
+        return [cast(number_column, String).like(f'{episode_match.group(1)}%')]
+    if keyword.isdigit():
+        return [false()]
+    escaped = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    title_match = title_column.ilike(f'%{escaped}%', escape='\\')
+    if episode_id_column is None:
+        return [title_match]
+    name_match = exists(
+        select(EpisodeName.id).where(
+            EpisodeName.episode_id == episode_id_column,
+            EpisodeName.name.ilike(f'%{escaped}%', escape='\\'),
+        ),
+    )
+    return [or_(title_match, name_match)]
+
+
+def _episode_location(episode_id: int, episode_number: int, index: int, offset: int, limit: int) -> dict[str, int]:
+    return {
+        'id': episode_id,
+        'episodeNumber': episode_number,
+        'index': index,
+        'offset': offset,
+        'page': offset // limit + 1,
+    }
+
+
+def _episode_ranges(episode_numbers: Sequence[int], limit: int) -> list[dict[str, int]]:
+    return [
+        {
+            'page': index // limit + 1,
+            'startIndex': index + 1,
+            'endIndex': min(index + limit, len(episode_numbers)),
+            'firstEpisodeNumber': numbers[0],
+            'lastEpisodeNumber': numbers[-1],
+        }
+        for index in range(0, len(episode_numbers), limit)
+        if (numbers := episode_numbers[index:index + limit])
+    ]
 
 
 def set_episode_watch_state_bulk(
@@ -1240,6 +1392,7 @@ def _upsert_episodes(session: Session, anime: AnimeMetaInfo, episodes: Sequence[
         resolved_title = item.title or fallback_title
         episode.original_title = resolved_title
         episode.air_at = resolved_air_at
+        episode.air_at_has_time = item.air_at_has_time if item.air_at is not None else False
         episode.duration = item.duration
         episode.status = _resolved_episode_status(item.status, resolved_air_at)
         episode.last_synced_at = synced_at

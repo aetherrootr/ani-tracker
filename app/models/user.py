@@ -42,6 +42,11 @@ class User(TimestampedBase):
     )
     include_unwatched_season_zero_in_tracking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     include_unwatched_season_zero_in_statistics: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    desktop_wallpaper_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fixed", server_default="fixed")
+    mobile_wallpaper_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fixed", server_default="fixed")
+    wallpaper_glass_style: Mapped[str] = mapped_column(String(16), nullable=False, default="regular", server_default="regular")
+    wallpaper_glass_intensity: Mapped[int] = mapped_column(Integer, nullable=False, default=50, server_default="50")
+    share_wallpapers_on_login: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     episode_progresses: Mapped[list[UserEpisodeProgress]] = relationship(
         back_populates="user",
@@ -54,6 +59,11 @@ class User(TimestampedBase):
         passive_deletes=True,
     )
     oidc_identities: Mapped[list[UserOidcIdentity]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    wallpapers: Mapped[list[UserWallpaper]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -75,3 +85,19 @@ class UserOidcIdentity(TimestampedBase):
     preferred_username: Mapped[str | None] = mapped_column(String(255))
 
     user: Mapped[User] = relationship(back_populates="oidc_identities")
+
+
+class UserWallpaper(TimestampedBase):
+    __tablename__ = "user_wallpapers"
+    __table_args__ = (UniqueConstraint("user_id", "variant", "content_hash", name="uq_user_wallpapers_user_variant_hash"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    variant: Mapped[str] = mapped_column(String(16), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+
+    user: Mapped[User] = relationship(back_populates="wallpapers")

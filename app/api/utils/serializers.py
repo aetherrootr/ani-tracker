@@ -211,6 +211,7 @@ def serialize_metadata_snapshot_episode(episode: UserAnimeMetadataEpisodeSnapsho
         'episodeNumber': episode.episode_number,
         'displayName': episode.title,
         'airAt': episode.air_at.isoformat() if episode.air_at is not None else None,
+        'airAtPrecision': None if episode.air_at is None else ('datetime' if episode.air_at_has_time else 'date'),
         'duration': episode.duration,
         'status': episode.status,
         'watched': episode.watched,
@@ -335,9 +336,12 @@ def serialize_related_anime(
         in_library = related_anime_id in library_anime_ids
     title = relation.title
     related_progress = (related_anime_progresses or {}).get(related_anime_id) if related_anime_id is not None else None
+    mapped_anime = related_progress.anime if related_progress is not None else override_anime or relation.related_anime
     if related_progress is not None:
         selected_name = select_anime_name_for_user(sorted(related_progress.anime.names, key=lambda item: item.id), related_progress, user)
         title = selected_name.name if selected_name is not None else related_progress.anime.original_name
+    air_date = mapped_anime.air_date if mapped_anime is not None and mapped_anime.air_date is not None else relation.air_date
+    episode_count = mapped_anime.total_episodes if mapped_anime is not None and mapped_anime.total_episodes is not None else relation.episode_count
     data = {
         'provider': relation.provider_type,
         'externalId': relation.external_id,
@@ -346,8 +350,8 @@ def serialize_related_anime(
         'title': title,
         'relationType': relation.relation_type,
         'seasonNumber': relation.season_number,
-        'airDate': relation.air_date.isoformat() if relation.air_date is not None else None,
-        'episodeCount': relation.episode_count,
+        'airDate': air_date.isoformat() if air_date is not None else None,
+        'episodeCount': episode_count,
         'url': relation.url,
         'posterUrl': poster_url,
         'source': source,
@@ -388,6 +392,7 @@ def serialize_episode_with_watch_state(
         'displayName': selected_name.name if selected_name is not None else row['original_title'],
         'originalTitle': row['original_title'],
         'airAt': row['air_at'].isoformat() if row['air_at'] is not None else None,
+        'airAtPrecision': None if row['air_at'] is None else ('datetime' if row['air_at_has_time'] else 'date'),
         'duration': row['duration'],
         'status': status.value if hasattr(status, 'value') else status,
         'watched': bool(row['watched']),

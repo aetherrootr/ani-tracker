@@ -43,8 +43,8 @@ export function StatisticsPageContent() {
   const data = summary.displayData;
   const pending = summary.isRefreshing || summary.data?.status === "pending";
   return (
-    <main className="mx-auto max-w-[1280px] select-none space-y-5" aria-busy={pending || summary.isLoading}>
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
+    <main className="statistics-content-floor mx-auto max-w-[1280px] select-none space-y-5 overflow-visible rounded-3xl border p-4 shadow-sm sm:p-6" aria-busy={pending || summary.isLoading}>
+      <header className="page-heading-surface flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between sm:gap-8">
         <div>
           <p className="hidden text-sm font-medium uppercase tracking-[0.24em] text-muted-foreground sm:block">{t("statistics.eyebrow")}</p>
           <h1 className="text-3xl font-semibold tracking-tight sm:mt-2">{t("statistics.title")}</h1>
@@ -55,7 +55,13 @@ export function StatisticsPageContent() {
             </p>
           ) : null}
         </div>
-        <Button className="min-h-11 self-start px-6 text-[15px] sm:self-center" variant="outline" onClick={handleRecalculate} disabled={pending}>
+        <Button
+          className="min-h-11 self-start px-6 text-[15px] sm:self-center"
+          style={pending ? { opacity: 1, borderColor: "var(--border-neutral)", background: "var(--card)", color: "var(--text-tertiary)", boxShadow: "none" } : undefined}
+          variant="outline"
+          onClick={handleRecalculate}
+          disabled={pending}
+        >
           <RefreshCw className={cn("h-[18px] w-[18px]", pending && "animate-spin motion-reduce:animate-none")} />
           {pending ? t("statistics.refreshing") : t("statistics.refresh")}
         </Button>
@@ -113,7 +119,7 @@ export function StatisticsPageContent() {
 }
 
 function StatisticsSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="space-y-3"><h2 className="text-xl font-semibold tracking-tight">{title}</h2>{children}</section>;
+  return <section className="space-y-3"><h2 className="section-heading-surface text-xl font-semibold tracking-tight">{title}</h2>{children}</section>;
 }
 
 function StatisticsOverview({ data, locale }: { data: StatisticsSummary; locale: string }) {
@@ -132,7 +138,7 @@ function StatisticsOverview({ data, locale }: { data: StatisticsSummary; locale:
     { label: t("statistics.metrics.libraryAnime"), value: number.format(data.libraryAnimeCount), unit: t("statistics.units.anime") },
   ];
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardContent className="grid grid-cols-2 gap-px overflow-hidden p-0 max-[340px]:grid-cols-1 lg:grid-cols-4">
         {cards.map((card, index) => (
           <div key={card.label} className={cn("min-w-0 bg-[var(--surface-card)] p-4", index > 0 && "border-l max-[340px]:border-l-0 max-[340px]:border-t", index > 1 && "border-t lg:border-t-0")}>

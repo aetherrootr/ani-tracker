@@ -1,39 +1,64 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { CircleCheck } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { updateEpisodeWatchState, updateEpisodeWatchStateBulk } from "@/features/library/api";
-import { EPISODE_PAGE_SIZE, useEpisodes } from "@/features/library/hooks";
-import type { AnimeProgress, Episode } from "@/features/library/types";
+import { useEpisodes } from "@/features/library/hooks";
+import type { AnimeProgress, Episode, EpisodeFilter, EpisodeOrder } from "@/features/library/types";
 
 import { ConfirmDialog } from "./ConfirmDialog";
+import { EpisodeRangeNavigator } from "./EpisodeRangeNavigator";
 import { EpisodeRow } from "./EpisodeRow";
-import { EpisodeSearchMenu, type EpisodeFilter, type EpisodeOrder } from "./EpisodeSearchMenu";
+import { EpisodeSearchMenu } from "./EpisodeSearchMenu";
 import { EpisodeTitleSettingsMenu } from "./EpisodeTitleSettingsMenu";
-import { LibraryPagination, SkeletonBlock } from "./LibraryPagination";
+import { SkeletonBlock } from "./LibraryPagination";
 
 export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0, onProgressChange }: { animeId: number; metadataSource: string; progress: AnimeProgress; refreshKey?: number; onProgressChange: (progress: AnimeProgress) => void }) {
   const t = useTranslations();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialEpisodeNumber = parsePositiveInt(searchParams.get("episode"));
-  const initialPage = parsePositiveInt(searchParams.get("page"));
-  const [page, setPage] = useState(initialPage ?? (initialEpisodeNumber === null ? 1 : Math.ceil(initialEpisodeNumber / EPISODE_PAGE_SIZE)));
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<EpisodeFilter>("all");
-  const [order, setOrder] = useState<EpisodeOrder>("asc");
+  const page = parsePositiveInt(searchParams.get("page")) ?? 1;
+  const locateEpisodeNumber = parsePositiveInt(searchParams.get("episode"));
+  const q = searchParams.get("q") ?? "";
+  const filter = parseEpisodeFilter(searchParams.get("filter"));
+  const order = parseEpisodeOrder(searchParams.get("order"));
+  const locateEpisodeId = parseEpisodeHash(useSyncExternalStore(subscribeToHash, getHashSnapshot, getServerHashSnapshot));
   const [openMenu, setOpenMenu] = useState<"search" | "settings" | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const { data, setData, isLoading, error, retry } = useEpisodes(animeId, page, refreshKey);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const pendingRangePageRef = useRef<number | null>(null);
+  const { data, setData, isLoading, error, retry } = useEpisodes({ animeId, page, q, filter, order, locateEpisodeNumber, locateEpisodeId, refreshKey });
   const episodes = useMemo(() => data?.episodes ?? [], [data?.episodes]);
   const nextEpisodeNumber = (progress.lastWatchedEpisodeNumber ?? 0) + 1;
+
+  useEffect(() => {
+    if (!data || data.q !== q || data.filter !== filter || data.order !== order) return;
+    const targetPage = data.location?.page ?? (data.totalPages > 0 ? Math.min(page, data.totalPages) : 1);
+    const targetHash = data.location ? `#episode-${data.location.id}` : "";
+    if (targetPage === page && (!data.location || window.location.hash === targetHash)) return;
+    const params = new URLSearchParams(searchParams.toString());
+    if (targetPage <= 1) params.delete("page");
+    else params.set("page", String(targetPage));
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}${targetHash}`, { scroll: false });
+  }, [data, filter, order, page, pathname, q, router, searchParams]);
+
+  useEffect(() => {
+    if (isLoading || pendingRangePageRef.current !== page || data?.page !== page) return;
+    pendingRangePageRef.current = null;
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    resultsRef.current?.scrollIntoView({ behavior, block: "start" });
+    requestAnimationFrame(() => resultsRef.current?.focus({ preventScroll: true }));
+  }, [data?.page, isLoading, page]);
 
   useEffect(() => {
     if (isLoading || typeof window === "undefined") {
@@ -44,32 +69,10 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
     if (element) {
       window.requestAnimationFrame(() => {
         element.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
-        element.querySelector<HTMLElement>("[role='checkbox']")?.focus({ preventScroll: true });
+        element.querySelector<HTMLElement>("input[type='checkbox'], [role='checkbox']")?.focus({ preventScroll: true });
       });
     }
   }, [isLoading, episodes]);
-
-  const visibleEpisodes = useMemo(() => {
-    const keyword = normalizeEpisodeSearchQuery(q);
-    const episodePrefixMatch = keyword.match(/^e\s*[:：]\s*(\d+)$/i);
-    return [...episodes]
-      .filter((episode) => {
-        if (!keyword) {
-          return true;
-        }
-        if (episodePrefixMatch) {
-          return String(episode.episodeNumber).startsWith(episodePrefixMatch[1]);
-        }
-        if (/^\d+$/.test(keyword)) {
-          return false;
-        }
-        const displayName = (episode.displayName ?? "").toLocaleLowerCase();
-        const originalTitle = (episode.originalTitle ?? "").toLocaleLowerCase();
-        return displayName.includes(keyword) || originalTitle.includes(keyword);
-      })
-      .filter((episode) => filter === "all" || (filter === "watched" ? episode.watched : !episode.watched))
-      .sort((a, b) => order === "asc" ? a.episodeNumber - b.episodeNumber : b.episodeNumber - a.episodeNumber);
-  }, [episodes, filter, order, q]);
 
   async function updateWatch(episode: Episode, watched: boolean) {
     setBusyIds((current) => new Set(current).add(episode.id));
@@ -78,6 +81,7 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
       const result = await updateEpisodeWatchState(animeId, episode.id, watched);
       onProgressChange(result.progress);
       setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? { ...item, watched: result.episode.watched } : item) } : current);
+      if (filter !== "all") retry();
     } catch (err) {
       setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? episode : item) } : current);
       throw err;
@@ -108,18 +112,42 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
   }
 
   function changePage(nextPage: number) {
-    setPage(nextPage);
     const params = new URLSearchParams(searchParams.toString());
-    params.set("page", String(nextPage));
+    if (nextPage <= 1) params.delete("page");
+    else params.set("page", String(nextPage));
     params.delete("episode");
-    router.replace(`?${params.toString()}`, { scroll: false });
+    pendingRangePageRef.current = nextPage;
+    const query = params.toString();
+    router.push(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+  }
+
+  function jumpToEpisode(episodeNumber: number) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("page");
+    params.set("episode", String(episodeNumber));
+    const query = params.toString();
+    router.push(`${pathname}?${query}`, { scroll: false });
+  }
+
+  function updateQuery(next: Partial<{ q: string; filter: EpisodeFilter; order: EpisodeOrder }>) {
+    const params = new URLSearchParams(searchParams.toString());
+    const nextQ = next.q ?? q;
+    const nextFilter = next.filter ?? filter;
+    const nextOrder = next.order ?? order;
+    setQueryParam(params, "q", nextQ, "");
+    setQueryParam(params, "filter", nextFilter, "all");
+    setQueryParam(params, "order", nextOrder, "asc");
+    params.delete("page");
+    params.delete("episode");
+    const query = params.toString();
+    startTransition(() => router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false }));
   }
 
   return (
-    <section id="episode-list" className="scroll-mt-24 space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <section id="episode-list" className="episode-section-panel scroll-mt-24 overflow-visible rounded-3xl border bg-card shadow-sm" aria-labelledby="episode-list-title">
+      <div className="episode-section-header flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-3 sm:flex-nowrap">
         <div className="flex min-w-0 items-center gap-1">
-          <h2 className="text-2xl font-semibold tracking-tight">{t("library.episodes")}</h2>
+          <h2 id="episode-list-title" className="text-2xl font-semibold tracking-tight">{t("library.episodes")}</h2>
           {data ? <span className="ml-2 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{t("library.relatedAnimeEpisodeCount", { count: data.total })}</span> : null}
           {metadataSource === "local_snapshot" ? null : (
             <EpisodeTitleSettingsMenu
@@ -140,7 +168,24 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
             />
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="episode-section-actions ml-auto flex min-w-0 items-center justify-end gap-2">
+          {bulkMessage ? (
+            <p className="episode-section-feedback inline-flex min-h-8 items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold" role="status">
+              <CircleCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{bulkMessage}</span>
+            </p>
+          ) : null}
+          {data ? (
+            <EpisodeRangeNavigator
+              page={data.page}
+              ranges={data.ranges}
+              total={data.total}
+              disabled={isLoading || bulkPending}
+              placement="header"
+              onPageChange={changePage}
+              onEpisodeJump={jumpToEpisode}
+            />
+          ) : null}
           <EpisodeSearchMenu
             q={q}
             filter={filter}
@@ -148,39 +193,47 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
             open={openMenu === "search"}
             onOpenChange={(open) => setOpenMenu(open ? "search" : null)}
             onReset={() => {
-              setQ("");
-              setFilter("all");
+              updateQuery({ q: "", filter: "all" });
             }}
-            onChange={(next) => {
-              if (next.q !== undefined) setQ(next.q);
-              if (next.filter !== undefined) setFilter(next.filter);
-              if (next.order !== undefined) setOrder(next.order);
-            }}
+            onChange={updateQuery}
           />
         </div>
       </div>
 
-      <div className="sr-only" aria-live="polite" aria-atomic="true">{bulkMessage}</div>
-      {bulkMessage ? <p className="rounded-xl border border-[color-mix(in_srgb,var(--watched)_28%,transparent)] bg-[color-mix(in_srgb,var(--watched)_8%,var(--surface-card))] px-3 py-2 text-sm" role="status">{bulkMessage}</p> : null}
-      {bulkError ? <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert"><span>{bulkError}</span><Button type="button" size="sm" variant="outline" onClick={() => setBulkError(null)}>{t("library.dismiss")}</Button></div> : null}
+      <div ref={resultsRef} className="episode-section-content scroll-mt-24 space-y-3 p-3 outline-none" role="region" aria-labelledby="episode-list-title" aria-busy={isLoading} tabIndex={-1}>
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {episodeRangeStatus(t, data, page, isLoading)}
+        </p>
+        {bulkError ? <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-[color-mix(in_srgb,var(--destructive)_8%,var(--surface-card))] px-3 py-2 text-sm text-destructive" role="alert"><span>{bulkError}</span><Button type="button" size="sm" variant="outline" onClick={() => setBulkError(null)}>{t("library.dismiss")}</Button></div> : null}
 
-      {error ? (
-        <div className="rounded-2xl border bg-card p-6 text-center">
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button type="button" className="mt-3" onClick={retry}>{t("search.retry")}</Button>
-        </div>
-      ) : null}
+        {error ? (
+          <div className="rounded-2xl border bg-card p-6 text-center">
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <Button type="button" className="mt-3" onClick={retry}>{t("search.retry")}</Button>
+          </div>
+        ) : null}
 
-      {isLoading ? (
-        <div className="space-y-3">{Array.from({ length: 8 }).map((_, index) => <SkeletonBlock key={index} className="h-24" />)}</div>
-      ) : (
-        <div className="space-y-3">
-          {visibleEpisodes.map((episode) => <EpisodeRow key={episode.id} episode={episode} isNext={episode.episodeNumber === nextEpisodeNumber && !episode.watched} disabled={busyIds.has(episode.id) || bulkPending} onWatchChange={updateWatch} />)}
-          {visibleEpisodes.length === 0 ? <div className="rounded-2xl border bg-card p-8 text-center text-muted-foreground">{t("library.noEpisodes")}</div> : null}
-        </div>
-      )}
+        {isLoading ? (
+          <div className="space-y-3">{Array.from({ length: 8 }).map((_, index) => <SkeletonBlock key={index} className="h-24" />)}</div>
+        ) : (
+          <div className="episode-list-stack">
+            {episodes.map((episode) => <EpisodeRow key={episode.id} episode={episode} isNext={episode.episodeNumber === nextEpisodeNumber && !episode.watched} disabled={busyIds.has(episode.id) || bulkPending} onWatchChange={updateWatch} />)}
+            {episodes.length === 0 ? <div className="rounded-2xl border bg-card p-8 text-center text-muted-foreground">{t("library.noEpisodes")}</div> : null}
+          </div>
+        )}
 
-      {(data?.totalPages ?? 0) > 1 ? <LibraryPagination page={page} totalPages={data?.totalPages ?? 0} total={data?.total ?? 0} pageSize={30} disabled={isLoading || bulkPending} onPageChange={changePage} /> : null}
+        {data ? (
+          <EpisodeRangeNavigator
+            page={data.page}
+            ranges={data.ranges}
+            total={data.total}
+            disabled={isLoading || bulkPending}
+            placement="footer"
+            onPageChange={changePage}
+            onEpisodeJump={jumpToEpisode}
+          />
+        ) : null}
+      </div>
 
       <ConfirmDialog
         open={confirmClear}
@@ -206,6 +259,43 @@ function parsePositiveInt(value: string | null) {
   return parsed;
 }
 
-function normalizeEpisodeSearchQuery(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+function parseEpisodeHash(hash: string) {
+  const match = hash.match(/^#episode-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function subscribeToHash(onStoreChange: () => void) {
+  window.addEventListener("hashchange", onStoreChange);
+  return () => window.removeEventListener("hashchange", onStoreChange);
+}
+
+function getHashSnapshot() {
+  return window.location.hash;
+}
+
+function getServerHashSnapshot() {
+  return "";
+}
+
+function parseEpisodeFilter(value: string | null): EpisodeFilter {
+  return value === "watched" || value === "unwatched" ? value : "all";
+}
+
+function parseEpisodeOrder(value: string | null): EpisodeOrder {
+  return value === "desc" ? "desc" : "asc";
+}
+
+function setQueryParam(params: URLSearchParams, key: string, value: string, defaultValue: string) {
+  if (!value || value === defaultValue) params.delete(key);
+  else params.set(key, value);
+}
+
+function episodeRangeStatus(t: ReturnType<typeof useTranslations>, data: ReturnType<typeof useEpisodes>["data"], requestedPage: number, isLoading: boolean) {
+  if (!data || data.ranges.length === 0) return "";
+  const range = data.ranges.find((item) => item.page === requestedPage) ?? data.ranges.find((item) => item.page === data.page) ?? data.ranges[0];
+  return t(isLoading ? "library.episodeRangeLoading" : "library.episodeRangeShowing", {
+    first: range.firstEpisodeNumber,
+    last: range.lastEpisodeNumber,
+    total: data.total,
+  });
 }

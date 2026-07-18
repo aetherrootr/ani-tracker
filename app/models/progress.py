@@ -156,6 +156,7 @@ class UserAnimeMetadataEpisodeSnapshot(TimestampedBase):
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str | None] = mapped_column(String(255))
     air_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    air_at_has_time: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     duration: Mapped[str | None] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(32), default=EpisodeStatus.UNKNOWN.value, server_default=EpisodeStatus.UNKNOWN.value, nullable=False)
     watched: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
@@ -307,6 +308,7 @@ def get_anime_episodes_with_watch_state(
             Episode.episode_number,
             Episode.original_title,
             Episode.air_at,
+            Episode.air_at_has_time,
             Episode.duration,
             Episode.status,
             func.coalesce(UserEpisodeProgress.watched, False).label("watched"),

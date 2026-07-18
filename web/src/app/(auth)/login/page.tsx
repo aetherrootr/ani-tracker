@@ -5,7 +5,7 @@ import { LoginForm } from "@/features/auth/components/LoginForm";
 export default function LoginPage() {
   return (
     <GuestGuard>
-      <AuthPageLayout titleKey="auth.login.title" descriptionKey="auth.login.description">
+      <AuthPageLayout titleKey="auth.login.title" descriptionKey="auth.login.description" showSharedWallpaper>
         <LoginForm />
       </AuthPageLayout>
     </GuestGuard>

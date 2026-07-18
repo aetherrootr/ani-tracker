@@ -4,6 +4,7 @@ import { CalendarDays, Clock3 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 
 import type { Episode } from "@/features/library/types";
+import { formatEpisodeAirAt } from "@/features/library/format-episode-air-at";
 
 import { EpisodeTicket } from "./EpisodeTicket";
 
@@ -52,24 +53,11 @@ export function EpisodeRow({ episode, isNext = false, disabled, onWatchChange }:
           <h3>{title}</h3>
           {originalTitle && originalTitle !== title ? <p className="episode-original-title">{originalTitle}</p> : null}
           <div className="episode-ticket-metadata">
-            <span><CalendarDays aria-hidden="true" />{formatEpisodeDate(episode.airAt, locale, t("library.episodeAirDateUnknown"))}</span>
+            <span><CalendarDays aria-hidden="true" />{formatEpisodeAirAt(episode.airAt, episode.airAtPrecision, locale, t("library.episodeAirDateUnknown"))}</span>
             {episode.duration ? <span><Clock3 aria-hidden="true" />{episode.duration}</span> : null}
           </div>
         </div>
       </div>
     </EpisodeTicket>
   );
-}
-
-function formatEpisodeDate(value: string | null, locale: string, fallback: string) {
-  if (!value) return fallback;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return fallback;
-  return new Intl.DateTimeFormat(locale, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 }

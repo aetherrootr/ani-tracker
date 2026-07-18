@@ -99,6 +99,14 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
             "timeZoneMode": "auto",
             "includeUnwatchedSeasonZeroInTracking": False,
             "includeUnwatchedSeasonZeroInStatistics": False,
+            "desktopWallpaperMode": "fixed",
+            "mobileWallpaperMode": "fixed",
+            "wallpaperGlassStyle": "regular",
+            "wallpaperGlassIntensity": 50,
+            "shareWallpapersOnLogin": False,
+            "desktopWallpapers": [],
+            "mobileWallpapers": [],
+            "wallpaperUploadLimit": 12,
             "oidcLinked": False,
         },
     }
@@ -113,6 +121,9 @@ def test_register_creates_user_logs_in_and_never_returns_password_hash(
     assert user.import_provider_preference == "bangumi"
     assert user.include_unwatched_season_zero_in_tracking is False
     assert user.include_unwatched_season_zero_in_statistics is False
+    assert user.share_wallpapers_on_login is False
+    assert user.wallpaper_glass_style == "regular"
+    assert user.wallpaper_glass_intensity == 50
 
     me_response = client.get("/api/user/me")
     assert me_response.status_code == 200
@@ -321,6 +332,52 @@ def test_update_preferences_updates_season_zero_preferences(client: FlaskClient,
     assert user is not None
     assert user.include_unwatched_season_zero_in_tracking is True
     assert user.include_unwatched_season_zero_in_statistics is True
+
+
+def test_update_preferences_updates_login_wallpaper_sharing(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+
+    invalid_response = client.patch("/api/user/me/preferences", json={"shareWallpapersOnLogin": "true"})
+    assert invalid_response.status_code == 400
+    assert invalid_response.get_json() == {"message": "Login wallpaper sharing preference is invalid"}
+
+    update_response = client.patch("/api/user/me/preferences", json={"shareWallpapersOnLogin": True})
+
+    assert update_response.status_code == 200
+    assert update_response.get_json()["user"]["shareWallpapersOnLogin"] is True
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.share_wallpapers_on_login is True
+
+
+def test_update_preferences_updates_wallpaper_glass_appearance(client: FlaskClient, db_session: Session) -> None:
+    assert register_user(client).status_code == 201
+
+    invalid_style = client.patch("/api/user/me/preferences", json={"wallpaperGlassStyle": "transparent"})
+    invalid_intensity = client.patch("/api/user/me/preferences", json={"wallpaperGlassIntensity": 101})
+    invalid_boolean_intensity = client.patch("/api/user/me/preferences", json={"wallpaperGlassIntensity": True})
+    assert invalid_style.status_code == 400
+    assert invalid_style.get_json() == {"message": "Wallpaper glass style is invalid"}
+    assert invalid_intensity.status_code == 400
+    assert invalid_intensity.get_json() == {"message": "Wallpaper glass intensity is invalid"}
+    assert invalid_boolean_intensity.status_code == 400
+
+    assert client.patch("/api/user/me/preferences", json={"wallpaperGlassIntensity": 0}).status_code == 200
+    assert client.patch("/api/user/me/preferences", json={"wallpaperGlassIntensity": 100}).status_code == 200
+
+    update_response = client.patch(
+        "/api/user/me/preferences",
+        json={"wallpaperGlassStyle": "frosted", "wallpaperGlassIntensity": 73},
+    )
+
+    assert update_response.status_code == 200
+    user_body = update_response.get_json()["user"]
+    assert user_body["wallpaperGlassStyle"] == "frosted"
+    assert user_body["wallpaperGlassIntensity"] == 73
+    user = db_session.scalar(select(User).where(User.username == "link"))
+    assert user is not None
+    assert user.wallpaper_glass_style == "frosted"
+    assert user.wallpaper_glass_intensity == 73
 
 
 def test_update_preferences_updates_language_and_week_start_day_together(client: FlaskClient) -> None:

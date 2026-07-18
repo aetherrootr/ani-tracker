@@ -202,7 +202,7 @@ export function LibraryToolbar(props: Props) {
         {desktop ? panel : null}
       </FloatingSearchInput>
 
-      <div id="library-results-summary" className="mx-auto mt-2 flex min-h-7 w-full max-w-5xl items-center justify-between gap-3 px-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+      <div id="library-results-summary" className="content-status-surface mx-auto mt-2 flex min-h-10 w-full max-w-5xl items-center justify-between gap-3 text-sm text-muted-foreground" role="status" aria-live="polite">
         <span>{busy ? t("library.updatingResults") : t(activeCount ? "library.filteredResults" : "library.results", { count: total })}</span>
         {activeCount ? <button type="button" className="min-h-7 font-medium text-foreground underline-offset-4 hover:underline" onClick={() => onOptionsChange(DEFAULT_OPTIONS)}>{t("library.clearAll")}</button> : null}
       </div>

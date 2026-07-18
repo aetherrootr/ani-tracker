@@ -12,6 +12,8 @@ import type {
   RegisterInput,
   UpdateLanguagePreferenceInput,
   UpdatePreferencesInput,
+  WallpaperMode,
+  WallpaperVariant,
 } from "./types";
 
 export function login(input: LoginInput): Promise<AuthResponse> {
@@ -73,5 +75,26 @@ export function updatePassword(input: UpdatePasswordInput): Promise<UpdatePasswo
   return apiFetch<UpdatePasswordResponse>("/api/user/me/password", {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export function uploadWallpaper(variant: WallpaperVariant, file: File): Promise<AuthResponse> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch<AuthResponse>(`/api/user/me/wallpapers/${variant}`, {
+    method: "POST",
+    body,
+    timeoutMs: 30000,
+  });
+}
+
+export function removeWallpaper(variant: WallpaperVariant, wallpaperId: number): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>(`/api/user/me/wallpapers/${variant}/${wallpaperId}`, { method: "DELETE" });
+}
+
+export function updateWallpaperPreferences(variant: WallpaperVariant, mode: WallpaperMode, selectedWallpaperId?: number): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>(`/api/user/me/wallpapers/${variant}/preferences`, {
+    method: "PATCH",
+    body: JSON.stringify({ mode, selectedWallpaperId }),
   });
 }

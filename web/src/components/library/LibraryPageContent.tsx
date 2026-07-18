@@ -251,10 +251,10 @@ export function LibraryPageContent() {
 
   return (
     <div className="space-y-6">
-      <div className="mx-auto max-w-[1280px] space-y-2 text-center">
+      <header className="page-heading-surface mx-auto max-w-3xl space-y-2 text-center">
         <p className="text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground">{t("library.eyebrow")}</p>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("library.title")}</h1>
-      </div>
+      </header>
 
       <LibraryToolbar
         q={searchDraft}

@@ -234,6 +234,7 @@ export function SlidingOptionGroup<T extends string>({
   size,
   className,
   buttonClassName,
+  disabled = false,
 }: {
   options: readonly T[];
   value: T;
@@ -243,6 +244,7 @@ export function SlidingOptionGroup<T extends string>({
   size?: "sm" | "md" | "lg";
   className?: string;
   buttonClassName?: string;
+  disabled?: boolean;
 }) {
   return (
     <SegmentedControl
@@ -255,6 +257,7 @@ export function SlidingOptionGroup<T extends string>({
       fullWidth
       className={className}
       optionClassName={buttonClassName}
+      disabled={disabled}
     />
   );
 }

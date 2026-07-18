@@ -9,8 +9,20 @@ export function MobileScrollRestorer() {
   const pathname = usePathname();
 
   useLayoutEffect(() => {
-    getMobileScrollContainer()?.scrollTo({ top: 0 });
-    window.scrollTo({ top: 0 });
+    let secondFrame = 0;
+    function resetScroll() {
+      getMobileScrollContainer()?.scrollTo({ top: 0 });
+      window.scrollTo({ top: 0 });
+    }
+
+    resetScroll();
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(resetScroll);
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
   }, [pathname]);
 
   return null;

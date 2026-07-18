@@ -21,7 +21,7 @@ export function SearchState({ hasKeyword, error, isLoading, total, resultCount, 
 
   if (!hasKeyword) {
     return (
-      <div className="rounded-2xl border border-dashed bg-card/70 px-5 py-6 text-center text-muted-foreground">
+      <div className="rounded-2xl border border-dashed bg-card px-5 py-6 text-center text-muted-foreground shadow-[var(--shadow-low)]">
         <Search className="mx-auto mb-3 h-6 w-6" aria-hidden="true" />
         <p>{t("search.emptyPrompt")}</p>
         <p className="mt-1 text-sm">{t("search.emptyExample")}</p>
@@ -32,7 +32,7 @@ export function SearchState({ hasKeyword, error, isLoading, total, resultCount, 
   if (isLoading) {
     return (
       <div className="space-y-3" role="status" aria-live="polite">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="content-status-surface flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
           {t("search.loading")}
         </div>
@@ -57,7 +57,7 @@ export function SearchState({ hasKeyword, error, isLoading, total, resultCount, 
 
   if (resultCount === 0) {
     return (
-      <div className="rounded-2xl border border-dashed bg-card/70 px-5 py-6 text-center text-muted-foreground">
+      <div className="rounded-2xl border border-dashed bg-card px-5 py-6 text-center text-muted-foreground shadow-[var(--shadow-low)]">
         <p>{t("search.noResultsFor", { keyword, provider })}</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <Button type="button" variant="outline" className="min-h-11" onClick={onClear}>{t("search.clearSearch")}</Button>
@@ -67,5 +67,5 @@ export function SearchState({ hasKeyword, error, isLoading, total, resultCount, 
     );
   }
 
-  return <div className="text-sm text-muted-foreground">{t("search.resultSummary", { total, resultCount })}</div>;
+  return <div className="content-status-surface text-sm text-muted-foreground">{t("search.resultSummary", { total, resultCount })}</div>;
 }
