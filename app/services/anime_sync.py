@@ -236,11 +236,13 @@ def _poster_ids_to_enqueue(session: Session, *, anime_id: int, poster: AnimePost
     ids: list[int] = []
     seen: set[int] = set()
     for item in posters:
-        if item.status in {'pending', 'failed'} and item.id not in seen:
+        if item.id in seen:
+            continue
+        if item.status != 'ready':
             item.status = 'pending'
             item.last_error = None
-            ids.append(item.id)
-            seen.add(item.id)
+        ids.append(item.id)
+        seen.add(item.id)
     return ids
 
 

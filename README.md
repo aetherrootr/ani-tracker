@@ -111,7 +111,9 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `TMDB_ACCESS_TOKEN` | Optional TMDB access token. |
 | `TVDB_API_KEY` | Optional TheTVDB API key. TheTVDB-backed features also require a user-provided API PIN. |
 | `TVDB_API_PIN` | Optional TheTVDB API PIN. Obtain it from a TheTVDB subscription; ani-tracker does not provide one. |
-| `UNTRACKED_ANIME_CLEANUP_DISABLED` | Disables the scheduled `delete_untracked_anime` cleanup when set to `true`. Defaults to `false`. |
+| `ANIME_SYNC_CRON_HOUR` | Comma-separated hours for airing anime synchronization. Defaults to `4,12,20`. |
+| `ANIME_SYNC_CRON_MINUTE` | Minute for airing anime synchronization. Defaults to `0`. |
+| `UNTRACKED_ANIME_CLEANUP_DISABLED` | Disables the scheduled `delete_untracked_anime` cleanup when set to `true`. Defaults to `true`. |
 | `AUTO_IMPORT_TVDB_SEASONS_ENABLED` | Automatically import discovered TVDB seasons for eligible user-library entries. |
 | `AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED` | Automatically import conservative Bangumi related anime (`续集`/`前传`) for eligible user-library entries. |
 | `OIDC_ENABLED` | Enables optional OIDC / SSO integration. |

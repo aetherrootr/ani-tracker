@@ -60,6 +60,15 @@ def safe_cron_months(value: object, *, default: str = '2,5,8,11') -> str:
     return months
 
 
+def safe_cron_hours(value: object, *, default: str = '4,12,20') -> str:
+    hours = str(value or default)
+    try:
+        crontab_parser(24).parse(hours)
+    except (KeyError, ValueError):
+        return default
+    return hours
+
+
 def local_timezone(value: object | None = None) -> str:
     for candidate in (value, os.environ.get('TZ'), _timezone_from_localtime()):
         if not isinstance(candidate, str) or not candidate.strip():

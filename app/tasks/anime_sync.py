@@ -29,39 +29,61 @@ logger = logging.getLogger(__name__)
     retry_kwargs={'countdown': 5 * 60, 'max_retries': 3},
 )
 def sync_airing_anime() -> dict[str, int]:
+    return sync_airing_anime_metadata()
+
+
+def sync_airing_anime_metadata(progress_callback: ProgressCallback | None = None) -> dict[str, int]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
     ensure_database_current(database_url)
     connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
     engine = create_engine(database_url, connect_args=connect_args)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     provider_factory = ImportProviderFactory.from_config(_provider_config())
-    summary = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0}
-    with session_factory() as session:
-        anime_ids = _airing_anime_ids(session)
-        summary['checked'] = len(anime_ids)
-        for anime_id in anime_ids:
-            try:
-                anime = session.get(AnimeMetaInfo, anime_id)
-                if anime is None:
+    summary = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0}
+    try:
+        with session_factory() as session:
+            anime_ids = _airing_anime_ids(session)
+            summary['checked'] = len(anime_ids)
+            if progress_callback is not None:
+                progress_callback(_airing_sync_progress_details(summary, processed=0, total=len(anime_ids)))
+            for index, anime_id in enumerate(anime_ids, start=1):
+                anime_title = None
+                try:
+                    anime = session.get(AnimeMetaInfo, anime_id)
+                    if anime is None:
+                        if progress_callback is not None:
+                            progress_callback(_airing_sync_progress_details(summary, processed=index, total=len(anime_ids)))
+                        continue
+                    anime_title = anime.original_name
+                    if progress_callback is not None:
+                        progress_callback(_airing_sync_progress_details(summary, processed=index - 1, total=len(anime_ids), anime_id=anime_id, anime_title=anime_title))
+                    provider = provider_factory.get_provider(anime.provider_type)
+                    result = sync_anime_from_provider(session, provider, anime_id=anime_id)
+                    if result is None:
+                        if progress_callback is not None:
+                            progress_callback(_airing_sync_progress_details(summary, processed=index, total=len(anime_ids), anime_id=anime_id, anime_title=anime_title))
+                        continue
+                    poster_ids = result.poster_ids_to_enqueue
+                    conflict_count = len(result.episode_conflicts)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    summary['failed'] += 1
+                    logger.warning('Failed to sync anime %s', anime_id, exc_info=True)
+                    if progress_callback is not None:
+                        progress_callback(_airing_sync_progress_details(summary, processed=index, total=len(anime_ids), anime_id=anime_id, anime_title=anime_title))
                     continue
-                provider = provider_factory.get_provider(anime.provider_type)
-                result = sync_anime_from_provider(session, provider, anime_id=anime_id)
-                if result is None:
-                    continue
-                poster_ids = result.poster_ids_to_enqueue
-                conflict_count = len(result.episode_conflicts)
-                session.commit()
-            except Exception:
-                session.rollback()
-                summary['failed'] += 1
-                logger.warning('Failed to sync anime %s', anime_id, exc_info=True)
-                continue
-            for poster_id in poster_ids:
-                _enqueue_poster_download(database_url, poster_id)
-            if conflict_count:
-                logger.info('Anime %s sync found %s episode conflicts', anime_id, conflict_count)
-            summary['synced'] += 1
-            summary['episodeConflicts'] += conflict_count
+                for poster_id in poster_ids:
+                    _enqueue_poster_download(database_url, poster_id)
+                if conflict_count:
+                    logger.info('Anime %s sync found %s episode conflicts', anime_id, conflict_count)
+                summary['synced'] += 1
+                summary['episodeConflicts'] += conflict_count
+                summary['postersQueued'] += len(poster_ids)
+                if progress_callback is not None:
+                    progress_callback(_airing_sync_progress_details(summary, processed=index, total=len(anime_ids), anime_id=anime_id, anime_title=anime_title))
+    finally:
+        engine.dispose()
     return summary
 
 
@@ -199,6 +221,59 @@ def refresh_user_library(user_id: int, lock_path: str | None = None, job_dir: st
         release_library_refresh_lock(lock_path)
 
 
+@celery_app.task(name='app.tasks.anime_sync.refresh_airing_anime')
+def refresh_airing_anime(lock_path: str | None = None, job_dir: str | None = None, job_id: str | None = None) -> dict[str, int]:
+    try:
+        _update_refresh_job(job_dir, job_id, status='running', progress=_refresh_progress('syncing', 0, 1, 'Refreshing airing anime metadata'))
+        summary = sync_airing_anime_metadata(
+            progress_callback=lambda details: _update_refresh_job(
+                job_dir,
+                job_id,
+                progress=_refresh_progress('syncing', _summary_int(details, 'processed'), _summary_int(details, 'total'), 'Refreshing airing anime metadata', details=details),
+            ),
+        )
+        _update_refresh_job(
+            job_dir,
+            job_id,
+            status='completed',
+            progress=_refresh_progress('completed', 1, 1, 'Airing anime refresh completed'),
+            summary=summary,
+        )
+        return summary
+    except Exception as exc:
+        _update_refresh_job(
+            job_dir,
+            job_id,
+            status='failed',
+            progress=_refresh_progress('failed', 0, 1, str(exc)),
+            summary={'error': type(exc).__name__, 'message': str(exc)},
+        )
+        raise
+    finally:
+        release_library_refresh_lock(lock_path)
+
+
+def _airing_sync_progress_details(
+    summary: dict[str, int],
+    *,
+    processed: int,
+    total: int,
+    anime_id: int | None = None,
+    anime_title: str | None = None,
+) -> dict[str, object]:
+    details: dict[str, object] = {
+        'processed': processed,
+        'total': total,
+        'synced': summary['synced'],
+        'failed': summary['failed'],
+        'episodeConflicts': summary['episodeConflicts'],
+        'postersQueued': summary['postersQueued'],
+    }
+    if anime_id is not None:
+        details['currentAnime'] = {'animeId': anime_id, 'title': anime_title or f'#{anime_id}'}
+    return details
+
+
 def _sync_progress_details(summary: dict[str, object], *, anime_id: int, anime_title: str | None, processed: int, total: int) -> dict[str, object]:
     return {
         'processed': processed,
@@ -234,7 +309,7 @@ def _update_refresh_job(job_dir: str | None, job_id: str | None, **fields: objec
 
 def _airing_anime_ids(session) -> list[int]:  # type: ignore[no-untyped-def]
     episode_count = func.count(Episode.id)
-    has_upcoming = func.max(func.coalesce(Episode.status == EpisodeStatus.UPCOMING, False))
+    upcoming_episode_count = func.count(Episode.id).filter(Episode.status == EpisodeStatus.UPCOMING)
     rows = session.execute(
         select(AnimeMetaInfo.id)
         .outerjoin(Episode, Episode.anime_id == AnimeMetaInfo.id)
@@ -243,7 +318,7 @@ def _airing_anime_ids(session) -> list[int]:  # type: ignore[no-untyped-def]
             or_(
                 AnimeMetaInfo.total_episodes.is_(None),
                 episode_count < AnimeMetaInfo.total_episodes,
-                has_upcoming.is_(True),
+                upcoming_episode_count > 0,
             ),
         ),
     ).all()

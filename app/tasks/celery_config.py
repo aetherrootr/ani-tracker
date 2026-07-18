@@ -6,7 +6,7 @@ import secrets
 from celery.schedules import crontab
 
 from app.celery_app import celery_app
-from app.utils import env_bool, local_timezone, safe_cron_months, safe_int
+from app.utils import env_bool, local_timezone, safe_cron_hours, safe_cron_months, safe_int
 
 
 def configure_celery_from_env() -> None:
@@ -17,13 +17,13 @@ def configure_celery_from_env() -> None:
         timezone=local_timezone(os.environ.get('ANIME_SYNC_TIMEZONE')),
         enable_utc=False,
         beat_schedule=_beat_schedule(
-            os.environ.get('ANIME_SYNC_CRON_HOUR', '4'),
+            os.environ.get('ANIME_SYNC_CRON_HOUR', '4,12,20'),
             os.environ.get('ANIME_SYNC_CRON_MINUTE', '0'),
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_DAY'),
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_HOUR'),
             os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE'),
-            cleanup_disabled=env_bool('UNTRACKED_ANIME_CLEANUP_DISABLED'),
+            cleanup_disabled=env_bool('UNTRACKED_ANIME_CLEANUP_DISABLED', default=True),
             tvdb_season_discovery_enabled=env_bool('AUTO_IMPORT_TVDB_SEASONS_ENABLED'),
             tvdb_season_discovery_day=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'),
             tvdb_season_discovery_hour=os.environ.get('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'),
@@ -48,13 +48,13 @@ def configure_celery(config: dict[str, object]) -> None:
         timezone=local_timezone(config.get('ANIME_SYNC_TIMEZONE')),
         enable_utc=False,
         beat_schedule=_beat_schedule(
-            config.get('ANIME_SYNC_CRON_HOUR', 4),
+            config.get('ANIME_SYNC_CRON_HOUR', '4,12,20'),
             config.get('ANIME_SYNC_CRON_MINUTE', 0),
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_DAY'),
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_HOUR'),
             config.get('UNTRACKED_ANIME_CLEANUP_CRON_MINUTE'),
-            cleanup_disabled=bool(config.get('UNTRACKED_ANIME_CLEANUP_DISABLED')),
+            cleanup_disabled=bool(config.get('UNTRACKED_ANIME_CLEANUP_DISABLED', True)),
             tvdb_season_discovery_enabled=bool(config.get('AUTO_IMPORT_TVDB_SEASONS_ENABLED')),
             tvdb_season_discovery_day=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_DAY'),
             tvdb_season_discovery_hour=config.get('AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR'),
@@ -89,7 +89,7 @@ def _beat_schedule(
         'sync-airing-anime': {
             'task': 'app.tasks.anime_sync.sync_airing_anime',
             'schedule': crontab(
-                hour=safe_int(hour, default=4, minimum=0, maximum=23),
+                hour=safe_cron_hours(hour),
                 minute=safe_int(minute, default=0, minimum=0, maximum=59),
             ),
         },

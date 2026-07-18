@@ -2240,6 +2240,64 @@ def test_sync_library_anime_requires_login(client: FlaskClient) -> None:
     assert response.get_json() == {'message': 'Authentication required'}
 
 
+def test_queue_airing_anime_sync_requires_login(client: FlaskClient) -> None:
+    response = client.post('/api/anime/airing/sync')
+
+    assert response.status_code == 401
+    assert response.get_json() == {'message': 'Authentication required'}
+
+
+def test_queue_airing_anime_sync_reuses_active_job_and_supports_polling(
+    app: Flask,
+    client: FlaskClient,
+    test_instance_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import anime_info
+
+    assert register_user(client).status_code == 201
+    app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'] = str(test_instance_path / 'airing-refresh-locks')
+
+    @dataclass(frozen=True)
+    class Result:
+        id: str
+
+    queued_task_ids: list[str] = []
+
+    def apply_async(*, args, task_id):  # type: ignore[no-untyped-def]
+        assert args[1] == app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']
+        assert args[2] == task_id
+        queued_task_ids.append(task_id)
+        return Result(id=task_id)
+
+    monkeypatch.setattr(anime_info.refresh_airing_anime, 'apply_async', apply_async)
+
+    first = client.post('/api/anime/airing/sync')
+    second = client.post('/api/anime/airing/sync')
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    first_body = first.get_json()
+    second_body = second.get_json()
+    assert first_body['queued'] is True
+    assert first_body['job']['jobId'] == first_body['taskId']
+    assert first_body['job']['status'] == 'queued'
+    assert second_body['queued'] is False
+    assert second_body['job']['jobId'] == first_body['taskId']
+    assert queued_task_ids == [first_body['taskId']]
+
+    current = client.get('/api/anime/airing/sync')
+    by_id = client.get(f"/api/anime/airing/sync/{first_body['taskId']}")
+    library_refresh = client.get('/api/anime/library/sync-all')
+
+    assert current.status_code == 200
+    assert by_id.status_code == 200
+    assert current.get_json()['job']['jobId'] == first_body['taskId']
+    assert by_id.get_json()['jobId'] == first_body['taskId']
+    assert library_refresh.status_code == 200
+    assert library_refresh.get_json() == {'job': None}
+
+
 def test_sync_library_anime_requires_user_library_entry(
     app: Flask,
     client: FlaskClient,
@@ -2451,20 +2509,65 @@ def test_sync_airing_anime_task_selects_airing_and_continues_after_failure(
     monkeypatch.setattr(anime_sync_task, '_enqueue_poster_download', lambda *_args: None)
     celery_app.conf.database_url = app.config['DATABASE_URL']
 
-    summary = anime_sync_task.sync_airing_anime()
+    progress_updates: list[dict[str, object]] = []
+    summary = anime_sync_task.sync_airing_anime_metadata(progress_updates.append)
 
     assert summary['checked'] == 3
     assert summary['synced'] == 2
     assert summary['failed'] == 1
     assert provider.detail_calls == ['upcoming', 'unknown', 'partial']
+    assert progress_updates[0]['processed'] == 0
+    assert progress_updates[0]['total'] == 3
+    assert progress_updates[-1]['processed'] == 3
+    assert progress_updates[-1]['synced'] == 2
+    assert progress_updates[-1]['failed'] == 1
+
+
+def test_refresh_airing_anime_task_persists_progress_and_releases_lock(
+    test_instance_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.library_refresh_jobs import (
+        acquire_library_refresh_lock,
+        load_library_refresh_job,
+        store_library_refresh_job,
+    )
+    from app.tasks import anime_sync as anime_sync_task
+
+    job_dir = test_instance_path / 'airing-refresh-jobs'
+    job_id = 'airingjob'
+    lock = acquire_library_refresh_lock(user_id=0, task_id=job_id, lock_dir=str(job_dir))
+    store_library_refresh_job(
+        job_dir,
+        job_id,
+        {'jobId': job_id, 'userId': 1, 'kind': 'airing_anime_sync', 'status': 'queued', 'progress': None, 'summary': None},
+    )
+
+    def sync(progress_callback):  # type: ignore[no-untyped-def]
+        progress_callback({'processed': 1, 'total': 2, 'synced': 1, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 1})
+        progress_callback({'processed': 2, 'total': 2, 'synced': 2, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 1})
+        return {'checked': 2, 'synced': 2, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 1}
+
+    monkeypatch.setattr(anime_sync_task, 'sync_airing_anime_metadata', sync)
+
+    summary = anime_sync_task.refresh_airing_anime(lock.lock_path, str(job_dir), job_id)
+
+    job = load_library_refresh_job(job_dir, job_id)
+    assert summary['synced'] == 2
+    assert job is not None
+    assert job['status'] == 'completed'
+    assert job['progress']['percent'] == 100
+    assert job['summary'] == summary
+    assert not Path(lock.lock_path).exists()
 
 
 def test_celery_beat_schedule_defaults_and_env_override() -> None:
     configure_celery(
         {
             'CELERY_BROKER_URL': 'memory://',
-            'ANIME_SYNC_CRON_HOUR': 4,
+            'ANIME_SYNC_CRON_HOUR': '4,12,20',
             'ANIME_SYNC_CRON_MINUTE': 0,
+            'UNTRACKED_ANIME_CLEANUP_DISABLED': False,
             'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
             'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,
             'UNTRACKED_ANIME_CLEANUP_CRON_MINUTE': 9,
@@ -2487,7 +2590,7 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     override_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
     tvdb_season_schedule = celery_app.conf.beat_schedule['discover-tvdb-seasons']['schedule']
 
-    assert default_schedule.hour == {4}
+    assert default_schedule.hour == {4, 12, 20}
     assert default_schedule.minute == {0}
     assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
     assert cleanup_schedule.day_of_month == {7}
@@ -2732,6 +2835,7 @@ def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
     configure_celery(
         {
             'CELERY_BROKER_URL': 'memory://',
+            'UNTRACKED_ANIME_CLEANUP_DISABLED': False,
             'UNTRACKED_ANIME_CLEANUP_CRON_MONTHS': 'not-a-month',
             'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
             'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,

@@ -118,10 +118,10 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "CELERY_TASK_ALWAYS_EAGER": env_bool("CELERY_TASK_ALWAYS_EAGER"),
 
         # Scheduled maintenance and synchronization settings.
-        "ANIME_SYNC_CRON_HOUR": env_int('ANIME_SYNC_CRON_HOUR', default=4, minimum=0, maximum=23),
+        "ANIME_SYNC_CRON_HOUR": os.environ.get('ANIME_SYNC_CRON_HOUR', '4,12,20'),
         "ANIME_SYNC_CRON_MINUTE": env_int('ANIME_SYNC_CRON_MINUTE', default=0, minimum=0, maximum=59),
         "ANIME_SYNC_TIMEZONE": os.environ.get('ANIME_SYNC_TIMEZONE') or os.environ.get('TZ'),
-        "UNTRACKED_ANIME_CLEANUP_DISABLED": env_bool('UNTRACKED_ANIME_CLEANUP_DISABLED'),
+        "UNTRACKED_ANIME_CLEANUP_DISABLED": env_bool('UNTRACKED_ANIME_CLEANUP_DISABLED', default=True),
         "UNTRACKED_ANIME_CLEANUP_CRON_MONTHS": os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
         "UNTRACKED_ANIME_CLEANUP_CRON_DAY": env_int('UNTRACKED_ANIME_CLEANUP_CRON_DAY', default=0, minimum=1, maximum=28),
         "UNTRACKED_ANIME_CLEANUP_CRON_HOUR": env_int('UNTRACKED_ANIME_CLEANUP_CRON_HOUR', default=-1, minimum=0, maximum=23),
