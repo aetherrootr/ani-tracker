@@ -621,6 +621,8 @@ export const zhCN = {
     resultsRegion: "资料库结果",
     quickNavigation: "资料库快速导航",
     quickNavigationScrollbar: "滚动资料库锚点",
+    quickNavigationPrevious: "向上翻阅快速导航",
+    quickNavigationNext: "向下翻阅快速导航",
     viewDetails: "查看《{title}》详情",
     watchedCount: "已观看 {watched} / {total}",
     type: {

@@ -624,6 +624,8 @@ export const en = {
     resultsRegion: "Library results",
     quickNavigation: "Library quick navigation",
     quickNavigationScrollbar: "Scroll library anchors",
+    quickNavigationPrevious: "Page up through quick navigation",
+    quickNavigationNext: "Page down through quick navigation",
     viewDetails: "View details for {title}",
     watchedCount: "{watched} / {total} watched",
     type: {
