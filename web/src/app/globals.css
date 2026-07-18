@@ -1046,64 +1046,15 @@ input[type="search"]::-webkit-search-decoration {
 }
 
 .app-logo-mark {
-  position: relative;
-  isolation: isolate;
-  display: inline-grid;
+  display: inline-block;
   flex: none;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent-solid) 20%, var(--border-highlight));
-  border-radius: 35%;
-  background:
-    radial-gradient(circle at 25% 16%, rgb(255 255 255 / 0.7), transparent 38%),
-    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 76%, var(--surface-glass-strong)), var(--surface-glass));
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.62) inset,
-    0 -1px 0 color-mix(in srgb, var(--accent-solid) 12%, transparent) inset,
-    0 7px 18px color-mix(in srgb, var(--accent-glow) 45%, transparent);
 }
 
-.app-logo-mark::after {
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  background: linear-gradient(120deg, transparent 38%, rgb(255 255 255 / 0.24) 49%, transparent 60%);
-  content: "";
-  pointer-events: none;
-}
-
-.app-logo-mark svg {
-  width: 72%;
-  height: 72%;
-  overflow: visible;
-  filter: drop-shadow(0 3px 5px var(--accent-glow));
-}
-
-.app-logo-mark-triangle {
-  fill: var(--accent-solid);
-}
-
-.app-logo-mark-highlight {
-  fill: rgb(255 255 255 / 0.55);
-}
-
-.dark .app-logo-mark {
-  border-color: color-mix(in srgb, var(--accent-solid) 24%, var(--border-neutral));
-  background:
-    radial-gradient(circle at 25% 16%, rgb(255 255 255 / 0.14), transparent 38%),
-    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 58%, var(--surface-solid)), var(--surface-glass));
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.1) inset,
-    0 -1px 0 rgb(0 0 0 / 0.22) inset,
-    0 7px 18px color-mix(in srgb, var(--accent-glow) 26%, transparent);
-}
-
-.dark .app-logo-mark::after {
-  opacity: 0.28;
-}
-
-.dark .app-logo-mark-highlight {
-  fill: rgb(255 255 255 / 0.2);
+.app-logo-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .mobile-navigation-tools {
@@ -2794,11 +2745,6 @@ body.episode-ticket-drag-lock {
     backdrop-filter: blur(var(--glass-blur-small)) saturate(145%);
   }
 
-  .app-logo-mark {
-    -webkit-backdrop-filter: blur(var(--glass-blur-small)) saturate(155%);
-    backdrop-filter: blur(var(--glass-blur-small)) saturate(155%);
-  }
-
   .library-anchor-list {
     -webkit-backdrop-filter: blur(var(--glass-blur-medium)) saturate(150%);
     backdrop-filter: blur(var(--glass-blur-medium)) saturate(150%);
@@ -2849,8 +2795,7 @@ body.episode-ticket-drag-lock {
   .select-content,
   .description-backdrop,
   .description-sheet,
-  .library-anchor-list,
-  .app-logo-mark {
+  .library-anchor-list {
     background: var(--surface-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

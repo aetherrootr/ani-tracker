@@ -1,7 +1,7 @@
-import { createAppIconResponse } from "@/lib/app-icon-response";
+import { createBrandingFileResponse } from "@/lib/branding-file-response";
 
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  return createAppIconResponse(512);
+  return createBrandingFileResponse("APP_PWA_ICON_512_FILE", "icon-512x512.png", ["image/png"]);
 }

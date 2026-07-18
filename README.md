@@ -118,33 +118,36 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 
 ### Custom app logo and PWA icons
 
-The default UI logo is self-drawn and stored in `web/public/app-logo.svg`. You can replace the logo at deployment time without rebuilding application code by serving your own static files and setting these runtime environment variables:
+The default UI logo and favicon use `web/public/liquid-glass-play-icon.svg`. You can replace the branding at deployment time without rebuilding application code by mounting image files into the container and setting these runtime environment variables to their absolute container paths:
 
 | Variable | Description |
 | --- | --- |
-| `APP_LOGO_URL` | Logo shown in the login/register pages and app navigation. SVG, PNG, or WebP are supported. Defaults to `/app-logo.svg`. |
-| `APP_PWA_ICON_192_URL` | 192x192 PNG icon used by the web app manifest. Defaults to `/icon-192x192.png`. |
-| `APP_PWA_ICON_512_URL` | 512x512 PNG icon used by the web app manifest. Defaults to `/icon-512x512.png`. |
-| `APP_PWA_ICON_MASKABLE_URL` | 512x512 maskable PNG icon for Android launchers. Defaults to `/icon-maskable-512x512.png`. |
-| `APP_APPLE_TOUCH_ICON_URL` | 180x180 PNG icon used by iOS when adding the app to the home screen. Defaults to `/apple-touch-icon.png`. |
+| `APP_LOGO_FILE` | Logo shown in the login/register pages, app navigation, and About settings. SVG, PNG, or WebP are supported. |
+| `APP_FAVICON_FILE` | Browser tab icon. SVG, PNG, or ICO are supported. |
+| `APP_PWA_ICON_192_FILE` | 192x192 PNG icon used by the web app manifest. |
+| `APP_PWA_ICON_512_FILE` | 512x512 PNG icon used by the web app manifest. |
+| `APP_PWA_ICON_MASKABLE_FILE` | 512x512 maskable PNG icon for Android launchers. |
+| `APP_APPLE_TOUCH_ICON_FILE` | 180x180 PNG icon used by iOS when adding the app to the home screen. |
 
-For self-hosted deployments, mount your files into the web server's public/static path or serve them from your reverse proxy, then point the variables to those same-origin paths. Example values:
+All variables are optional and use the bundled assets when unset. Configured paths must be absolute and readable by the application process. They are container filesystem paths, not browser URLs:
 
 ```env
-APP_LOGO_URL=/custom/logo.svg
-APP_PWA_ICON_192_URL=/custom/icon-192x192.png
-APP_PWA_ICON_512_URL=/custom/icon-512x512.png
-APP_PWA_ICON_MASKABLE_URL=/custom/icon-maskable-512x512.png
-APP_APPLE_TOUCH_ICON_URL=/custom/apple-touch-icon.png
+APP_LOGO_FILE=/opt/ani-tracker/branding/logo.svg
+APP_FAVICON_FILE=/opt/ani-tracker/branding/favicon.svg
+APP_PWA_ICON_192_FILE=/opt/ani-tracker/branding/icon-192x192.png
+APP_PWA_ICON_512_FILE=/opt/ani-tracker/branding/icon-512x512.png
+APP_PWA_ICON_MASKABLE_FILE=/opt/ani-tracker/branding/icon-maskable-512x512.png
+APP_APPLE_TOUCH_ICON_FILE=/opt/ani-tracker/branding/apple-touch-icon.png
 ```
 
-The app exposes stable internal URLs (`/app-logo`, `/pwa-icon-192`, `/pwa-icon-512`, `/pwa-icon-maskable`, and `/apple-touch-icon-custom`) and redirects them to the configured files at request time, so the variables can be changed in deployment configuration. Use same-origin URLs for PWA icons whenever possible. After changing PWA icons, remove and reinstall the home-screen app or clear site data, because mobile browsers aggressively cache installed app icons.
+The app reads these files on the server and exposes them through stable internal URLs (`/app-logo`, `/favicon-custom`, `/pwa-icon-192`, `/pwa-icon-512`, `/pwa-icon-maskable`, and `/apple-touch-icon-custom`). Container paths are never sent to browsers. After changing the favicon or PWA icons, clear site data and remove and reinstall any home-screen app because browsers aggressively cache these assets.
 
-For the official container image, the Next.js public directory is `/opt/ani-tracker/web/public`. A practical Docker Compose setup is to mount a host directory into `/opt/ani-tracker/web/public/custom` and point the variables to `/custom/...` URLs:
+For the official container image, a practical Docker Compose setup is to mount a host directory read-only at `/opt/ani-tracker/branding`:
 
 ```text
 /opt/ani-tracker-branding/
   logo.svg
+  favicon.svg
   icon-192x192.png
   icon-512x512.png
   icon-maskable-512x512.png
@@ -156,17 +159,18 @@ services:
   app:
     image: ghcr.io/aetherrootr/ani-tracker:latest
     environment:
-      APP_LOGO_URL: /custom/logo.svg
-      APP_PWA_ICON_192_URL: /custom/icon-192x192.png
-      APP_PWA_ICON_512_URL: /custom/icon-512x512.png
-      APP_PWA_ICON_MASKABLE_URL: /custom/icon-maskable-512x512.png
-      APP_APPLE_TOUCH_ICON_URL: /custom/apple-touch-icon.png
+      APP_LOGO_FILE: /opt/ani-tracker/branding/logo.svg
+      APP_FAVICON_FILE: /opt/ani-tracker/branding/favicon.svg
+      APP_PWA_ICON_192_FILE: /opt/ani-tracker/branding/icon-192x192.png
+      APP_PWA_ICON_512_FILE: /opt/ani-tracker/branding/icon-512x512.png
+      APP_PWA_ICON_MASKABLE_FILE: /opt/ani-tracker/branding/icon-maskable-512x512.png
+      APP_APPLE_TOUCH_ICON_FILE: /opt/ani-tracker/branding/apple-touch-icon.png
     volumes:
       - ani_tracker_data:/var/lib/ani-tracker
-      - /opt/ani-tracker-branding:/opt/ani-tracker/web/public/custom:ro
+      - /opt/ani-tracker-branding:/opt/ani-tracker/branding:ro
 ```
 
-In this example, the container file `/opt/ani-tracker/web/public/custom/logo.svg` is served to browsers as `/custom/logo.svg`.
+In this example, the application reads `/opt/ani-tracker/branding/logo.svg`, while browsers only request the stable `/app-logo` URL.
 
 ## Non-goals
 
