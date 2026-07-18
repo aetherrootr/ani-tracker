@@ -2463,8 +2463,9 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     configure_celery(
         {
             'CELERY_BROKER_URL': 'memory://',
-            'ANIME_SYNC_CRON_HOUR': 4,
+            'ANIME_SYNC_CRON_HOUR': '4,12,20',
             'ANIME_SYNC_CRON_MINUTE': 0,
+            'UNTRACKED_ANIME_CLEANUP_DISABLED': False,
             'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
             'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,
             'UNTRACKED_ANIME_CLEANUP_CRON_MINUTE': 9,
@@ -2487,7 +2488,7 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     override_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
     tvdb_season_schedule = celery_app.conf.beat_schedule['discover-tvdb-seasons']['schedule']
 
-    assert default_schedule.hour == {4}
+    assert default_schedule.hour == {4, 12, 20}
     assert default_schedule.minute == {0}
     assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
     assert cleanup_schedule.day_of_month == {7}
@@ -2732,6 +2733,7 @@ def test_celery_beat_schedule_ignores_invalid_cleanup_months() -> None:
     configure_celery(
         {
             'CELERY_BROKER_URL': 'memory://',
+            'UNTRACKED_ANIME_CLEANUP_DISABLED': False,
             'UNTRACKED_ANIME_CLEANUP_CRON_MONTHS': 'not-a-month',
             'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
             'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,
