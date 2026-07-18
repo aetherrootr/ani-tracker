@@ -4,6 +4,22 @@
   <title id="title">液态玻璃播放图标</title>
   <desc id="desc">紫蓝色播放符号嵌在 Apple 风格连续圆角的半透明玻璃图标中。</desc>
 
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .icon-surface { fill: url(#glassFillDark); }
+      .icon-rim { stroke: url(#rimDark); }
+      .icon-bloom { fill: url(#glassBloomDark); }
+      .icon-accent-bloom { fill: #7562e8; opacity: .12; }
+      .icon-highlight-blur { stroke-opacity: .22; opacity: .3; }
+      .icon-highlight { stroke-opacity: .2; }
+      .icon-lowlight { stroke: #7562e8; stroke-opacity: .18; }
+      .icon-inner-rim { stroke-opacity: .12; }
+      .play-shadow { fill: #05040a; opacity: .5; }
+      .play-symbol { fill: url(#playFillDark); stroke-opacity: .12; }
+      .play-highlight { fill: url(#playSheenDark); opacity: .58; }
+    }
+  </style>
+
   <defs>
     <!-- Apple-style continuous-corner icon silhouette -->
     <path id="squircle" d="
@@ -33,10 +49,28 @@
       <stop offset="1" stop-color="#c8c2ff" stop-opacity=".38"/>
     </linearGradient>
 
+    <linearGradient id="glassFillDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#292533"/>
+      <stop offset=".46" stop-color="#18151f"/>
+      <stop offset="1" stop-color="#09080d"/>
+    </linearGradient>
+
+    <linearGradient id="rimDark" x1=".08" y1=".02" x2=".92" y2=".98">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".3"/>
+      <stop offset=".34" stop-color="#a99cff" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".42"/>
+    </linearGradient>
+
     <radialGradient id="glassBloom" cx="32%" cy="18%" r="88%">
       <stop offset="0" stop-color="#ffffff" stop-opacity=".72"/>
       <stop offset=".36" stop-color="#ffffff" stop-opacity=".10"/>
       <stop offset="1" stop-color="#a397ff" stop-opacity=".16"/>
+    </radialGradient>
+
+    <radialGradient id="glassBloomDark" cx="32%" cy="18%" r="88%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
+      <stop offset=".38" stop-color="#9b8cff" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".18"/>
     </radialGradient>
 
     <linearGradient id="playFill" x1="0" y1="0" x2="1" y2="1">
@@ -50,6 +84,19 @@
       <stop offset="0" stop-color="#ffffff" stop-opacity=".66"/>
       <stop offset=".42" stop-color="#eeeaff" stop-opacity=".54"/>
       <stop offset="1" stop-color="#b8afff" stop-opacity=".34"/>
+    </linearGradient>
+
+    <linearGradient id="playFillDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b4a7ff"/>
+      <stop offset=".3" stop-color="#8d78ff"/>
+      <stop offset=".72" stop-color="#6552dc"/>
+      <stop offset="1" stop-color="#8878ff"/>
+    </linearGradient>
+
+    <linearGradient id="playSheenDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".58"/>
+      <stop offset=".48" stop-color="#d8d1ff" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#9d8dff" stop-opacity=".14"/>
     </linearGradient>
 
     <radialGradient id="playGlow" cx="50%" cy="50%" r="50%">
@@ -76,33 +123,33 @@
   </defs>
 
   <!-- The translucent rim keeps the icon lightweight on both white and colored pages. -->
-  <use href="#squircle" xlink:href="#squircle" fill="url(#glassFill)"/>
-  <use href="#squircle" xlink:href="#squircle" fill="none" stroke="url(#rim)" stroke-width="2.5"/>
+  <use class="icon-surface" href="#squircle" xlink:href="#squircle" fill="url(#glassFill)"/>
+  <use class="icon-rim" href="#squircle" xlink:href="#squircle" fill="none" stroke="url(#rim)" stroke-width="2.5"/>
 
   <g clip-path="url(#iconClip)">
     <!-- Translucent internal bloom and refraction tint -->
-    <ellipse cx="192" cy="120" rx="246" ry="178" fill="url(#glassBloom)"/>
-    <ellipse cx="403" cy="374" rx="180" ry="142" fill="#b9b1ff" opacity=".09" filter="url(#blur18)"/>
+    <ellipse class="icon-bloom" cx="192" cy="120" rx="246" ry="178" fill="url(#glassBloom)"/>
+    <ellipse class="icon-accent-bloom" cx="403" cy="374" rx="180" ry="142" fill="#b9b1ff" opacity=".09" filter="url(#blur18)"/>
 
     <!-- Specular arcs emphasize the continuous glass edge. -->
-    <path d="M106 196 C112 123 145 96 236 94" fill="none" stroke="#ffffff" stroke-opacity=".88" stroke-width="7" stroke-linecap="round" filter="url(#blur8)" opacity=".48"/>
-    <path d="M116 190 C123 128 151 105 231 101" fill="none" stroke="#ffffff" stroke-opacity=".72" stroke-width="3" stroke-linecap="round"/>
-    <path d="M399 318 C393 376 368 403 303 414" fill="none" stroke="#b4aaff" stroke-opacity=".28" stroke-width="5" stroke-linecap="round" filter="url(#blur8)"/>
+    <path class="icon-highlight-blur" d="M106 196 C112 123 145 96 236 94" fill="none" stroke="#ffffff" stroke-opacity=".88" stroke-width="7" stroke-linecap="round" filter="url(#blur8)" opacity=".48"/>
+    <path class="icon-highlight" d="M116 190 C123 128 151 105 231 101" fill="none" stroke="#ffffff" stroke-opacity=".72" stroke-width="3" stroke-linecap="round"/>
+    <path class="icon-lowlight" d="M399 318 C393 376 368 403 303 414" fill="none" stroke="#b4aaff" stroke-opacity=".28" stroke-width="5" stroke-linecap="round" filter="url(#blur8)"/>
 
     <!-- Fine inner border creates the pressed-glass lip. -->
-    <use href="#squircle" xlink:href="#squircle" transform="translate(256 256) scale(.965) translate(-256 -256)"
+    <use class="icon-inner-rim" href="#squircle" xlink:href="#squircle" transform="translate(256 256) scale(.965) translate(-256 -256)"
          fill="none" stroke="#ffffff" stroke-opacity=".52" stroke-width="3"/>
   </g>
 
   <!-- Liquid glass play symbol: paths taken from the supplied 48 × 48 web SVG. -->
   <g transform="translate(256 256) scale(7.2) translate(-24 -24)">
-    <path class="app-logo-mark-triangle"
+    <path class="app-logo-mark-triangle play-shadow"
           d="M15.4 9.8c-2.2-1.4-5.1.2-5.1 2.8v22.8c0 2.6 2.9 4.2 5.1 2.8l20-11.4a3.2 3.2 0 0 0 0-5.6l-20-11.4Z"
           transform="translate(0 2.3)" fill="#4536bb" opacity=".28" filter="url(#playBlur)"/>
-    <path class="app-logo-mark-triangle"
+    <path class="app-logo-mark-triangle play-symbol"
           d="M15.4 9.8c-2.2-1.4-5.1.2-5.1 2.8v22.8c0 2.6 2.9 4.2 5.1 2.8l20-11.4a3.2 3.2 0 0 0 0-5.6l-20-11.4Z"
           fill="url(#playFill)" stroke="#ffffff" stroke-opacity=".26" stroke-width=".55"/>
-    <path class="app-logo-mark-highlight"
+    <path class="app-logo-mark-highlight play-highlight"
           d="M14.3 13.2c-.7-.4-1.5.1-1.5.9v7.4c4.8-3.1 10.2-5.1 16-5.8l-14.5-2.5Z"
           fill="url(#playSheen)" opacity="1"/>
   </g>
