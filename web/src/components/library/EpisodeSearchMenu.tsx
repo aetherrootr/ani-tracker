@@ -34,9 +34,11 @@ export function EpisodeSearchMenu({
 }) {
   const t = useTranslations();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [compositionValue, setCompositionValue] = useState<string | null>(null);
   const panelId = useId();
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const composingRef = useRef(false);
   const { desktop, position } = useAnchoredEpisodePopover(open, triggerRef, "end");
 
   useEffect(() => {
@@ -80,9 +82,27 @@ export function EpisodeSearchMenu({
               <div className="mb-3 flex items-center justify-between">
                  <h3 id={`${panelId}-title`} className="font-semibold">{t("library.episodeSearchMenuTitle")}</h3>
                  <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={t("library.closeEpisodeFilters")} onClick={closeMenu}><X className="h-4 w-4" /></Button>
-              </div>
-              <div className="relative">
-                 <Input type="search" value={q} placeholder={t("library.searchEpisodesPlaceholder")} className="pr-12" onChange={(event) => onChange({ q: event.target.value })} />
+               </div>
+               <div className="relative">
+                  <Input
+                    type="search"
+                    value={compositionValue ?? q}
+                    placeholder={t("library.searchEpisodesPlaceholder")}
+                    className="pr-12"
+                    onChange={(event) => {
+                      if (composingRef.current) setCompositionValue(event.currentTarget.value);
+                      else onChange({ q: event.currentTarget.value });
+                    }}
+                    onCompositionStart={(event) => {
+                      composingRef.current = true;
+                      setCompositionValue(event.currentTarget.value);
+                    }}
+                    onCompositionEnd={(event) => {
+                      composingRef.current = false;
+                      setCompositionValue(null);
+                      onChange({ q: event.currentTarget.value });
+                    }}
+                  />
                 <button
                   type="button"
                    className="group absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

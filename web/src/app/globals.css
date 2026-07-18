@@ -1982,8 +1982,9 @@ input[type="search"]::-webkit-search-decoration {
   overflow: hidden;
   border-radius: var(--radius-card);
   background: transparent;
-  box-shadow: 0 1px 2px rgb(18 20 32 / 0.04);
+  filter: drop-shadow(0 1px 2px rgb(18 20 32 / 0.06));
   scroll-margin-top: 6rem;
+  transition: filter var(--motion-fast) var(--ease-standard);
 }
 
 .episode-ticket:dir(rtl) {
@@ -2122,6 +2123,7 @@ body.episode-ticket-drag-lock {
   align-items: center;
   justify-content: space-between;
   overflow: hidden;
+  border-radius: inherit;
   background: color-mix(in srgb, var(--accent-soft) 74%, var(--surface-card));
   color: var(--accent-solid);
 }
@@ -2519,7 +2521,7 @@ body.episode-ticket-drag-lock {
   .episode-list-stack { gap: 0.75rem; }
   .episode-ticket-body { padding: 0.75rem 1rem; }
   .episode-ticket-check-label { width: 2.125rem; height: 2.125rem; }
-  .episode-ticket:hover { box-shadow: 0 2px 8px rgb(18 20 32 / 0.08); }
+  .episode-ticket:hover { filter: drop-shadow(0 2px 8px rgb(18 20 32 / 0.12)); }
   .episode-ticket:hover .episode-ticket-front { border-color: color-mix(in srgb, var(--text-secondary) 28%, var(--border-neutral)); }
   .episode-ticket-front { cursor: default; }
   .episode-ticket:hover .episode-ticket-front { cursor: grab; }

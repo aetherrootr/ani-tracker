@@ -164,14 +164,7 @@ export function LibraryToolbar(props: Props) {
         placeholder={t("library.searchPlaceholder")}
         aria-label={t("library.searchPlaceholder")}
         aria-describedby="library-results-summary"
-        onChange={(event) => {
-          if (!(event.nativeEvent as InputEvent).isComposing) onSearchChange(event.target.value);
-        }}
-        onCompositionStart={(event) => event.currentTarget.setAttribute("data-composing", "true")}
-        onCompositionEnd={(event) => {
-          event.currentTarget.removeAttribute("data-composing");
-          onSearchChange(event.currentTarget.value);
-        }}
+        onValueChange={onSearchChange}
         onKeyDown={(event) => {
           if (event.key === "Escape" && q) {
             event.preventDefault();
