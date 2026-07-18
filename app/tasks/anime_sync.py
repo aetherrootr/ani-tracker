@@ -229,7 +229,7 @@ def refresh_airing_anime(lock_path: str | None = None, job_dir: str | None = Non
             progress_callback=lambda details: _update_refresh_job(
                 job_dir,
                 job_id,
-                progress=_refresh_progress('syncing', int(details['processed']), int(details['total']), 'Refreshing airing anime metadata', details=details),
+                progress=_refresh_progress('syncing', _summary_int(details, 'processed'), _summary_int(details, 'total'), 'Refreshing airing anime metadata', details=details),
             ),
         )
         _update_refresh_job(
