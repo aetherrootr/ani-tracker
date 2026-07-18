@@ -2934,13 +2934,6 @@ body.episode-ticket-drag-lock {
   transform-origin: top center;
 }
 
-@media (display-mode: standalone) {
-  :root {
-    --app-viewport-height: 100vh;
-    --app-viewport-height: 100lvh;
-  }
-}
-
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
   .app-shell,
   .app-shell-content {
@@ -2968,6 +2961,29 @@ body.episode-ticket-drag-lock {
     margin-top: 0;
   }
 
+}
+
+@media (display-mode: standalone) {
+  :root {
+    --app-viewport-height: 100vh;
+    --app-viewport-height: 100dvh;
+  }
+
+  .app-shell {
+    position: fixed;
+    inset: 0;
+    height: auto;
+  }
+
+  @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+    .app-shell-content {
+      height: 100%;
+    }
+
+    .app-main-scroll {
+      height: calc(100% - var(--mobile-top-nav-height));
+    }
+  }
 }
 
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
