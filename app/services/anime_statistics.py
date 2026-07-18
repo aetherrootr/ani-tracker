@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, select
+from sqlalchemy import (
+    Integer,
+    String,
+    and_,
+    case,
+    cast,
+    false,
+    func,
+    literal,
+    or_,
+    select,
+    union_all,
+)
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.serializers import select_anime_name_for_user, select_episode_name_for_user
@@ -25,23 +36,6 @@ from app.models.validater import validate_pagination
 
 DAILY_STATISTICS_WEEKS = 53
 WEEKLY_STATISTICS_WEEKS = 13
-
-
-@dataclass(frozen=True)
-class StatisticsEpisode:
-    source: str
-    anime_id: int
-    episode_id: int
-    episode_number: int
-    anime_name: str
-    anime_poster_url: str | None
-    episode_name: str | None
-    status: str
-    duration: str | None
-    watched: bool
-    watched_at: datetime | None
-    anime_status: UserAnimeStatus
-    is_season_zero: bool
 
 
 def parse_duration_seconds(duration: str | None) -> int | None:
@@ -68,36 +62,53 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
     first_week_start = current_week_start - timedelta(weeks=WEEKLY_STATISTICS_WEEKS - 1)
     first_day = current_week_start - timedelta(weeks=DAILY_STATISTICS_WEEKS - 1)
     last_day = first_day + timedelta(days=DAILY_STATISTICS_WEEKS * 7 - 1)
-    episodes = _statistics_episodes(session, user)
-    active_episodes = [episode for episode in episodes if episode.anime_status != UserAnimeStatus.DROPPED]
-    watched_episodes = [episode for episode in active_episodes if episode.watched]
+    episodes = _active_episode_rows(user.id)
+    active = episodes.c.anime_status != UserAnimeStatus.DROPPED.value
+    watched = and_(active, episodes.c.watched.is_(True))
+    unwatched_aired_conditions = [
+        active,
+        episodes.c.watched.is_(False),
+        episodes.c.status == EpisodeStatus.AIRED.value,
+        episodes.c.anime_status != UserAnimeStatus.ON_HOLD.value,
+    ]
+    if not user.include_unwatched_season_zero_in_statistics:
+        unwatched_aired_conditions.append(
+            ~_season_zero_condition(episodes.c.source_provider, episodes.c.source_external_id),
+        )
+    unwatched_aired = and_(*unwatched_aired_conditions)
 
-    library_anime_count = len({episode.anime_id for episode in active_episodes})
-    # Anime without episodes are still part of the active library.
-    library_anime_count += _active_library_anime_without_episodes(session, user, active_episodes)
-    unwatched_aired_episode_count = sum(
-        1
-        for episode in active_episodes
-        if not episode.watched
-        and episode.status == EpisodeStatus.AIRED.value
-        and episode.anime_status != UserAnimeStatus.ON_HOLD
-        and (user.include_unwatched_season_zero_in_statistics or not episode.is_season_zero)
-    )
-    durations = [parse_duration_seconds(episode.duration) for episode in watched_episodes]
+    watched_episode_count, unwatched_aired_episode_count = session.execute(
+        select(
+            func.coalesce(func.sum(case((watched, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((unwatched_aired, 1), else_=0)), 0),
+        ).select_from(episodes),
+    ).one()
+    library_anime_count = session.scalar(
+        select(func.count(UserAnimeProgress.id)).where(
+            UserAnimeProgress.user_id == user.id,
+            UserAnimeProgress.status != UserAnimeStatus.DROPPED,
+        ),
+    ) or 0
+    watched_rows = session.execute(
+        select(episodes.c.episode_id, episodes.c.source, episodes.c.duration, episodes.c.watched_at)
+        .where(watched)
+        .order_by(episodes.c.source, episodes.c.episode_id),
+    ).all()
+
+    durations = [parse_duration_seconds(row.duration) for row in watched_rows]
     total_watch_seconds = sum(seconds for seconds in durations if seconds is not None)
     unknown_duration_count = sum(seconds is None for seconds in durations)
-
     daily_counts: dict[date, int] = defaultdict(int)
     daily_seconds: dict[date, int] = defaultdict(int)
     weekly_counts: dict[date, int] = defaultdict(int)
     weekly_seconds: dict[date, int] = defaultdict(int)
-    for episode in watched_episodes:
-        if episode.watched_at is None:
+    for row in watched_rows:
+        if row.watched_at is None:
             continue
-        watched_date = _aware_utc(episode.watched_at).astimezone(time_zone).date()
+        watched_date = _aware_utc(row.watched_at).astimezone(time_zone).date()
         if watched_date < first_day or watched_date > last_day:
             continue
-        seconds = parse_duration_seconds(episode.duration)
+        seconds = parse_duration_seconds(row.duration)
         week_start = start_of_week(watched_date, week_start_day)
         daily_counts[watched_date] += 1
         weekly_counts[week_start] += 1
@@ -128,12 +139,21 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
         weekly_counts[first_week_start + timedelta(weeks=index)]
         for index in range(WEEKLY_STATISTICS_WEEKS)
     )
+    statistics_version = _statistics_version(
+        user,
+        watched_episode_count,
+        unwatched_aired_episode_count,
+        library_anime_count,
+        total_watch_seconds,
+        unknown_duration_count,
+        tuple((row.source, row.episode_id, _iso_utc(row.watched_at)) for row in watched_rows),
+    )
     return {
         'status': 'ready',
-        'statisticsVersion': _statistics_version(episodes, user),
+        'statisticsVersion': statistics_version,
         'calculatedAt': _iso_utc(calculated_at),
         'timeZone': user.time_zone,
-        'watchedEpisodeCount': len(watched_episodes),
+        'watchedEpisodeCount': watched_episode_count,
         'unwatchedAiredEpisodeCount': unwatched_aired_episode_count,
         'libraryAnimeCount': library_anime_count,
         'totalWatchSeconds': total_watch_seconds,
@@ -148,45 +168,87 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
 def get_watch_timeline(session: Session, user: User, *, limit: int, offset: int) -> dict[str, Any]:
     limit, offset = validate_pagination(limit, offset, max_limit=100)
     time_zone = ZoneInfo(user.time_zone)
-    episodes = [
-        episode
-        for episode in _statistics_episodes(session, user)
-        if episode.anime_status != UserAnimeStatus.DROPPED and episode.watched and episode.watched_at is not None
-    ]
-    episodes.sort(
-        key=lambda episode: (_aware_utc(episode.watched_at or datetime.min.replace(tzinfo=UTC)), episode.source, episode.episode_id),
-        reverse=True,
+    episodes = _active_episode_rows(user.id)
+    timeline_filter = and_(
+        episodes.c.anime_status != UserAnimeStatus.DROPPED.value,
+        episodes.c.watched.is_(True),
+        episodes.c.watched_at.is_not(None),
     )
-    total = len(episodes)
-    page = episodes[offset:offset + limit]
-    items = [
-        {
-            'anime': {
-                'id': episode.anime_id,
-                'displayName': episode.anime_name,
-                'posterUrl': episode.anime_poster_url,
+    total, latest_watched_at = session.execute(
+        select(func.count(), func.max(episodes.c.watched_at)).select_from(episodes).where(timeline_filter),
+    ).one()
+    page = session.execute(
+        select(episodes)
+        .where(timeline_filter)
+        .order_by(episodes.c.watched_at.desc(), episodes.c.source.desc(), episodes.c.episode_id.desc())
+        .limit(limit)
+        .offset(offset),
+    ).all()
+
+    progress_ids = {row.progress_id for row in page}
+    progresses = session.scalars(
+        select(UserAnimeProgress)
+        .options(
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names),
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.posters),
+        )
+        .where(UserAnimeProgress.id.in_(progress_ids)),
+    ).all() if progress_ids else []
+    progress_by_id = {progress.id: progress for progress in progresses}
+
+    upstream_episode_ids = {
+        row.episode_id for row in page if row.source == UserAnimeMetadataSource.UPSTREAM.value
+    }
+    upstream_episodes = session.scalars(
+        select(Episode)
+        .options(selectinload(Episode.names))
+        .where(Episode.id.in_(upstream_episode_ids)),
+    ).all() if upstream_episode_ids else []
+    upstream_episode_by_id = {episode.id: episode for episode in upstream_episodes}
+
+    items = []
+    for row in page:
+        progress = progress_by_id[row.progress_id]
+        if row.source == UserAnimeMetadataSource.UPSTREAM.value:
+            episode = upstream_episode_by_id[row.episode_id]
+            anime_name = select_anime_name_for_user(sorted(progress.anime.names, key=lambda item: item.id), progress, user)
+            episode_name = select_episode_name_for_user(
+                sorted(episode.names, key=lambda item: item.id),
+                user,
+                preferred_name_id=row.preferred_episode_name_id,
+            )
+            display_anime_name = anime_name.name if anime_name is not None else progress.anime.original_name
+            display_episode_name = episode_name.name if episode_name is not None else episode.original_title
+        else:
+            display_anime_name = row.snapshot_anime_name
+            display_episode_name = row.snapshot_episode_name
+        items.append(
+            {
+                'anime': {
+                    'id': row.anime_id,
+                    'displayName': display_anime_name,
+                    'posterUrl': _poster_url(progress.anime, progress),
+                },
+                'episode': {
+                    'id': row.episode_id,
+                    'source': row.source,
+                    'episodeNumber': row.episode_number,
+                    'displayName': display_episode_name,
+                    'duration': row.duration,
+                    'durationSeconds': parse_duration_seconds(row.duration),
+                    'watchedAt': _iso_utc(row.watched_at),
+                    'localDate': _aware_utc(row.watched_at).astimezone(time_zone).date().isoformat(),
+                },
             },
-            'episode': {
-                'id': episode.episode_id,
-                'source': episode.source,
-                'episodeNumber': episode.episode_number,
-                'displayName': episode.episode_name,
-                'duration': episode.duration,
-                'durationSeconds': parse_duration_seconds(episode.duration),
-                'watchedAt': _iso_utc(episode.watched_at),
-                'localDate': _aware_utc(episode.watched_at).astimezone(time_zone).date().isoformat(),
-            },
-        }
-        for episode in page
-        if episode.watched_at is not None
-    ]
+        )
+
     return {
         'items': items,
         'total': total,
         'limit': limit,
         'offset': offset,
         'hasMore': offset + len(items) < total,
-        'statisticsVersion': _statistics_version(episodes, user),
+        'statisticsVersion': _statistics_version(user, total, _iso_utc(latest_watched_at)),
         'timeZone': user.time_zone,
     }
 
@@ -195,130 +257,88 @@ def start_of_week(value: date, week_start_day: int) -> date:
     return value - timedelta(days=(value.weekday() - week_start_day) % 7)
 
 
-def _statistics_episodes(session: Session, user: User) -> list[StatisticsEpisode]:
-    progresses = session.scalars(
-        select(UserAnimeProgress)
-        .options(
-            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names),
-            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.posters),
+def _active_episode_rows(user_id: int):  # type: ignore[no-untyped-def]
+    local_source = UserAnimeMetadataSource.LOCAL_SNAPSHOT.value
+    upstream = (
+        select(
+            literal(UserAnimeMetadataSource.UPSTREAM.value, String(32)).label('source'),
+            UserAnimeProgress.id.label('progress_id'),
+            UserAnimeProgress.anime_id.label('anime_id'),
+            Episode.id.label('episode_id'),
+            Episode.episode_number.label('episode_number'),
+            cast(Episode.status, String(32)).label('status'),
+            Episode.duration.label('duration'),
+            func.coalesce(UserEpisodeProgress.watched, false()).label('watched'),
+            UserEpisodeProgress.watched_at.label('watched_at'),
+            cast(UserAnimeProgress.status, String(32)).label('anime_status'),
+            AnimeMetaInfo.provider_type.label('source_provider'),
+            AnimeMetaInfo.external_id.label('source_external_id'),
+            UserEpisodeProgress.preferred_name_id.label('preferred_episode_name_id'),
+            literal(None, String(255)).label('snapshot_anime_name'),
+            literal(None, String(255)).label('snapshot_episode_name'),
         )
-        .where(UserAnimeProgress.user_id == user.id),
-    ).all()
-    result: list[StatisticsEpisode] = []
-    for progress in progresses:
-        if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value and progress.metadata_snapshot_id is not None:
-            snapshot = session.get(UserAnimeMetadataSnapshot, progress.metadata_snapshot_id)
-            if snapshot is not None:
-                result.extend(_local_snapshot_episodes(session, progress, snapshot))
-            continue
-        result.extend(_upstream_episodes(session, user, progress))
-    return result
-
-
-def _upstream_episodes(session: Session, user: User, progress: UserAnimeProgress) -> list[StatisticsEpisode]:
-    rows = session.execute(
-        select(Episode, UserEpisodeProgress)
-        .options(selectinload(Episode.names))
+        .select_from(UserAnimeProgress)
+        .join(AnimeMetaInfo, AnimeMetaInfo.id == UserAnimeProgress.anime_id)
+        .join(Episode, Episode.anime_id == UserAnimeProgress.anime_id)
         .outerjoin(
             UserEpisodeProgress,
-            and_(UserEpisodeProgress.episode_id == Episode.id, UserEpisodeProgress.user_id == user.id),
-        )
-        .where(Episode.anime_id == progress.anime_id),
-    ).all()
-    anime = progress.anime
-    anime_name = select_anime_name_for_user(sorted(anime.names, key=lambda item: item.id), progress, user)
-    display_name = anime_name.name if anime_name is not None else anime.original_name
-    poster_url = _poster_url(anime, progress)
-    season_zero = _is_season_zero(anime.provider_type, anime.external_id)
-    result = []
-    for episode, episode_progress in rows:
-        episode_name = select_episode_name_for_user(
-            sorted(episode.names, key=lambda item: item.id),
-            user,
-            preferred_name_id=episode_progress.preferred_name_id if episode_progress is not None else None,
-        )
-        result.append(
-            StatisticsEpisode(
-                source=UserAnimeMetadataSource.UPSTREAM.value,
-                anime_id=anime.id,
-                episode_id=episode.id,
-                episode_number=episode.episode_number,
-                anime_name=display_name,
-                anime_poster_url=poster_url,
-                episode_name=episode_name.name if episode_name is not None else episode.original_title,
-                status=episode.status.value,
-                duration=episode.duration,
-                watched=bool(episode_progress and episode_progress.watched),
-                watched_at=episode_progress.watched_at if episode_progress is not None else None,
-                anime_status=progress.status,
-                is_season_zero=season_zero,
+            and_(
+                UserEpisodeProgress.user_id == user_id,
+                UserEpisodeProgress.episode_id == Episode.id,
             ),
         )
-    return result
-
-
-def _local_snapshot_episodes(
-    session: Session,
-    progress: UserAnimeProgress,
-    snapshot: UserAnimeMetadataSnapshot,
-) -> list[StatisticsEpisode]:
-    rows = session.scalars(
-        select(UserAnimeMetadataEpisodeSnapshot)
-        .where(UserAnimeMetadataEpisodeSnapshot.snapshot_id == snapshot.id),
-    ).all()
-    return [
-        StatisticsEpisode(
-            source=UserAnimeMetadataSource.LOCAL_SNAPSHOT.value,
-            anime_id=progress.anime_id,
-            episode_id=episode.id,
-            episode_number=episode.episode_number,
-            anime_name=snapshot.source_title,
-            anime_poster_url=_poster_url(progress.anime, progress),
-            episode_name=episode.title,
-            status=episode.status,
-            duration=episode.duration,
-            watched=episode.watched,
-            watched_at=episode.watched_at,
-            anime_status=progress.status,
-            is_season_zero=_is_season_zero(snapshot.source_provider, snapshot.source_external_id),
+        .where(
+            UserAnimeProgress.user_id == user_id,
+            or_(
+                UserAnimeProgress.metadata_source != local_source,
+                UserAnimeProgress.metadata_snapshot_id.is_(None),
+            ),
         )
-        for episode in rows
-    ]
+    )
+    local = (
+        select(
+            literal(local_source, String(32)).label('source'),
+            UserAnimeProgress.id.label('progress_id'),
+            UserAnimeProgress.anime_id.label('anime_id'),
+            UserAnimeMetadataEpisodeSnapshot.id.label('episode_id'),
+            UserAnimeMetadataEpisodeSnapshot.episode_number.label('episode_number'),
+            UserAnimeMetadataEpisodeSnapshot.status.label('status'),
+            UserAnimeMetadataEpisodeSnapshot.duration.label('duration'),
+            UserAnimeMetadataEpisodeSnapshot.watched.label('watched'),
+            UserAnimeMetadataEpisodeSnapshot.watched_at.label('watched_at'),
+            cast(UserAnimeProgress.status, String(32)).label('anime_status'),
+            UserAnimeMetadataSnapshot.source_provider.label('source_provider'),
+            UserAnimeMetadataSnapshot.source_external_id.label('source_external_id'),
+            literal(None, Integer).label('preferred_episode_name_id'),
+            UserAnimeMetadataSnapshot.source_title.label('snapshot_anime_name'),
+            UserAnimeMetadataEpisodeSnapshot.title.label('snapshot_episode_name'),
+        )
+        .select_from(UserAnimeProgress)
+        .join(UserAnimeMetadataSnapshot, UserAnimeMetadataSnapshot.id == UserAnimeProgress.metadata_snapshot_id)
+        .join(
+            UserAnimeMetadataEpisodeSnapshot,
+            UserAnimeMetadataEpisodeSnapshot.snapshot_id == UserAnimeMetadataSnapshot.id,
+        )
+        .where(
+            UserAnimeProgress.user_id == user_id,
+            UserAnimeProgress.metadata_source == local_source,
+            UserAnimeProgress.metadata_snapshot_id.is_not(None),
+        )
+    )
+    return union_all(upstream, local).cte('active_statistics_episodes')
 
 
-def _active_library_anime_without_episodes(
-    session: Session,
-    user: User,
-    episodes: list[StatisticsEpisode],
-) -> int:
-    anime_ids = {episode.anime_id for episode in episodes}
-    progresses = session.scalars(
-        select(UserAnimeProgress).where(
-            UserAnimeProgress.user_id == user.id,
-            UserAnimeProgress.status != UserAnimeStatus.DROPPED,
-        ),
-    ).all()
-    return sum(progress.anime_id not in anime_ids for progress in progresses)
+def _season_zero_condition(provider: Any, external_id: Any):  # type: ignore[no-untyped-def]
+    return or_(
+        and_(provider == 'tvdb', external_id.like('%:0')),
+        and_(provider == 'tmdb', external_id.like('tv:%'), external_id.like('%:season:0%')),
+    )
 
 
-def _statistics_version(episodes: list[StatisticsEpisode], user: User) -> str:
+def _statistics_version(user: User, *values: Any) -> str:
     digest = sha256()
     digest.update(f'{user.id}:{user.time_zone}:{user.week_start_day}:{user.include_unwatched_season_zero_in_statistics}'.encode())
-    for episode in sorted(episodes, key=lambda item: (item.source, item.anime_id, item.episode_id)):
-        digest.update(
-            repr(
-                (
-                    episode.source,
-                    episode.anime_id,
-                    episode.episode_id,
-                    episode.status,
-                    episode.duration,
-                    episode.watched,
-                    _iso_utc(episode.watched_at),
-                    episode.anime_status.value,
-                ),
-            ).encode(),
-        )
+    digest.update(repr(values).encode())
     return digest.hexdigest()[:16]
 
 
@@ -332,12 +352,6 @@ def _iso_utc(value: datetime | None) -> str | None:
     if value is None:
         return None
     return _aware_utc(value).isoformat().replace('+00:00', 'Z')
-
-
-def _is_season_zero(provider: str, external_id: str) -> bool:
-    return (provider == 'tvdb' and external_id.endswith(':0')) or (
-        provider == 'tmdb' and external_id.startswith('tv:') and ':season:0' in external_id
-    )
 
 
 def _poster_url(anime: AnimeMetaInfo, progress: UserAnimeProgress) -> str | None:

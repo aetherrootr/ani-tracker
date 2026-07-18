@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from flask import Flask
 from flask.testing import FlaskClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app import create_app
@@ -45,6 +45,8 @@ from app.models.progress import (
     UserEpisodeProgress,
     UserManualAnimeRelation,
 )
+from app.models.user import User
+from app.services.anime_statistics import get_statistics_summary, get_watch_timeline
 from app.tasks.celery_config import configure_celery
 from tests.test_auth import register_user
 
@@ -1870,6 +1872,39 @@ def test_statistics_season_zero_preference_only_affects_unwatched_aired(
     add_episode(db_session, normal, number=1)
     watched_special = add_episode(db_session, season_zero, number=1)
     add_episode(db_session, season_zero, number=2)
+    local_season_zero = add_library_anime(
+        db_session,
+        provider_type='tmdb',
+        external_id='tv:789:season:1',
+        original_name='Local Stats Specials',
+        names=[('Local Stats Specials', 'en')],
+        status=UserAnimeStatus.WATCHING,
+    )
+    local_progress = db_session.scalar(
+        select(UserAnimeProgress).where(UserAnimeProgress.anime_id == local_season_zero.id),
+    )
+    assert local_progress is not None
+    local_snapshot = UserAnimeMetadataSnapshot(
+        user_id=1,
+        anime_id=local_season_zero.id,
+        source_anime_id=local_season_zero.id,
+        source_provider='tmdb',
+        source_external_id='tv:789:season:0',
+        source_title='Frozen Local Stats Specials',
+        episode_count=1,
+    )
+    db_session.add(local_snapshot)
+    db_session.flush()
+    db_session.add(
+        UserAnimeMetadataEpisodeSnapshot(
+            snapshot_id=local_snapshot.id,
+            episode_number=1,
+            status=EpisodeStatus.AIRED.value,
+            watched=False,
+        ),
+    )
+    local_progress.metadata_source = 'local_snapshot'
+    local_progress.metadata_snapshot_id = local_snapshot.id
     db_session.add(UserEpisodeProgress(user_id=1, episode_id=watched_special.id, watched=True, watched_at=now))
     db_session.commit()
 
@@ -1884,7 +1919,7 @@ def test_statistics_season_zero_preference_only_affects_unwatched_aired(
     assert included_response.status_code == 200
     included_body = included_response.get_json()
     assert included_body['watchedEpisodeCount'] == 1
-    assert included_body['unwatchedAiredEpisodeCount'] == 2
+    assert included_body['unwatchedAiredEpisodeCount'] == 3
 
 
 def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session) -> None:
@@ -2100,6 +2135,58 @@ def test_statistics_groups_summary_and_timeline_in_user_timezone(
     assert timeline['timeZone'] == 'Asia/Shanghai'
     assert timeline['items'][0]['episode']['localDate'] == '2026-07-17'
     assert timeline['items'][0]['episode']['watchedAt'].endswith('Z')
+
+
+def test_statistics_queries_remain_bounded_and_timeline_paginates_in_sql(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    watched_at = datetime(2026, 7, 18, 12, tzinfo=UTC)
+    for index in range(12):
+        anime = add_library_anime(
+            db_session,
+            external_id=f'statistics-query-count-{index}',
+            original_name=f'Statistics Query Count {index}',
+            names=[(f'Statistics Query Count {index}', 'en')],
+            status=UserAnimeStatus.WATCHING,
+        )
+        episode = add_episode(db_session, anime, number=1, duration='00:24:00')
+        db_session.add(
+            UserEpisodeProgress(
+                user_id=1,
+                episode_id=episode.id,
+                watched=True,
+                watched_at=watched_at + timedelta(minutes=index),
+            ),
+        )
+    db_session.commit()
+    user = db_session.get(User, 1)
+    assert user is not None
+    statements: list[str] = []
+
+    def capture_statement(_connection, _cursor, statement, _parameters, _context, _executemany) -> None:  # type: ignore[no-untyped-def]
+        statements.append(statement)
+
+    engine = db_session.get_bind()
+    event.listen(engine, 'before_cursor_execute', capture_statement)
+    try:
+        get_statistics_summary(db_session, user)
+        summary_query_count = len(statements)
+        statements.clear()
+        timeline = get_watch_timeline(db_session, user, limit=2, offset=1)
+        timeline_statements = list(statements)
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture_statement)
+
+    assert summary_query_count == 3
+    assert len(timeline_statements) <= 8
+    assert len(timeline['items']) == 2
+    assert timeline['total'] == 12
+    assert any(
+        'active_statistics_episodes' in statement and 'LIMIT' in statement and 'OFFSET' in statement
+        for statement in timeline_statements
+    )
 
 
 def test_anime_detail_returns_available_names_air_date_and_posters(
