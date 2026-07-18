@@ -192,6 +192,19 @@ export function syncAnime(animeId: number) {
   return apiFetch<AnimeSyncResponse>(`/api/anime/library/${animeId}/sync`, { method: "POST" });
 }
 
+export function syncAiringAnime() {
+  return apiFetch<LibraryRefreshResponse>("/api/anime/airing/sync", { method: "POST" });
+}
+
+export async function getCurrentAiringAnimeRefreshJob(signal?: AbortSignal) {
+  const response = await apiFetch<{ job: LibraryRefreshJob | null }>("/api/anime/airing/sync", { signal });
+  return response.job;
+}
+
+export function getAiringAnimeRefreshJob(jobId: string, signal?: AbortSignal) {
+  return apiFetch<LibraryRefreshJob>(`/api/anime/airing/sync/${jobId}`, { signal });
+}
+
 export function discoverRelatedAnime(animeId: number) {
   return apiFetch<RelatedAnimeDiscoveryJobResponse>(`/api/anime/library/${animeId}/discover-related-anime`, { method: "POST" });
 }

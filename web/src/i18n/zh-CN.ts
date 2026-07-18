@@ -256,6 +256,24 @@ export const zhCN = {
         postersQueued: "海报队列",
       },
     },
+    airingSync: {
+      title: "刷新放送中动画",
+      description: "在后台刷新正在放送中动画的上游元数据、剧集和海报，不检查或导入新季度。",
+      button: "立即刷新",
+      syncing: "排队中...",
+      running: "刷新进行中",
+      queued: "放送中动画刷新任务已加入后台队列。",
+      alreadyRunning: "已有放送中动画刷新任务正在运行。",
+      failed: "刷新任务排队失败，请稍后重试。",
+      completedTitle: "放送中动画刷新完成",
+      completedDescription: "最新可用元数据已经应用，海报可能仍在后台继续下载。",
+      failedTitle: "放送中动画刷新未完成",
+      failedDescription: "任务执行失败，请稍后重新尝试。",
+      stages: {
+        queued: "排队中",
+        syncing: "刷新元数据",
+      },
+    },
     import: {
       tvtime: {
         title: "从 TV Time 导入",

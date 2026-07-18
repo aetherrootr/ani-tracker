@@ -20,7 +20,7 @@ import { SelectField } from "@/components/ui/select-field";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { getOidcConfig, getOidcPasswordSetupStatus, updatePassword } from "@/features/auth/api";
 import { useCurrentUser, useLogout, useUnlinkOidc, useUpdateImportProviderPreference, useUpdateIncludeUnwatchedSeasonZeroInStatistics, useUpdateIncludeUnwatchedSeasonZeroInTracking, useUpdateTimeZonePreference, useUpdateWeekStartDay } from "@/features/auth/hooks";
-import { getCurrentLibraryRefreshJob, getImportProviders, getLibraryRefreshJob, syncAllLibraryAnime, syncFailedLibraryAnime } from "@/features/library/api";
+import { getAiringAnimeRefreshJob, getCurrentAiringAnimeRefreshJob, getCurrentLibraryRefreshJob, getImportProviders, getLibraryRefreshJob, syncAiringAnime, syncAllLibraryAnime, syncFailedLibraryAnime } from "@/features/library/api";
 import type { ImportProvider, LibraryRefreshFailedAnime, LibraryRefreshJob } from "@/features/library/types";
 import { getApiUrl } from "@/lib/api-client";
 
@@ -58,6 +58,10 @@ export default function SettingsPage() {
   const [isLoadingLibraryRefreshJob, setIsLoadingLibraryRefreshJob] = useState(true);
   const [libraryRefreshJob, setLibraryRefreshJob] = useState<LibraryRefreshJob | null>(null);
   const [syncLibraryMessage, setSyncLibraryMessage] = useState<string | null>(null);
+  const [isSyncingAiringAnime, setIsSyncingAiringAnime] = useState(false);
+  const [isLoadingAiringRefreshJob, setIsLoadingAiringRefreshJob] = useState(true);
+  const [airingRefreshJob, setAiringRefreshJob] = useState<LibraryRefreshJob | null>(null);
+  const [airingSyncFeedback, setAiringSyncFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [passwordCardOpen, setPasswordCardOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -93,6 +97,31 @@ export default function SettingsPage() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getCurrentAiringAnimeRefreshJob(controller.signal)
+      .then(setAiringRefreshJob)
+      .catch(() => undefined)
+      .finally(() => setIsLoadingAiringRefreshJob(false));
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!airingRefreshJob || airingRefreshJob.status === "completed" || airingRefreshJob.status === "failed") {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      getAiringAnimeRefreshJob(airingRefreshJob.jobId, controller.signal)
+        .then(setAiringRefreshJob)
+        .catch(() => undefined);
+    }, 1500);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [airingRefreshJob]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -236,6 +265,21 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSyncAiringAnime() {
+    setIsSyncingAiringAnime(true);
+    setAiringSyncFeedback(null);
+
+    try {
+      const response = await syncAiringAnime();
+      setAiringRefreshJob(response.job);
+      setAiringSyncFeedback({ kind: "success", message: response.queued ? t("settings.airingSync.queued") : t("settings.airingSync.alreadyRunning") });
+    } catch {
+      setAiringSyncFeedback({ kind: "error", message: t("settings.airingSync.failed") });
+    } finally {
+      setIsSyncingAiringAnime(false);
+    }
+  }
+
   async function handleSyncFailedLibrary() {
     setIsSyncingLibrary(true);
     setSyncLibraryMessage(null);
@@ -257,6 +301,10 @@ export default function SettingsPage() {
   const libraryRefreshProgress = libraryRefreshJob?.progress;
   const failedAnime = failedAnimeFromSummary(libraryRefreshJob?.summary);
   const canRetryFailedLibraryRefresh = failedAnime.length > 0 && !hasActiveLibraryRefreshJob;
+  const hasActiveAiringRefreshJob = airingRefreshJob?.status === "queued" || airingRefreshJob?.status === "running";
+  const airingRefreshCompleted = airingRefreshJob?.status === "completed";
+  const airingRefreshFailed = airingRefreshJob?.status === "failed";
+  const airingRefreshProgress = airingRefreshJob?.progress;
 
   function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -468,6 +516,60 @@ export default function SettingsPage() {
       </section>
       <section id="settings-maintenance" className="settings-section" aria-labelledby="settings-maintenance-heading">
         <h2 id="settings-maintenance-heading">{t("settings.categories.maintenance")}</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.airingSync.title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p>{t("settings.airingSync.description")}</p>
+              {airingSyncFeedback ? (
+                <p
+                  role={airingSyncFeedback.kind === "error" ? "alert" : "status"}
+                  className={airingSyncFeedback.kind === "error" ? "font-medium text-destructive" : "font-medium text-foreground"}
+                >
+                  {airingSyncFeedback.message}
+                </p>
+              ) : null}
+            </div>
+            <Button className="min-h-11 shrink-0" variant="outline" onClick={handleSyncAiringAnime} disabled={isSyncingAiringAnime || isLoadingAiringRefreshJob || hasActiveAiringRefreshJob}>
+              {hasActiveAiringRefreshJob ? t("settings.airingSync.running") : isSyncingAiringAnime ? t("settings.airingSync.syncing") : t("settings.airingSync.button")}
+            </Button>
+          </div>
+          {airingRefreshProgress && hasActiveAiringRefreshJob ? (
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium text-foreground">{t(`settings.airingSync.stages.${airingRefreshProgress.stage}`)}</span>
+                <span>{airingRefreshProgress.percent}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-label={t(`settings.airingSync.stages.${airingRefreshProgress.stage}`)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={airingRefreshProgress.percent}>
+                <div className="library-refresh-progress h-full bg-[var(--accent-solid)]" style={{ width: `${airingRefreshProgress.percent}%` }} />
+              </div>
+              {airingRefreshProgress.details ? <LibraryRefreshProgressDetails details={airingRefreshProgress.details} /> : null}
+            </div>
+          ) : null}
+          {airingRefreshCompleted ? (
+            <div role="status" className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--watched)_28%,transparent)] bg-[color-mix(in_srgb,var(--watched)_10%,var(--surface-card))] p-4">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-[var(--watched)]" aria-hidden="true" />
+              <div>
+                <p className="font-medium text-foreground">{t("settings.airingSync.completedTitle")}</p>
+                <p>{t("settings.airingSync.completedDescription")}</p>
+              </div>
+            </div>
+          ) : null}
+          {airingRefreshFailed ? (
+            <div role="alert" className="flex items-start gap-3 rounded-[var(--radius-control)] border border-destructive/30 bg-destructive/10 p-4 text-destructive">
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-none" aria-hidden="true" />
+              <div>
+                <p className="font-medium">{t("settings.airingSync.failedTitle")}</p>
+                <p>{t("settings.airingSync.failedDescription")}</p>
+              </div>
+            </div>
+          ) : null}
+          {airingRefreshCompleted && airingRefreshJob?.summary ? <AiringRefreshSummary summary={airingRefreshJob.summary} /> : null}
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.librarySync.title")}</CardTitle>
@@ -740,6 +842,21 @@ function LibraryRefreshSummary({ summary }: { summary: Record<string, unknown> }
           <Metric label={t("settings.librarySync.summary.failed")} value={numberField(bangumiDiscovery, "failed")} />
         </SummarySection>
       ) : null}
+    </div>
+  );
+}
+
+function AiringRefreshSummary({ summary }: { summary: Record<string, unknown> }) {
+  const t = useTranslations();
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <Metric label={t("settings.librarySync.summary.checked")} value={numberField(summary, "checked")} />
+        <Metric label={t("settings.librarySync.summary.synced")} value={numberField(summary, "synced")} />
+        <Metric label={t("settings.librarySync.summary.failed")} value={numberField(summary, "failed")} />
+        <Metric label={t("settings.librarySync.summary.episodeConflicts")} value={numberField(summary, "episodeConflicts")} />
+        <Metric label={t("settings.librarySync.summary.postersQueued")} value={numberField(summary, "postersQueued")} />
+      </div>
     </div>
   );
 }

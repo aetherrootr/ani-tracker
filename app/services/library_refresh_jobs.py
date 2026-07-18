@@ -57,7 +57,7 @@ def update_library_refresh_job(root: str | Path, job_id: str, **fields: Any) -> 
 
 
 def current_library_refresh_job(root: str | Path, user_id: int) -> dict[str, Any] | None:
-    jobs = _user_jobs(root, user_id)
+    jobs = [job for job in _user_jobs(root, user_id) if job.get('kind') in {None, 'library_refresh'}]
     active = next((job for job in jobs if job.get('status') in {'queued', 'running'}), None)
     return active or (jobs[0] if jobs else None)
 
@@ -70,6 +70,12 @@ def current_user_job(
     anime_id: int | None = None,
 ) -> dict[str, Any] | None:
     jobs = [job for job in _user_jobs(root, user_id) if job.get('kind') == kind and (anime_id is None or job.get('animeId') == anime_id)]
+    active = next((job for job in jobs if job.get('status') in {'queued', 'running'}), None)
+    return active or (jobs[0] if jobs else None)
+
+
+def current_job_by_kind(root: str | Path, *, kind: str) -> dict[str, Any] | None:
+    jobs = [job for job in _jobs(root) if job.get('kind') == kind]
     active = next((job for job in jobs if job.get('status') in {'queued', 'running'}), None)
     return active or (jobs[0] if jobs else None)
 
@@ -97,6 +103,10 @@ def _job_path(root: str | Path, job_id: str) -> Path:
 
 
 def _user_jobs(root: str | Path, user_id: int) -> list[dict[str, Any]]:
+    return [job for job in _jobs(root) if job.get('userId') == user_id]
+
+
+def _jobs(root: str | Path) -> list[dict[str, Any]]:
     directory = Path(root)
     if not directory.exists():
         return []
@@ -106,9 +116,8 @@ def _user_jobs(root: str | Path, user_id: int) -> list[dict[str, Any]]:
             payload = json.loads(path.read_text(encoding='utf-8'))
         except (OSError, ValueError):
             continue
-        if payload.get('userId') == user_id:
-            payload['_mtime'] = path.stat().st_mtime
-            jobs.append(payload)
+        payload['_mtime'] = path.stat().st_mtime
+        jobs.append(payload)
     return sorted(jobs, key=lambda item: float(item.get('_mtime') or 0), reverse=True)
 
 

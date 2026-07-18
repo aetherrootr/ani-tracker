@@ -92,13 +92,14 @@ from app.services.anime_sync import (
 )
 from app.services.library_refresh_jobs import (
     acquire_library_refresh_lock,
+    current_job_by_kind,
     current_library_refresh_job,
     current_user_job,
     load_library_refresh_job,
     release_library_refresh_lock,
     store_library_refresh_job,
 )
-from app.tasks.anime_sync import refresh_user_library
+from app.tasks.anime_sync import refresh_airing_anime, refresh_user_library
 
 anime_info_bp = Blueprint("anime_info", __name__)
 
@@ -112,6 +113,7 @@ RELATED_ANIME_DISCOVERY_BY_PROVIDER = {
         'disabled_message': 'TVDB season auto import is disabled',
     },
 }
+AIRING_SYNC_LOCK_USER_ID = 0
 
 
 @contextmanager
@@ -884,6 +886,54 @@ def sync_library_anime(db: Session, user: User, anime_id: int) -> ResponseReturn
     )
 
 
+@anime_info_bp.post('/airing/sync')
+@require_auth_user
+def queue_airing_anime_sync(_db: Session, _user: User) -> ResponseReturnValue:
+    task_id = uuid4().hex
+    job_dir = str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'])
+    lock = acquire_library_refresh_lock(user_id=AIRING_SYNC_LOCK_USER_ID, task_id=task_id, lock_dir=job_dir)
+    if not lock.acquired:
+        job = load_library_refresh_job(job_dir, lock.task_id)
+        visible_job = job if job is not None and job.get('kind') == 'airing_anime_sync' else None
+        return jsonify({'queued': False, 'taskId': lock.task_id, 'job': _library_refresh_job_response(visible_job)}), 202
+    store_library_refresh_job(
+        job_dir,
+        task_id,
+        {
+            'jobId': task_id,
+            'userId': _user.id,
+            'kind': 'airing_anime_sync',
+            'status': 'queued',
+            'progress': _library_refresh_progress('queued', 0, 1, 'Airing anime refresh queued'),
+            'summary': None,
+        },
+    )
+    try:
+        task = refresh_airing_anime.apply_async(args=(lock.lock_path, job_dir, task_id), task_id=task_id)
+    except Exception:
+        release_library_refresh_lock(lock.lock_path)
+        raise
+    return jsonify({'queued': True, 'taskId': task.id, 'job': _library_refresh_job_response(load_library_refresh_job(job_dir, task.id))}), 202
+
+
+@anime_info_bp.get('/airing/sync')
+@require_auth_user
+def get_current_airing_anime_sync(_db: Session, user: User) -> ResponseReturnValue:
+    _ = user
+    job = current_job_by_kind(str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']), kind='airing_anime_sync')
+    return jsonify({'job': _library_refresh_job_response(job)})
+
+
+@anime_info_bp.get('/airing/sync/<job_id>')
+@require_auth_user
+def get_airing_anime_sync(_db: Session, user: User, job_id: str) -> ResponseReturnValue:
+    _ = user
+    job = load_library_refresh_job(str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']), job_id)
+    if job is None or job.get('kind') != 'airing_anime_sync':
+        return jsonify({'message': 'Airing anime refresh job not found'}), 404
+    return jsonify(_library_refresh_job_response(job))
+
+
 @anime_info_bp.post('/library/<int:anime_id>/discover-related-anime')
 @require_auth_user
 def discover_library_related_anime(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
@@ -982,7 +1032,15 @@ def _queue_library_refresh(user: User, anime_ids: list[int] | None = None) -> Re
     store_library_refresh_job(
         job_dir,
         task_id,
-        {'jobId': task_id, 'userId': user.id, 'status': 'queued', 'progress': progress, 'summary': None, 'retryFailedOnly': anime_ids is not None},
+        {
+            'jobId': task_id,
+            'userId': user.id,
+            'kind': 'library_refresh',
+            'status': 'queued',
+            'progress': progress,
+            'summary': None,
+            'retryFailedOnly': anime_ids is not None,
+        },
     )
     try:
         task = refresh_user_library.apply_async(args=(user.id, lock.lock_path, job_dir, task_id, anime_ids), task_id=task_id)
@@ -1003,7 +1061,7 @@ def get_current_library_refresh(_db: Session, user: User) -> ResponseReturnValue
 @require_auth_user
 def get_library_refresh(_db: Session, user: User, job_id: str) -> ResponseReturnValue:
     job = load_library_refresh_job(str(current_app.config['LIBRARY_REFRESH_JOB_LOCK_DIR']), job_id)
-    if job is None or job.get('userId') != user.id:
+    if job is None or job.get('userId') != user.id or job.get('kind') not in {None, 'library_refresh'}:
         return jsonify({'message': 'Library refresh job not found'}), 404
     return jsonify(_library_refresh_job_response(job))
 

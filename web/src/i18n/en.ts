@@ -259,6 +259,24 @@ export const en = {
         postersQueued: "Posters queued",
       },
     },
+    airingSync: {
+      title: "Refresh airing anime",
+      description: "Refresh upstream metadata, episodes, and posters for airing anime in the background without checking for or importing new seasons.",
+      button: "Refresh now",
+      syncing: "Queueing...",
+      running: "Refresh running",
+      queued: "The airing anime refresh has been queued.",
+      alreadyRunning: "An airing anime refresh is already running.",
+      failed: "Failed to queue the refresh. Please try again later.",
+      completedTitle: "Airing anime refresh completed",
+      completedDescription: "The latest available metadata has been applied. Poster downloads may continue in the background.",
+      failedTitle: "Airing anime refresh incomplete",
+      failedDescription: "The task failed. Please try again later.",
+      stages: {
+        queued: "Queued",
+        syncing: "Refreshing metadata",
+      },
+    },
     import: {
       tvtime: {
         title: "Import from TV Time",
