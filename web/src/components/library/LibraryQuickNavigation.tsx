@@ -17,25 +17,33 @@ export function LibraryQuickNavigation({ anchors, activeAnchorKey, onAnchor }: P
   const containerRef = useRef<HTMLElement | null>(null);
   const viewportRef = useRef<HTMLElement | null>(null);
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
-  const [available, setAvailable] = useState(true);
+  const [available, setAvailable] = useState(false);
 
   useEffect(() => {
     let frame: number | null = null;
+    const sidebar = document.querySelector<HTMLElement>(".desktop-sidebar");
     function updateAvailability() {
       if (frame !== null) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         frame = null;
         const container = containerRef.current;
-        if (!container) return;
-        const sidebarRight = document.querySelector<HTMLElement>(".desktop-sidebar")?.getBoundingClientRect().right ?? 0;
-        setAvailable(container.getBoundingClientRect().left >= sidebarRight + 12);
+        if (!container || !sidebar) return;
+        const containerRect = container.getBoundingClientRect();
+        const sidebarRect = sidebar.getBoundingClientRect();
+        setAvailable(containerRect.left >= sidebarRect.right + 12 && containerRect.right <= window.innerWidth);
       });
     }
     updateAvailability();
+    const observer = new ResizeObserver(updateAvailability);
+    if (sidebar) observer.observe(sidebar);
+    if (containerRef.current?.parentElement) observer.observe(containerRef.current.parentElement);
     window.addEventListener("resize", updateAvailability);
+    window.visualViewport?.addEventListener("resize", updateAvailability);
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
+      observer.disconnect();
       window.removeEventListener("resize", updateAvailability);
+      window.visualViewport?.removeEventListener("resize", updateAvailability);
     };
   }, []);
 
