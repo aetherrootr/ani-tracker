@@ -8,6 +8,8 @@ import type {
   AnimeProgress,
   AnimeSummary,
   EpisodeListResponse,
+  EpisodeFilter,
+  EpisodeOrder,
   ImportProvidersResponse,
   LibraryResponse,
   LibraryRefreshJob,
@@ -117,12 +119,23 @@ export function getEpisodes(input: {
   animeId: number;
   page: number;
   pageSize: number;
+  q: string;
+  filter: EpisodeFilter;
+  order: EpisodeOrder;
+  locateEpisodeNumber?: number | null;
+  locateEpisodeId?: number | null;
   signal?: AbortSignal;
 }) {
   const params = new URLSearchParams({
     limit: String(input.pageSize),
     offset: String(Math.max(input.page - 1, 0) * input.pageSize),
+    order: input.order,
   });
+
+  if (input.q) params.set("q", input.q);
+  if (input.filter !== "all") params.set("filter", input.filter);
+  if (input.locateEpisodeNumber) params.set("locateEpisodeNumber", String(input.locateEpisodeNumber));
+  if (input.locateEpisodeId) params.set("locateEpisodeId", String(input.locateEpisodeId));
 
   return apiFetch<EpisodeListResponse>(
     `/api/anime/library/${input.animeId}/episodes?${params.toString()}`,

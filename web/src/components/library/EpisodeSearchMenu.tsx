@@ -3,14 +3,17 @@
 import { CircleHelp, Search, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
+import type { EpisodeFilter, EpisodeOrder } from "@/features/library/types";
 
-export type EpisodeFilter = "all" | "watched" | "unwatched";
-export type EpisodeOrder = "asc" | "desc";
+import { useAnchoredEpisodePopover } from "./use-anchored-episode-popover";
+
+export type { EpisodeFilter, EpisodeOrder } from "@/features/library/types";
 
 export function EpisodeSearchMenu({
   q,
@@ -34,6 +37,7 @@ export function EpisodeSearchMenu({
   const panelId = useId();
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const { desktop, position } = useAnchoredEpisodePopover(open, triggerRef, "end");
 
   useEffect(() => {
     if (!open) return;
@@ -70,10 +74,9 @@ export function EpisodeSearchMenu({
         <Search className="h-4 w-4" />
         {q || filter !== "all" ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--accent-solid)]" aria-hidden="true" /> : null}
       </Button>
-      {open ? (
-        <>
-           <div ref={panelRef} id={panelId} className="glass-dialog mobile-top-popover-enter fixed inset-x-4 top-24 z-50 rounded-2xl border text-foreground md:absolute md:inset-auto md:right-0 md:top-11 md:z-30 md:w-80 md:animate-none" role="dialog" aria-modal="false" aria-labelledby={`${panelId}-title`}>
-            <ScrollArea ariaLabel={t("app.scrollableContent")} className="max-h-[min(60vh,28rem)] md:max-h-none" viewportClassName="max-h-[min(60vh,28rem)] p-4 md:max-h-none md:overflow-visible">
+      {open && (!desktop || position) && typeof document !== "undefined" ? createPortal(
+           <div ref={panelRef} id={panelId} style={desktop ? position ?? undefined : undefined} className={`glass-dialog fixed rounded-2xl border text-foreground ${desktop ? "w-80" : "mobile-top-popover-enter inset-x-4 top-24"}`} role="dialog" aria-modal="false" aria-labelledby={`${panelId}-title`}>
+             <ScrollArea ariaLabel={t("app.scrollableContent")} className={desktop ? "max-h-none" : "max-h-[min(60vh,28rem)]"} viewportClassName={`${desktop ? "max-h-none overflow-visible" : "max-h-[min(60vh,28rem)]"} p-4`}>
               <div className="mb-3 flex items-center justify-between">
                  <h3 id={`${panelId}-title`} className="font-semibold">{t("library.episodeSearchMenuTitle")}</h3>
                  <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={t("library.closeEpisodeFilters")} onClick={closeMenu}><X className="h-4 w-4" /></Button>
@@ -120,8 +123,8 @@ export function EpisodeSearchMenu({
                 onChange={(item) => onChange({ order: item })}
               />
             </ScrollArea>
-          </div>
-        </>
+           </div>,
+           document.body,
       ) : null}
     </div>
   );

@@ -341,7 +341,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   return (
     <div className="mx-auto max-w-[1440px] space-y-8">
       {data.progress.status === "dropped" ? (
-        <div className="flex flex-col gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-2xl border border-destructive/30 bg-[color-mix(in_srgb,var(--destructive)_8%,var(--surface-card))] p-4 shadow-[var(--shadow-low)] sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-destructive">{t("library.droppedBanner")}</p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => void setStatus("watching")}>{t("library.restoreWatching")}</Button>
@@ -351,23 +351,23 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
       ) : null}
 
       {syncError ? (
-        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-medium text-destructive">
+        <div className="rounded-2xl border border-destructive/30 bg-[color-mix(in_srgb,var(--destructive)_8%,var(--surface-card))] p-4 text-sm font-medium text-destructive shadow-[var(--shadow-low)]">
           {syncError}
         </div>
       ) : null}
 
       {statusError ? (
-        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-medium text-destructive" role="alert">{statusError}</div>
+        <div className="rounded-2xl border border-destructive/30 bg-[color-mix(in_srgb,var(--destructive)_8%,var(--surface-card))] p-4 text-sm font-medium text-destructive shadow-[var(--shadow-low)]" role="alert">{statusError}</div>
       ) : null}
 
       {seasonDiscoveryMessage ? (
-        <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm font-medium text-primary">
+        <div className="rounded-2xl border border-primary/20 bg-[color-mix(in_srgb,var(--accent-solid)_8%,var(--surface-card))] p-4 text-sm font-medium text-primary shadow-[var(--shadow-low)]">
           {seasonDiscoveryMessage}
         </div>
       ) : null}
 
       {activeEpisodeConflicts.length > 0 ? (
-        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-4">
+        <div className="rounded-2xl border border-primary/25 bg-[color-mix(in_srgb,var(--accent-solid)_8%,var(--surface-card))] p-4 shadow-[var(--shadow-low)]">
           <p className="text-sm font-semibold text-primary">{t("library.syncEpisodeConflictsTitle")}</p>
           <p className="mt-1 text-sm text-muted-foreground">{t("library.syncEpisodeConflictsDescription", { count: activeEpisodeConflicts.length })}</p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">

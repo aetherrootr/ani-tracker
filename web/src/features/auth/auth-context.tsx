@@ -4,8 +4,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 
 import { useLocaleControls } from "@/i18n/provider";
 
-import { getCurrentUser, login, logout, register, unlinkOidc, updateLanguagePreference, updatePreferences } from "./api";
-import type { AuthUser, LoginInput, RegisterInput } from "./types";
+import { getCurrentUser, login, logout, register, removeWallpaper, unlinkOidc, updateLanguagePreference, updatePreferences, updateWallpaperPreferences, uploadWallpaper } from "./api";
+import type { AuthUser, LoginInput, RegisterInput, WallpaperGlassAppearanceInput, WallpaperMode, WallpaperVariant } from "./types";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -21,6 +21,11 @@ type AuthContextValue = {
   updateImportProviderPreference: (input: string) => Promise<AuthUser>;
   updateIncludeUnwatchedSeasonZeroInTracking: (input: boolean) => Promise<AuthUser>;
   updateIncludeUnwatchedSeasonZeroInStatistics: (input: boolean) => Promise<AuthUser>;
+  updateShareWallpapersOnLogin: (input: boolean) => Promise<AuthUser>;
+  updateWallpaperGlassAppearance: (input: WallpaperGlassAppearanceInput) => Promise<AuthUser>;
+  uploadWallpaper: (variant: WallpaperVariant, file: File) => Promise<AuthUser>;
+  removeWallpaper: (variant: WallpaperVariant, wallpaperId: number) => Promise<AuthUser>;
+  updateWallpaperPreferences: (variant: WallpaperVariant, mode: WallpaperMode, selectedWallpaperId?: number) => Promise<AuthUser>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -87,6 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function handleLogout() {
     await logout();
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith("ani-tracker-random-wallpaper:")) sessionStorage.removeItem(key);
+    }
     setUser(null);
     setError(null);
   }
@@ -141,6 +150,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return response.user;
   }
 
+  async function handleUpdateShareWallpapersOnLogin(shareWallpapersOnLogin: boolean) {
+    const response = await updatePreferences({ shareWallpapersOnLogin });
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
+  async function handleUpdateWallpaperGlassAppearance(input: WallpaperGlassAppearanceInput) {
+    const response = await updatePreferences(input);
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
+  async function handleUploadWallpaper(variant: WallpaperVariant, file: File) {
+    const response = await uploadWallpaper(variant, file);
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
+  async function handleRemoveWallpaper(variant: WallpaperVariant, wallpaperId: number) {
+    const response = await removeWallpaper(variant, wallpaperId);
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
+  async function handleUpdateWallpaperPreferences(variant: WallpaperVariant, mode: WallpaperMode, selectedWallpaperId?: number) {
+    const response = await updateWallpaperPreferences(variant, mode, selectedWallpaperId);
+    setUser(response.user);
+    setError(null);
+    return response.user;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -157,6 +201,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateImportProviderPreference: handleUpdateImportProviderPreference,
         updateIncludeUnwatchedSeasonZeroInTracking: handleUpdateIncludeUnwatchedSeasonZeroInTracking,
         updateIncludeUnwatchedSeasonZeroInStatistics: handleUpdateIncludeUnwatchedSeasonZeroInStatistics,
+        updateShareWallpapersOnLogin: handleUpdateShareWallpapersOnLogin,
+        updateWallpaperGlassAppearance: handleUpdateWallpaperGlassAppearance,
+        uploadWallpaper: handleUploadWallpaper,
+        removeWallpaper: handleRemoveWallpaper,
+        updateWallpaperPreferences: handleUpdateWallpaperPreferences,
       }}
     >
       {children}

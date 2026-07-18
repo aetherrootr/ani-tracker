@@ -2,13 +2,16 @@
 
 import { Settings, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { updateEpisodeNamePreference } from "@/features/library/api";
 import type { Episode } from "@/features/library/types";
+
+import { useAnchoredEpisodePopover } from "./use-anchored-episode-popover";
 
 export function EpisodeTitleSettingsMenu({
   animeId,
@@ -45,6 +48,36 @@ export function EpisodeTitleSettingsMenu({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [episodeNumber, setEpisodeNumber] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const panelId = useId();
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const { desktop, position } = useAnchoredEpisodePopover(open, triggerRef, "start");
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => panelRef.current?.querySelector("button")?.focus());
+    function dismissAndRestoreFocus() {
+      onOpenChange(false);
+      setEpisodeNumber("");
+      requestAnimationFrame(() => triggerRef.current?.querySelector("button")?.focus());
+    }
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!panelRef.current?.contains(target) && !triggerRef.current?.contains(target)) dismissAndRestoreFocus();
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      dismissAndRestoreFocus();
+    }
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onOpenChange, open]);
 
   async function chooseName(episode: Episode, nameId: number | null) {
     setSavingId(episode.id);
@@ -66,19 +99,20 @@ export function EpisodeTitleSettingsMenu({
   function closeMenu() {
     onOpenChange(false);
     setEpisodeNumber("");
+    requestAnimationFrame(() => triggerRef.current?.querySelector("button")?.focus());
   }
 
   return (
-    <div className="relative">
-      <Button type="button" variant="ghost" size="icon" aria-label={t("library.episodeTitleSettings")} onClick={() => onOpenChange(!open)}>
+    <div ref={triggerRef} className="relative">
+      <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={t("library.episodeTitleSettings")} aria-expanded={open} aria-haspopup="dialog" aria-controls={panelId} onClick={() => onOpenChange(!open)}>
         <Settings className="h-4 w-4" />
       </Button>
-      {open ? (
-        <div className="glass-dialog mobile-top-popover-enter fixed inset-x-4 top-24 z-50 rounded-2xl border text-foreground md:absolute md:inset-auto md:left-0 md:top-11 md:z-30 md:w-80 md:animate-none">
-          <ScrollArea ariaLabel={t("app.scrollableContent")} className="max-h-[min(60vh,28rem)] md:max-h-none" viewportClassName="max-h-[min(60vh,28rem)] p-4 md:max-h-none md:overflow-visible">
+      {open && (!desktop || position) && typeof document !== "undefined" ? createPortal(
+        <div ref={panelRef} id={panelId} style={desktop ? position ?? undefined : undefined} className={`glass-dialog fixed rounded-2xl border text-foreground ${desktop ? "w-80" : "mobile-top-popover-enter inset-x-4 top-24"}`} role="dialog" aria-modal="false" aria-labelledby={`${panelId}-title`}>
+          <ScrollArea ariaLabel={t("app.scrollableContent")} className={desktop ? "max-h-none" : "max-h-[min(60vh,28rem)]"} viewportClassName={`${desktop ? "max-h-none overflow-visible" : "max-h-[min(60vh,28rem)]"} p-4`}>
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-semibold">{t("library.episodeSettingsMenuTitle")}</h3>
-              <Button type="button" variant="ghost" size="icon" aria-label={t("library.closeFilters")} onClick={closeMenu}>
+              <h3 id={`${panelId}-title`} className="font-semibold">{t("library.episodeSettingsMenuTitle")}</h3>
+              <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={t("library.closeFilters")} onClick={closeMenu}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -94,7 +128,8 @@ export function EpisodeTitleSettingsMenu({
               <Button type="button" variant="outline" className="w-full border-destructive text-destructive hover:bg-destructive/10" disabled={busy} onClick={onClearAll}>{t("library.clearAllWatched")}</Button>
             </div>
           </ScrollArea>
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {dialogOpen ? (
         <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-start justify-center bg-background/80 p-4 backdrop-blur-sm md:items-center" role="dialog" aria-modal="true">

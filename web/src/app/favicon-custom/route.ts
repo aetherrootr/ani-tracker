@@ -4,8 +4,8 @@ export const dynamic = "force-dynamic";
 
 export function GET() {
   return createBrandingFileResponse(
-    "APP_LOGO_FILE",
+    "APP_FAVICON_FILE",
     "liquid-glass-play-icon.svg",
-    ["image/svg+xml", "image/png", "image/webp"],
+    ["image/svg+xml", "image/png", "image/x-icon"],
   );
 }

@@ -9,6 +9,8 @@ LibrarySort = Literal['updated_at', 'name', 'air_date']
 LibraryOrder = Literal['asc', 'desc']
 LibraryListFilter = Literal['all', 'tracking', 'backlog']
 LibrarySeasonZeroFilter = Literal['include', 'exclude', 'only']
+EpisodeFilter = Literal['all', 'watched', 'unwatched']
+EpisodeOrder = Literal['asc', 'desc']
 
 _LIBRARY_SORT_ALIASES: dict[str, LibrarySort] = {
     'updated_at': 'updated_at',
@@ -65,6 +67,34 @@ def parse_library_offset(value: str | None) -> tuple[int, str | None]:
     if offset < 0:
         return 0, 'Pagination offset is invalid'
     return offset, None
+
+
+def parse_episode_filter(value: str | None) -> tuple[EpisodeFilter, str | None]:
+    if value is None or value == '':
+        return 'all', None
+    if value not in {'all', 'watched', 'unwatched'}:
+        return 'all', 'Episode filter is invalid'
+    return value, None  # type: ignore[return-value]
+
+
+def parse_episode_order(value: str | None) -> tuple[EpisodeOrder, str | None]:
+    if value is None or value == '':
+        return 'asc', None
+    if value not in {'asc', 'desc'}:
+        return 'asc', 'Episode order is invalid'
+    return value, None  # type: ignore[return-value]
+
+
+def parse_optional_positive_int(value: str | None, *, label: str) -> tuple[int | None, str | None]:
+    if value is None or value == '':
+        return None, None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None, f'{label} is invalid'
+    if parsed < 1:
+        return None, f'{label} is invalid'
+    return parsed, None
 
 
 def parse_library_status(value: str | None) -> tuple[UserAnimeStatus | None, str | None]:

@@ -1,7 +1,7 @@
-import { createAppIconResponse } from "@/lib/app-icon-response";
+import { createBrandingFileResponse } from "@/lib/branding-file-response";
 
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  return createAppIconResponse(180);
+  return createBrandingFileResponse("APP_APPLE_TOUCH_ICON_FILE", "apple-touch-icon.png", ["image/png"]);
 }

@@ -257,6 +257,7 @@ def serialize_tracking_list_item(
                 'episode_number': episode.episode_number,
                 'original_title': episode.original_title,
                 'air_at': episode.air_at,
+                'air_at_has_time': episode.air_at_has_time,
                 'duration': episode.duration,
                 'status': episode.status,
                 'watched': watched,

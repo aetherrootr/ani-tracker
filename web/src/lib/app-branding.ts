@@ -1,5 +1,6 @@
-export const appIconUrl = "/liquid-glass-play-icon.svg?v=full-bleed-1";
-export const pwaIcon192Url = "/icon-192x192.png?v=full-bleed-1";
-export const pwaIcon512Url = "/icon-512x512.png?v=full-bleed-1";
-export const pwaMaskableIconUrl = "/icon-maskable-512x512.png?v=full-bleed-1";
-export const appleTouchIconUrl = "/apple-touch-icon.png?v=full-bleed-1";
+export const appLogoUrl = "/app-logo";
+export const appIconUrl = "/favicon-custom";
+export const pwaIcon192Url = "/pwa-icon-192";
+export const pwaIcon512Url = "/pwa-icon-512";
+export const pwaMaskableIconUrl = "/pwa-icon-maskable";
+export const appleTouchIconUrl = "/apple-touch-icon-custom";

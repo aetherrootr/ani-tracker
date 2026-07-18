@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -235,6 +236,7 @@ class Episode(TimestampedBase):
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
     original_title: Mapped[str | None] = mapped_column(String(255))
     air_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    air_at_has_time: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     duration: Mapped[str | None] = mapped_column(String(16))
     status: Mapped[EpisodeStatus] = mapped_column(
         Enum(

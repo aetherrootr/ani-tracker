@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 
+import { scrollPageTo } from "@/components/layout/mobile-scroll-container";
 import { useDesktopPlatform } from "@/components/layout/platform-layout";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -51,7 +52,10 @@ export function TrackingListPageContent() {
   }, [successNotice]);
 
   function handleMobileTabChange(tab: TrackingListKey) {
+    if (tab === activeMobileTab) return;
     setActiveMobileTab(tab);
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scrollPageTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
   }
 
   async function handleWatchChange(listKey: TrackingListKey, item: TrackingListItem, watched: boolean) {
@@ -107,13 +111,13 @@ export function TrackingListPageContent() {
   return (
     <div className="tracking-page-container space-y-6">
       {!isDesktop ? (
-        <div className="mx-auto max-w-5xl space-y-2 text-center">
+        <header className="page-heading-surface mx-auto max-w-5xl space-y-2 text-center">
           <p className="hidden text-sm font-medium uppercase tracking-[0.25em] text-muted-foreground min-[360px]:block">{t("tracking.eyebrow")}</p>
           <h1 className="text-3xl font-semibold tracking-tight">{t("tracking.title")}</h1>
           <p className="text-sm font-medium text-muted-foreground">
             {t("tracking.mobileQueueSummary", { current: data?.[activeMobileTab].total ?? 0, total: queueTotal })}
           </p>
-        </div>
+        </header>
       ) : null}
 
       {error ? (
@@ -127,7 +131,7 @@ export function TrackingListPageContent() {
       {!error ? (
         <div className="mx-auto w-full max-w-[1200px] space-y-4">
           {!isLoading && !hasQueueItems ? (
-            <div className="mb-4 rounded-2xl bg-background/60 p-6 text-center font-medium sm:mb-6 sm:p-8">
+            <div className="mb-4 rounded-2xl border bg-card p-6 text-center font-medium shadow-[var(--shadow-low)] sm:mb-6 sm:p-8">
               {t("tracking.emptyAll")}
             </div>
           ) : null}
@@ -436,6 +440,53 @@ function TrackingSection({
     };
   }, [isLoading, items.length, updateScrollState, variant]);
 
+  const listContent = (
+    <>
+      {isLoading ? (
+        Array.from({ length: compact ? 3 : 4 }).map((_, index) => <SkeletonBlock key={index} className={cn("rounded-2xl", compact ? "h-24" : "h-28")} />)
+      ) : items.length > 0 ? (
+        items.map((item, index) => {
+          const timelineLabel = timeline ? getTimelineLabel(item, items[index - 1]) : null;
+          return (
+            <div key={`${listKey}-${item.anime.id}-${item.episode.id}`} className={cn(timeline && "relative pl-4", variant === "recent" && "tracking-recent-item") }>
+              {timelineLabel ? (
+                <div className="content-status-surface mb-2 flex w-fit items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  <span className="h-3 w-3 rounded-full border-2 border-[var(--accent-solid)]" aria-hidden="true" />
+                  {timelineLabel}
+                </div>
+              ) : null}
+              <TrackingEpisodeRow
+                item={item}
+                disabled={savingKeys.has(`${listKey}-${item.anime.id}-${item.episode.id}`)}
+                isSaving={savingKeys.has(`${listKey}-${item.anime.id}-${item.episode.id}`)}
+                showProgress={showEpisodeProgress}
+                compact={compact}
+                variant={variant}
+                onWatchChange={(nextItem, watched) => onWatchChange(listKey, nextItem, watched)}
+              />
+            </div>
+          );
+        })
+      ) : (
+        <div className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground shadow-[var(--shadow-low)]">
+          {emptyText}
+        </div>
+      )}
+      {!isLoading && hasMore && allowLoadMore ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={isLoadingMore}
+          onClick={() => void onLoadMore(listKey)}
+        >
+          {isLoadingMore ? t("search.loadingMore") : t("tracking.loadMore")}
+        </Button>
+      ) : null}
+    </>
+  );
+  const listClassName = cn("tracking-section-list space-y-3 pb-1", compact && "space-y-2.5", variant === "recent" && "tracking-recent-list");
+
   return (
     <section>
       <div className={headerClassName}>
@@ -459,57 +510,19 @@ function TrackingSection({
             <ChevronDown className="h-5 w-5" aria-hidden="true" />
           </button>
         ) : null}
-        <ScrollArea
-          ref={scrollRef}
-          ariaLabel={t("app.scrollableContent")}
-          className="tracking-section-scroll-area min-h-0"
-          showScrollbar={variant !== "recent"}
-          viewportClassName={cn("tracking-section-list space-y-3 pb-1", compact && "space-y-2.5", variant === "recent" && "tracking-recent-list")}
-          viewportTabIndex={compact && items.length > 0 ? 0 : undefined}
-          onViewportScroll={updateScrollState}
-        >
-        {isLoading ? (
-          Array.from({ length: compact ? 3 : 4 }).map((_, index) => <SkeletonBlock key={index} className={cn("rounded-2xl", compact ? "h-24" : "h-28")} />)
-        ) : items.length > 0 ? (
-          items.map((item, index) => {
-            const timelineLabel = timeline ? getTimelineLabel(item, items[index - 1]) : null;
-            return (
-            <div key={`${listKey}-${item.anime.id}-${item.episode.id}`} className={cn(timeline && "relative pl-4", variant === "recent" && "tracking-recent-item") }>
-              {timelineLabel ? (
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  <span className="h-3 w-3 rounded-full border-2 border-[var(--accent-solid)]" aria-hidden="true" />
-                  {timelineLabel}
-                </div>
-              ) : null}
-              <TrackingEpisodeRow
-                item={item}
-                disabled={savingKeys.has(`${listKey}-${item.anime.id}-${item.episode.id}`)}
-                isSaving={savingKeys.has(`${listKey}-${item.anime.id}-${item.episode.id}`)}
-                showProgress={showEpisodeProgress}
-                compact={compact}
-                variant={variant}
-                onWatchChange={(nextItem, watched) => onWatchChange(listKey, nextItem, watched)}
-              />
-            </div>
-            );
-          })
-        ) : (
-          <div className="rounded-2xl border border-dashed bg-background/60 p-8 text-center text-sm text-muted-foreground">
-            {emptyText}
-          </div>
-        )}
-        {!isLoading && hasMore && allowLoadMore ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            disabled={isLoadingMore}
-            onClick={() => void onLoadMore(listKey)}
+        {variant === "recent" ? (
+          <ScrollArea
+            ref={scrollRef}
+            ariaLabel={t("app.scrollableContent")}
+            className="tracking-section-scroll-area min-h-0"
+            showScrollbar={false}
+            viewportClassName={listClassName}
+            viewportTabIndex={compact && items.length > 0 ? 0 : undefined}
+            onViewportScroll={updateScrollState}
           >
-            {isLoadingMore ? t("search.loadingMore") : t("tracking.loadMore")}
-          </Button>
-        ) : null}
-        </ScrollArea>
+            {listContent}
+          </ScrollArea>
+        ) : <div className={listClassName}>{listContent}</div>}
       </div>
     </section>
   );

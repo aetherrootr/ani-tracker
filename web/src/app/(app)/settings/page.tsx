@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import { TvtimeImportCard } from "@/components/settings/TvtimeImportCard";
+import { WallpaperSettingsCard } from "@/components/settings/WallpaperSettingsCard";
 import { Button } from "@/components/ui/button";
 import { AppLogoMark } from "@/components/ui/app-logo-mark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -300,10 +301,10 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <header className="page-heading-surface">
         <h1 className="text-3xl font-semibold tracking-tight">{t("settings.title")}</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{t("settings.description")}</p>
-      </div>
+      </header>
       <div className="settings-layout">
         <nav className="settings-navigation mobile-sticky-below-top-nav sticky" aria-label={t("settings.categories.label") }>
           <a href="#settings-general">{t("settings.categories.general")}</a>
@@ -325,6 +326,7 @@ export default function SettingsPage() {
           <LanguageToggle />
         </CardContent>
       </Card>
+      <WallpaperSettingsCard />
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.timeZone.title")}</CardTitle>

@@ -22,7 +22,7 @@ from app.models.progress import (
     UserEpisodeProgress,
     UserManualAnimeRelation,
 )
-from app.models.user import User, UserOidcIdentity
+from app.models.user import User, UserOidcIdentity, UserWallpaper
 
 __all__ = [
     "AnimeMetaInfo",
@@ -47,4 +47,5 @@ __all__ = [
     "UserEpisodeProgress",
     "UserManualAnimeRelation",
     "UserOidcIdentity",
+    "UserWallpaper",
 ]

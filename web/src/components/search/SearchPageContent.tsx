@@ -189,7 +189,9 @@ export function SearchPageContent() {
 
   return (
     <div className="mx-auto max-w-[1280px] space-y-6">
-      <h1 className="text-3xl font-semibold tracking-tight">{t("search.title")}</h1>
+      <header className="page-heading-surface">
+        <h1 className="text-3xl font-semibold tracking-tight">{t("search.title")}</h1>
+      </header>
 
       <FloatingSearchInput
         id="anime-search"
@@ -333,7 +335,7 @@ export function SearchPageContent() {
               ))}
             </div>
             <div ref={loadMoreRef} className="min-h-1" aria-hidden="true" />
-            <div className="flex min-h-12 flex-col items-center justify-center gap-2" role="status" aria-live="polite">
+            <div className="content-status-surface flex min-h-12 flex-col items-center justify-center gap-2" role="status" aria-live="polite">
               {paginationError ? (
                 <><p className="text-sm text-destructive">{paginationError}</p><Button type="button" variant="outline" className="min-h-11" onClick={handleLoadMore}>{t("search.retryLoad")}</Button></>
               ) : hasMore ? (

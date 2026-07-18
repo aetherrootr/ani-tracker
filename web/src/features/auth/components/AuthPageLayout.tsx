@@ -5,19 +5,24 @@ import type { ReactNode } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import { AppLogoMark } from "@/components/ui/app-logo-mark";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TranslationKey } from "@/i18n";
+
+import { AuthWallpaper } from "./AuthWallpaper";
 
 type AuthPageLayoutProps = {
   titleKey: TranslationKey;
   descriptionKey: TranslationKey;
   children: ReactNode;
+  showSharedWallpaper?: boolean;
 };
 
-export function AuthPageLayout({ titleKey, descriptionKey, children }: AuthPageLayoutProps) {
+export function AuthPageLayout({ titleKey, descriptionKey, children, showSharedWallpaper = false }: AuthPageLayoutProps) {
   const t = useTranslations();
 
   return (
-    <main className="auth-page">
+    <ScrollArea ariaLabel={t("app.scrollableContent")} className="auth-scroll-area" viewportAs="main" viewportClassName="auth-page">
+      {showSharedWallpaper ? <AuthWallpaper /> : null}
       <div className="auth-surface glass-dialog">
         <div className="auth-language">
           <LanguageToggle />
@@ -32,6 +37,6 @@ export function AuthPageLayout({ titleKey, descriptionKey, children }: AuthPageL
         </div>
         <div className="auth-form">{children}</div>
       </div>
-    </main>
+    </ScrollArea>
   );
 }

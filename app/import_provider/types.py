@@ -65,6 +65,7 @@ class ImportEpisodeInfo:
     status: str
     url: str | None
     raw_data: dict[str, Any]
+    air_at_has_time: bool = False
 
 
 @dataclass(frozen=True)

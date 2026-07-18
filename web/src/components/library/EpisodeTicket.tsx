@@ -431,7 +431,6 @@ export function EpisodeTicket({
         <div className="episode-ticket-underlayer" inert aria-hidden="true">
           <div className="episode-ticket-body">{children}</div>
           <div className="episode-ticket-stub">
-            <TicketNotches />
             <span className="episode-ticket-check-label episode-ticket-check-label-visual">
               <span className="episode-ticket-checkbox episode-ticket-checkbox-visual" />
               <span className="episode-ticket-check-glyph"><Check /></span>
@@ -471,7 +470,6 @@ export function EpisodeTicket({
           </div>
           {slowPending ? <span className="episode-ticket-saving" role="status">{t("tracking.updating")}</span> : null}
           <div className="episode-ticket-stub">
-            <TicketNotches />
             <label className="episode-ticket-check-label">
               <input
                 ref={inputRef}
@@ -516,15 +514,6 @@ export function EpisodeTicket({
         }}
       />
     </div>
-  );
-}
-
-function TicketNotches() {
-  return (
-    <>
-      <span className="episode-ticket-notch episode-ticket-notch-top" aria-hidden="true" />
-      <span className="episode-ticket-notch episode-ticket-notch-bottom" aria-hidden="true" />
-    </>
   );
 }
 

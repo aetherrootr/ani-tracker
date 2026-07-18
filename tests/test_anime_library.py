@@ -182,6 +182,7 @@ def episode_info(
     title: str | None = None,
     status: str = 'aired',
     air_at: datetime | None = None,
+    air_at_has_time: bool = False,
 ) -> ImportEpisodeInfo:
     return ImportEpisodeInfo(
         provider='bangumi',
@@ -194,6 +195,7 @@ def episode_info(
         status=status,
         url=f'https://bgm.tv/ep/{number}',
         raw_data={'id': number},
+        air_at_has_time=air_at_has_time,
     )
 
 
@@ -362,6 +364,34 @@ def test_add_to_library_reuses_episode_when_provider_returns_duplicate_numbers(
     assert episodes[0].original_title == 'Mini Anime #7'
 
 
+def test_episode_air_time_precision_preserves_exact_midnight(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    provider = MutableDetailProvider(
+        {
+            'midnight': anime_detail(
+                'midnight',
+                episodes=[
+                    episode_info(1, air_at=datetime(2024, 4, 1, tzinfo=UTC)),
+                    episode_info(2, air_at=datetime(2024, 4, 2, tzinfo=UTC), air_at_has_time=True),
+                ],
+            ),
+        },
+    )
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    assert register_user(client).status_code == 201
+    assert client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': 'midnight'}).status_code == 201
+    anime_id = db_session.scalar(select(AnimeMetaInfo.id))
+    assert anime_id is not None
+
+    body = client.get(f'/api/anime/library/{anime_id}/episodes').get_json()
+
+    assert [episode['airAt'][:19] for episode in body['episodes']] == ['2024-04-01T00:00:00', '2024-04-02T00:00:00']
+    assert [episode['airAtPrecision'] for episode in body['episodes']] == ['date', 'datetime']
+
+
 def test_add_to_library_detects_duplicate_against_existing_anime_alias(
     app: Flask,
     client: FlaskClient,
@@ -463,7 +493,13 @@ def test_related_anime_uses_library_display_name(
 ) -> None:
     assert register_user(client).status_code == 201
     current = AnimeMetaInfo(provider_type='bangumi', external_id='current', original_name='Current Anime')
-    related = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related Original')
+    related = AnimeMetaInfo(
+        provider_type='bangumi',
+        external_id='related',
+        original_name='Related Original',
+        air_date=date(2026, 7, 5),
+        total_episodes=12,
+    )
     db_session.add_all([current, related])
     db_session.flush()
     preferred_name = AnimeName(anime_id=related.id, language='zh', name='用户选择的相关动画名')
@@ -496,6 +532,8 @@ def test_related_anime_uses_library_display_name(
     related_item = response.get_json()['anime']['relatedAnime'][0]
     assert related_item['title'] == '用户选择的相关动画名'
     assert related_item['inLibrary'] is True
+    assert related_item['airDate'] == '2026-07-05'
+    assert related_item['episodeCount'] == 12
 
 
 def test_provider_switch_without_target_related_falls_back_to_old_provider_relation(
@@ -962,6 +1000,7 @@ def test_single_episode_uses_anime_air_date_when_episode_air_time_missing(
     assert episode is not None
     assert episode.air_at is not None
     assert episode.air_at.date() == date(2021, 11, 12)
+    assert episode.air_at_has_time is False
     assert episode.status.value == 'aired'
 
 
@@ -1030,6 +1069,99 @@ def test_episode_list_returns_preferred_episode_name(app: Flask, client: FlaskCl
     assert episodes[0]['displayName'] == 'The Journey Begins'
     assert episodes[1]['name'] == {'id': 3, 'language': 'ja', 'name': '別に魔法じゃなくたって...'}
     assert episodes[1]['displayName'] == '別に魔法じゃなくたって...'
+
+
+def test_episode_list_filters_orders_and_locates_noncontiguous_episodes(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, language_preference='en').status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='episode-navigation',
+        original_name='Episode Navigation',
+        names=[('Episode Navigation', 'en')],
+    )
+    episodes = [
+        add_episode(db_session, anime, number=41, title='First Arc'),
+        add_episode(db_session, anime, number=42, title='Second Arc'),
+        add_episode(db_session, anime, number=50, title='Final Arc'),
+        add_episode(db_session, anime, number=60, title='Special Arc'),
+    ]
+    db_session.add(EpisodeName(episode_id=episodes[2].id, name='Alternate Finale', language='en'))
+    db_session.commit()
+    assert client.patch(f'/api/watch-state/anime/{anime.id}/episodes/{episodes[1].id}', json={'watched': True}).status_code == 200
+
+    descending = client.get(
+        f'/api/anime/library/{anime.id}/episodes',
+        query_string={'limit': 2, 'order': 'desc'},
+    ).get_json()
+    assert descending['total'] == 4
+    assert descending['order'] == 'desc'
+    assert [episode['episodeNumber'] for episode in descending['episodes']] == [60, 50]
+
+    watched = client.get(
+        f'/api/anime/library/{anime.id}/episodes',
+        query_string={'filter': 'watched'},
+    ).get_json()
+    assert watched['total'] == 1
+    assert [episode['episodeNumber'] for episode in watched['episodes']] == [42]
+
+    number_search = client.get(
+        f'/api/anime/library/{anime.id}/episodes',
+        query_string={'q': 'e:4'},
+    ).get_json()
+    assert [episode['episodeNumber'] for episode in number_search['episodes']] == [41, 42]
+
+    name_search = client.get(
+        f'/api/anime/library/{anime.id}/episodes',
+        query_string={'q': 'alternate finale'},
+    ).get_json()
+    assert [episode['episodeNumber'] for episode in name_search['episodes']] == [50]
+
+    located = client.get(
+        f'/api/anime/library/{anime.id}/episodes',
+        query_string={'limit': 2, 'locateEpisodeNumber': 50},
+    ).get_json()
+    assert located['page'] == 2
+    assert located['offset'] == 2
+    assert located['location'] == {
+        'id': episodes[2].id,
+        'episodeNumber': 50,
+        'index': 2,
+        'offset': 2,
+        'page': 2,
+    }
+    assert [episode['episodeNumber'] for episode in located['episodes']] == [50, 60]
+
+
+@pytest.mark.parametrize(
+    ('query', 'message'),
+    [
+        ({'filter': 'missing'}, 'Episode filter is invalid'),
+        ({'order': 'sideways'}, 'Episode order is invalid'),
+        ({'locateEpisodeNumber': '0'}, 'Episode number is invalid'),
+        ({'locateEpisodeId': 'bad'}, 'Episode ID is invalid'),
+    ],
+)
+def test_episode_list_rejects_invalid_query_state(
+    client: FlaskClient,
+    db_session: Session,
+    query: dict[str, str],
+    message: str,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='invalid-episode-query',
+        original_name='Invalid Episode Query',
+        names=[('Invalid Episode Query', 'en')],
+    )
+
+    response = client.get(f'/api/anime/library/{anime.id}/episodes', query_string=query)
+
+    assert response.status_code == 400
+    assert response.get_json() == {'message': message}
 
 
 def test_library_list_returns_wall_display_fields(app: Flask, client: FlaskClient) -> None:
@@ -2770,7 +2902,24 @@ def test_switch_to_local_snapshot_returns_snapshot_episodes(
     assert [episode['episodeNumber'] for episode in episodes] == [1, 2]
     assert episodes[0]['watched'] is True
     assert episodes[0]['displayName'] == '旅立ちの終わり'
+    assert episodes[0]['airAtPrecision'] == 'date'
     assert episodes[0]['availableNames'] == []
+
+    watched = client.get('/api/anime/library/1/episodes', query_string={'filter': 'watched'}).get_json()
+    assert watched['total'] == 1
+    assert [episode['episodeNumber'] for episode in watched['episodes']] == [1]
+
+    searched = client.get('/api/anime/library/1/episodes', query_string={'q': '旅立ち'}).get_json()
+    assert [episode['episodeNumber'] for episode in searched['episodes']] == [1]
+
+    located = client.get(
+        '/api/anime/library/1/episodes',
+        query_string={'limit': 1, 'order': 'desc', 'locateEpisodeNumber': 1},
+    ).get_json()
+    assert located['page'] == 2
+    assert located['location']['episodeNumber'] == 1
+    assert [episode['episodeNumber'] for episode in located['episodes']] == [1]
+    assert [(item['firstEpisodeNumber'], item['lastEpisodeNumber']) for item in located['ranges']] == [(2, 2), (1, 1)]
 
 
 def test_local_snapshot_watch_state_updates_snapshot_episode(

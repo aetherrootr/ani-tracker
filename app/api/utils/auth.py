@@ -5,7 +5,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Concatenate
 
-from flask import jsonify, session as flask_session
+from flask import current_app, jsonify, session as flask_session
 from flask.typing import ResponseReturnValue
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -51,6 +51,17 @@ def require_auth_user[**P, R: ResponseReturnValue](
 
 
 def user_to_auth_dict(user: User) -> dict[str, object]:
+    def wallpapers_for(variant: str) -> list[dict[str, object]]:
+        return [
+            {
+                'id': wallpaper.id,
+                'url': f'/api/user/me/wallpapers/{variant}/{wallpaper.id}?v={wallpaper.content_hash[:16]}',
+                'selected': wallpaper.selected,
+            }
+            for wallpaper in sorted(user.wallpapers, key=lambda item: item.id)
+            if wallpaper.variant == variant
+        ]
+
     return {
         'id': user.id,
         'username': user.username,
@@ -64,6 +75,14 @@ def user_to_auth_dict(user: User) -> dict[str, object]:
         'timeZoneMode': user.time_zone_mode,
         'includeUnwatchedSeasonZeroInTracking': user.include_unwatched_season_zero_in_tracking,
         'includeUnwatchedSeasonZeroInStatistics': user.include_unwatched_season_zero_in_statistics,
+        'desktopWallpaperMode': user.desktop_wallpaper_mode,
+        'mobileWallpaperMode': user.mobile_wallpaper_mode,
+        'wallpaperGlassStyle': user.wallpaper_glass_style,
+        'wallpaperGlassIntensity': user.wallpaper_glass_intensity,
+        'shareWallpapersOnLogin': user.share_wallpapers_on_login,
+        'desktopWallpapers': wallpapers_for('desktop'),
+        'mobileWallpapers': wallpapers_for('mobile'),
+        'wallpaperUploadLimit': int(current_app.config['USER_WALLPAPER_MAX_IMAGES_PER_USER']),
         'oidcLinked': bool(user.oidc_identities),
     }
 

@@ -141,6 +141,8 @@ def test_instance_path_reads_environment(test_instance_path: Path) -> None:
 
     assert Path(app.instance_path) == test_instance_path
     assert app.config['ANIME_POSTER_STORAGE_DIR'] == str(test_instance_path / 'anime_posters')
+    assert app.config['USER_WALLPAPER_STORAGE_DIR'] == str(test_instance_path / 'user_wallpapers')
+    assert app.config['USER_WALLPAPER_MAX_IMAGES_PER_USER'] == 12
     assert app.config['TVTIME_IMPORT_REPORT_DIR'] == str(test_instance_path / 'tvtime_import_reports')
     assert app.config['LIBRARY_REFRESH_JOB_LOCK_DIR'] == str(test_instance_path / 'library_refresh_jobs')
 

@@ -69,3 +69,21 @@ export function useUpdateIncludeUnwatchedSeasonZeroInStatistics() {
 
   return updateIncludeUnwatchedSeasonZeroInStatistics;
 }
+
+export function useUpdateShareWallpapersOnLogin() {
+  const { updateShareWallpapersOnLogin } = useAuth();
+
+  return updateShareWallpapersOnLogin;
+}
+
+export function useUpdateWallpaperGlassAppearance() {
+  const { updateWallpaperGlassAppearance } = useAuth();
+
+  return updateWallpaperGlassAppearance;
+}
+
+export function useWallpaperActions() {
+  const { uploadWallpaper, removeWallpaper, updateWallpaperPreferences } = useAuth();
+
+  return { uploadWallpaper, removeWallpaper, updateWallpaperPreferences };
+}
