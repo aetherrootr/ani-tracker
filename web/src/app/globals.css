@@ -2516,6 +2516,25 @@ body.episode-ticket-drag-lock {
 .episode-ticket[data-density="recent"] .episode-progress,
 .episode-ticket[data-density="recent"] .tracking-ticket-date { display: none; }
 
+@media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .tracking-ticket-copy h3 a,
+  .tracking-ticket-episode-title {
+    -webkit-line-clamp: 1;
+  }
+
+  .episode-ticket-checkbox {
+    inset: 50% auto auto 50%;
+    width: 2.25rem;
+    height: 2.25rem;
+    transform: translate(-50%, -50%);
+  }
+
+  .episode-ticket-check-glyph {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
 @media (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
   .episode-ticket { --ticket-stub-width: 3.5rem; }
   .episode-ticket { height: 6.5rem; }
