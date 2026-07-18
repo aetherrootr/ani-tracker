@@ -226,7 +226,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
           <FloatingSearchInput
             id="provider-switch-search"
             value={searchKeyword}
-            onChange={(event) => updateSearchKeyword(event.target.value)}
+            onValueChange={updateSearchKeyword}
             placeholder={t("library.switchProviderSearchPlaceholder")}
             aria-label={t("library.switchProviderSearchPlaceholder")}
             autoComplete="off"

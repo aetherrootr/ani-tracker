@@ -75,6 +75,7 @@ export function useWatchTimeline(preferredTimeZone?: string) {
   const [retryKey, setRetryKey] = useState(0);
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(true);
+  const isInitialLoadingRef = useRef(true);
   const isLoadingMoreRef = useRef(false);
 
   useEffect(() => {
@@ -84,6 +85,7 @@ export function useWatchTimeline(preferredTimeZone?: string) {
     setError(null);
     offsetRef.current = 0;
     hasMoreRef.current = true;
+    isInitialLoadingRef.current = true;
     isLoadingMoreRef.current = false;
 
     getWatchTimelinePage({ limit: TIMELINE_PAGE_SIZE, offset: 0, signal: controller.signal })
@@ -104,6 +106,7 @@ export function useWatchTimeline(preferredTimeZone?: string) {
       })
       .finally(() => {
         if (!controller.signal.aborted) {
+          isInitialLoadingRef.current = false;
           setIsLoading(false);
         }
       });
@@ -112,7 +115,7 @@ export function useWatchTimeline(preferredTimeZone?: string) {
   }, [retryKey, preferredTimeZone]);
 
   const loadMore = useCallback(async () => {
-    if (isLoadingMoreRef.current || !hasMoreRef.current) {
+    if (isInitialLoadingRef.current || isLoadingMoreRef.current || !hasMoreRef.current) {
       return;
     }
     isLoadingMoreRef.current = true;

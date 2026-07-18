@@ -3,10 +3,11 @@
 import { AlertCircle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyRound, Link2, LogOut, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
+import { getMobileScrollContainer } from "@/components/layout/mobile-scroll-container";
 import { TvtimeImportCard } from "@/components/settings/TvtimeImportCard";
 import { WallpaperSettingsCard } from "@/components/settings/WallpaperSettingsCard";
 import { Button } from "@/components/ui/button";
@@ -354,7 +355,7 @@ export default function SettingsPage() {
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{t("settings.description")}</p>
       </header>
       <div className="settings-layout">
-        <nav className="settings-navigation mobile-sticky-below-top-nav sticky" aria-label={t("settings.categories.label") }>
+        <nav className="settings-navigation mobile-sticky-below-top-nav sticky" aria-label={t("settings.categories.label") } onClick={handleSettingsNavigation}>
           <a href="#settings-general">{t("settings.categories.general")}</a>
           <a href="#settings-tracking">{t("settings.categories.tracking")}</a>
           <a href="#settings-data">{t("settings.categories.data")}</a>
@@ -746,6 +747,34 @@ export default function SettingsPage() {
       </div>
     </div>
   );
+}
+
+function handleSettingsNavigation(event: MouseEvent<HTMLElement>) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+  const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href^='#settings-']");
+  if (!anchor) return;
+
+  const target = document.getElementById(decodeURIComponent(anchor.hash.slice(1)));
+  const viewport = getMobileScrollContainer();
+  const contentPane = target?.closest<HTMLElement>(".settings-content-pane");
+  if (!target || !viewport || !contentPane) return;
+
+  event.preventDefault();
+  window.history.pushState(null, "", anchor.hash);
+
+  const viewportRect = viewport.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const contentRect = contentPane.getBoundingClientRect();
+  const scrollMargin = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop) || 0;
+  const requestedTop = viewport.scrollTop + targetRect.top - viewportRect.top - scrollMargin;
+  const browserMax = Math.max(viewport.scrollHeight - viewport.clientHeight, 0);
+  const contentMax = Math.max(viewport.scrollTop + contentRect.bottom - viewportRect.bottom + 16, 0);
+
+  viewport.scrollTo({
+    top: Math.min(Math.max(requestedTop, 0), browserMax, contentMax),
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+  });
 }
 
 function AccountRow({ icon, title, description, children }: { icon: ReactNode; title: string; description: string; children: ReactNode }) {

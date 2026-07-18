@@ -16,6 +16,14 @@ export const en = {
     logout: "Log out",
     loggingOut: "Logging out",
     scrollableContent: "Scrollable content",
+    install: {
+      title: "Install Ani Tracker",
+      description: "Add it to your Home Screen for a full-screen experience without browser controls.",
+      iosShare: "Tap Safari's Share button, then choose",
+      iosAdd: "Add to Home Screen",
+      action: "Install app",
+      dismiss: "Not now",
+    },
   },
   nav: {
     mainNavigation: "Main navigation",
@@ -624,6 +632,8 @@ export const en = {
     resultsRegion: "Library results",
     quickNavigation: "Library quick navigation",
     quickNavigationScrollbar: "Scroll library anchors",
+    quickNavigationPrevious: "Page up through quick navigation",
+    quickNavigationNext: "Page down through quick navigation",
     viewDetails: "View details for {title}",
     watchedCount: "{watched} / {total} watched",
     type: {

@@ -13,6 +13,14 @@ export const zhCN = {
     logout: "退出登录",
     loggingOut: "正在退出",
     scrollableContent: "可滚动内容",
+    install: {
+      title: "安装 Ani Tracker",
+      description: "添加到主屏幕，获得无浏览器工具栏的全屏体验。",
+      iosShare: "点击 Safari 的分享按钮，再选择",
+      iosAdd: "添加到主屏幕",
+      action: "安装应用",
+      dismiss: "暂不安装",
+    },
   },
   nav: {
     mainNavigation: "主导航",
@@ -621,6 +629,8 @@ export const zhCN = {
     resultsRegion: "资料库结果",
     quickNavigation: "资料库快速导航",
     quickNavigationScrollbar: "滚动资料库锚点",
+    quickNavigationPrevious: "向上翻阅快速导航",
+    quickNavigationNext: "向下翻阅快速导航",
     viewDetails: "查看《{title}》详情",
     watchedCount: "已观看 {watched} / {total}",
     type: {

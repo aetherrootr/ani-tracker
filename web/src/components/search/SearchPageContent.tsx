@@ -197,10 +197,7 @@ export function SearchPageContent() {
         id="anime-search"
         type="search"
         value={keyword}
-        onChange={(event) => {
-          if (!(event.nativeEvent as InputEvent).isComposing) updateKeyword(event.target.value);
-        }}
-        onCompositionEnd={(event) => updateKeyword(event.currentTarget.value)}
+        onValueChange={updateKeyword}
         onKeyDown={(event) => {
           if ((event.nativeEvent as KeyboardEvent).isComposing) return;
           if (event.key === "Enter") {

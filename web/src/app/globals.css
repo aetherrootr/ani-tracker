@@ -232,13 +232,17 @@ html {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: var(--app-background);
 }
 
 body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  color: var(--foreground);
+}
+
+html,
+body {
   background:
     radial-gradient(900px 620px at 88% 0%, rgb(170 165 255 / 0.15), transparent 68%),
     radial-gradient(760px 520px at 24% 100%, rgb(119 200 255 / 0.08), transparent 68%),
@@ -246,7 +250,6 @@ body {
   background-attachment: fixed;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  color: var(--foreground);
 }
 
 .app-shell {
@@ -1412,18 +1415,14 @@ input[type="search"]::-webkit-search-decoration {
 .library-anchor-list {
   display: grid;
   gap: 0.125rem;
-  padding: 0.3125rem;
-  border: 1px solid var(--border-neutral);
-  border-radius: var(--radius-panel);
-  background: var(--surface-glass-strong);
-  box-shadow: 0 1px 0 var(--border-highlight) inset;
+  padding: 0.375rem;
 }
 
 .library-anchor-item {
   position: relative;
   display: flex;
   width: 100%;
-  min-height: 2rem;
+  min-height: 2.25rem;
   align-items: center;
   padding: 0.375rem 0.625rem 0.375rem 0.75rem;
   border-radius: var(--radius-control);
@@ -1473,6 +1472,57 @@ input[type="search"]::-webkit-search-decoration {
   }
 }
 
+.library-anchor-heading {
+  padding: 0.75rem 0.875rem 0.625rem;
+  border-bottom: 1px solid var(--divider);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.library-anchor-controls {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-top: 1px solid var(--divider);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--surface-glass-strong) 92%, transparent), var(--surface-glass-strong));
+}
+
+.library-anchor-controls button {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard);
+}
+
+.library-anchor-controls button svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.library-anchor-controls button:disabled {
+  opacity: 0.28;
+}
+
+.library-anchor-controls button:not(:disabled):hover {
+  background: var(--surface-hover);
+  color: var(--accent-solid);
+}
+
+.library-anchor-controls button:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: -2px;
+}
+
 @media (min-width: 1200px) and (any-hover: hover) and (any-pointer: fine) {
   .library-anchor-nav {
     position: absolute;
@@ -1481,7 +1531,7 @@ input[type="search"]::-webkit-search-decoration {
     bottom: 0;
     z-index: 20;
     display: block;
-    width: 6.5rem;
+    width: 10rem;
   }
 
   .library-anchor-nav[data-available="false"] {
@@ -1489,15 +1539,26 @@ input[type="search"]::-webkit-search-decoration {
     pointer-events: none;
   }
 
-  .library-anchor-scroll {
+  .library-anchor-panel {
     position: sticky;
     top: 6rem;
-    max-height: calc(100vh - 7.5rem);
-    max-height: calc(100svh - 7.5rem);
+    display: flex;
+    max-height: min(32rem, calc(100vh - 7.5rem));
+    max-height: min(32rem, calc(100svh - 7.5rem));
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-neutral);
+    border-radius: var(--radius-panel);
+    box-shadow: 0 1px 0 var(--border-highlight) inset, var(--shadow-medium);
+  }
+
+  .library-anchor-scroll {
+    min-height: 0;
+    flex: 1;
   }
 
   .library-anchor-scroll .scroll-area-viewport {
-    max-height: inherit;
+    max-height: calc(min(32rem, 100svh - 7.5rem) - 5.5rem);
   }
 }
 
@@ -1924,8 +1985,9 @@ input[type="search"]::-webkit-search-decoration {
   overflow: hidden;
   border-radius: var(--radius-card);
   background: transparent;
-  box-shadow: 0 1px 2px rgb(18 20 32 / 0.04);
+  filter: drop-shadow(0 1px 2px rgb(18 20 32 / 0.06));
   scroll-margin-top: 6rem;
+  transition: filter var(--motion-fast) var(--ease-standard);
 }
 
 .episode-ticket:dir(rtl) {
@@ -2064,6 +2126,7 @@ body.episode-ticket-drag-lock {
   align-items: center;
   justify-content: space-between;
   overflow: hidden;
+  border-radius: inherit;
   background: color-mix(in srgb, var(--accent-soft) 74%, var(--surface-card));
   color: var(--accent-solid);
 }
@@ -2453,6 +2516,25 @@ body.episode-ticket-drag-lock {
 .episode-ticket[data-density="recent"] .episode-progress,
 .episode-ticket[data-density="recent"] .tracking-ticket-date { display: none; }
 
+@media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .tracking-ticket-copy h3 a,
+  .tracking-ticket-episode-title {
+    -webkit-line-clamp: 1;
+  }
+
+  .episode-ticket-checkbox {
+    inset: 50% auto auto 50%;
+    width: 2.25rem;
+    height: 2.25rem;
+    transform: translate(-50%, -50%);
+  }
+
+  .episode-ticket-check-glyph {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
 @media (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
   .episode-ticket { --ticket-stub-width: 3.5rem; }
   .episode-ticket { height: 6.5rem; }
@@ -2461,7 +2543,7 @@ body.episode-ticket-drag-lock {
   .episode-list-stack { gap: 0.75rem; }
   .episode-ticket-body { padding: 0.75rem 1rem; }
   .episode-ticket-check-label { width: 2.125rem; height: 2.125rem; }
-  .episode-ticket:hover { box-shadow: 0 2px 8px rgb(18 20 32 / 0.08); }
+  .episode-ticket:hover { filter: drop-shadow(0 2px 8px rgb(18 20 32 / 0.12)); }
   .episode-ticket:hover .episode-ticket-front { border-color: color-mix(in srgb, var(--text-secondary) 28%, var(--border-neutral)); }
   .episode-ticket-front { cursor: default; }
   .episode-ticket:hover .episode-ticket-front { cursor: grab; }
@@ -2874,17 +2956,14 @@ body.episode-ticket-drag-lock {
   transform-origin: top center;
 }
 
-@media (display-mode: standalone) {
-  :root {
-    --app-viewport-height: 100vh;
-    --app-viewport-height: 100lvh;
-  }
-}
-
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
-  .app-shell,
+  .app-shell {
+    position: relative;
+    height: 100svh;
+  }
+
   .app-shell-content {
-    height: var(--app-viewport-height);
+    height: 100svh;
     overflow: hidden;
   }
 
@@ -2893,7 +2972,7 @@ body.episode-ticket-drag-lock {
   }
 
   .app-main-scroll {
-    height: calc(var(--app-viewport-height) - var(--mobile-top-nav-height));
+    height: calc(100svh - var(--mobile-top-nav-height));
     margin-top: var(--mobile-top-nav-height);
   }
 

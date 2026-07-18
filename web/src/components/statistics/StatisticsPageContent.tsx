@@ -208,13 +208,15 @@ function DailyHeatmap({ days, locale, touchLayout }: { days: StatisticsDay[]; lo
       <CardContent>
         <YearOverview days={days} locale={locale} showMiniHeatmap={touchLayout} />
         <SelectedDay day={activeDay} locale={locale} />
-        <ChartRangeControls
-          label={formatDateRange(visibleDays[0]?.date, visibleDays.at(-1)?.date, locale)}
-          previousDisabled={!canGoOlder}
-          nextDisabled={latestRange}
-          onPrevious={() => setRangeOffset((value) => value + 1)}
-          onNext={() => setRangeOffset((value) => Math.max(0, value - 1))}
-        />
+        {touchLayout ? (
+          <ChartRangeControls
+            label={formatDateRange(visibleDays[0]?.date, visibleDays.at(-1)?.date, locale)}
+            previousDisabled={!canGoOlder}
+            nextDisabled={latestRange}
+            onPrevious={() => setRangeOffset((value) => value + 1)}
+            onNext={() => setRangeOffset((value) => Math.max(0, value - 1))}
+          />
+        ) : <p className="mt-3 text-center text-xs font-medium text-muted-foreground">{formatDateRange(visibleDays[0]?.date, visibleDays.at(-1)?.date, locale)}</p>}
         <div ref={containerRef} className="mt-3 min-w-0">
           <div role="grid" aria-label={t("statistics.daily.gridLabel", { count: visibleDays.length })} className={cn("grid gap-1", touchLayout ? "grid-cols-7" : "grid-flow-col grid-rows-7")}>
             {visibleDays.map((day, index) => {
