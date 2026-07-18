@@ -47,8 +47,9 @@ def upsert_poster_record(
         session.add(poster)
     poster.storage_path = storage_path
     poster.source_url = source_url
-    poster.status = 'pending'
-    poster.last_error = None
+    if poster.status != 'ready':
+        poster.status = 'pending'
+        poster.last_error = None
     return poster
 
 
@@ -79,6 +80,7 @@ def download_poster_to_storage(
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = destination.with_name(f'.tmp-{destination.name}')
+    preserve_existing = poster.status == 'ready' and destination.is_file()
 
     try:
         with requests.get(poster.source_url, stream=True, timeout=timeout) as response:
@@ -101,11 +103,20 @@ def download_poster_to_storage(
                         msg = 'Poster exceeds maximum size'
                         raise ValueError(msg)
                     output.write(chunk)
+        if size == 0:
+            msg = 'Poster is empty'
+            raise ValueError(msg)
+        mime_type = _detect_image_mime(tmp_path, size)
         os.replace(tmp_path, destination)
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
-        logger.warning('Poster download failed for poster %s', poster_id, exc_info=exc)
-        _mark_failed(session, poster, str(exc)[:1024])
+        logger.debug('Poster download failed for poster %s', poster_id, exc_info=exc)
+        if preserve_existing:
+            poster.status = 'ready'
+            poster.last_error = None
+            session.commit()
+        else:
+            _mark_failed(session, poster, str(exc)[:1024])
         return
 
     poster.mime_type = mime_type
@@ -113,6 +124,34 @@ def download_poster_to_storage(
     poster.status = 'ready'
     poster.last_error = None
     session.commit()
+
+
+def _detect_image_mime(path: Path, size: int) -> str:
+    with path.open('rb') as image:
+        header = image.read(16)
+        if header.startswith(b'\xff\xd8\xff'):
+            msg = 'Invalid JPEG poster'
+            if size < 5:
+                raise ValueError(msg)
+            image.seek(-2, os.SEEK_END)
+            if image.read(2) != b'\xff\xd9':
+                raise ValueError(msg)
+            return 'image/jpeg'
+        if header.startswith(b'\x89PNG\r\n\x1a\n'):
+            msg = 'Invalid PNG poster'
+            if size < 32:
+                raise ValueError(msg)
+            image.seek(-12, os.SEEK_END)
+            if image.read(12) != b'\x00\x00\x00\x00IEND\xaeB`\x82':
+                raise ValueError(msg)
+            return 'image/png'
+        if header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+            if size < 12 or int.from_bytes(header[4:8], 'little') + 8 != size:
+                msg = 'Invalid WebP poster'
+                raise ValueError(msg)
+            return 'image/webp'
+    msg = 'Poster content is not a supported image'
+    raise ValueError(msg)
 
 
 def enqueue_poster_download(poster_id: int) -> None:
