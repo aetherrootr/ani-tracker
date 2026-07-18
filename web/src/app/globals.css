@@ -232,13 +232,17 @@ html {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: var(--app-background);
 }
 
 body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  color: var(--foreground);
+}
+
+html,
+body {
   background:
     radial-gradient(900px 620px at 88% 0%, rgb(170 165 255 / 0.15), transparent 68%),
     radial-gradient(760px 520px at 24% 100%, rgb(119 200 255 / 0.08), transparent 68%),
@@ -246,7 +250,6 @@ body {
   background-attachment: fixed;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  color: var(--foreground);
 }
 
 .app-shell {
@@ -2935,9 +2938,13 @@ body.episode-ticket-drag-lock {
 }
 
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
-  .app-shell,
+  .app-shell {
+    position: relative;
+    height: 100svh;
+  }
+
   .app-shell-content {
-    height: var(--app-viewport-height);
+    height: 100svh;
     overflow: hidden;
   }
 
@@ -2946,7 +2953,7 @@ body.episode-ticket-drag-lock {
   }
 
   .app-main-scroll {
-    height: calc(var(--app-viewport-height) - var(--mobile-top-nav-height));
+    height: calc(100svh - var(--mobile-top-nav-height));
     margin-top: var(--mobile-top-nav-height);
   }
 
@@ -2961,29 +2968,6 @@ body.episode-ticket-drag-lock {
     margin-top: 0;
   }
 
-}
-
-@media (display-mode: standalone) {
-  :root {
-    --app-viewport-height: 100vh;
-    --app-viewport-height: 100dvh;
-  }
-
-  .app-shell {
-    position: fixed;
-    inset: 0;
-    height: auto;
-  }
-
-  @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
-    .app-shell-content {
-      height: 100%;
-    }
-
-    .app-main-scroll {
-      height: calc(100% - var(--mobile-top-nav-height));
-    }
-  }
 }
 
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
