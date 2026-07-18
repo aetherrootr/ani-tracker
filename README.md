@@ -11,6 +11,15 @@ ani-tracker is designed as a self-hostable alternative to
 [TV Time](https://tvtime.com/). Its interaction model is
 inspired by TV Time and Apple Music.
 
+ani-tracker's user interface uses a unified design language, *Twilight Iris*,
+that aims to feel calm, precise, respectful of the media content, and personal.
+Inspired by TV Time and physical movie tickets, ani-tracker designs a
+ticket-stub style swipe interaction for watching episodes. All user
+interactions closely follow the
+[Apple Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/)
+to give users the best possible experience and visual feel. For more about the
+design, see [Design Style](docs/design_style.md).
+
 ## Documentation
 
 - [中文 README](docs/README.zh-CN.md)
@@ -19,16 +28,31 @@ inspired by TV Time and Apple Music.
 
 ### Desktop
 
-| Search | Library |
-| --- | --- |
-| ![Desktop search](docs/images/search-desktop.png) | ![Desktop library](docs/images/library-desktop.png) |
+| Login | Search | Library |
+| --- | --- | --- |
+| ![Login](docs/images/login-desktop.png) | ![Desktop search](docs/images/search-desktop.png) | ![Desktop library](docs/images/library-desktop.png) |
+
+| Watchlist | Stats | Select TVDB season |
+| --- | --- | --- |
+| ![Desktop watchlist](docs/images/watchlist-desktop.png) | ![Desktop stats](docs/images/stats-desktop.png) | ![Select TVDB season](docs/images/select-tvdb-season.png) |
+
+<details>
+<summary>View dark mode screenshots</summary>
+
+| Login | Search | Library |
+| --- | --- | --- |
+| ![Login (dark mode)](docs/images/login-desktop-dark.png) | ![Desktop search (dark mode)](docs/images/search-desktop-dark.png) | ![Desktop library (dark mode)](docs/images/library-desktop-dark.png) |
 
 | Watchlist | Stats |
 | --- | --- |
-| ![Desktop watchlist](docs/images/watchlist-desktop.png) | ![Desktop stats](docs/images/stats-desktop.png) |
+| ![Desktop watchlist (dark mode)](docs/images/watchlist-desktop-dark.png) | ![Desktop stats (dark mode)](docs/images/stats-dark.png) |
+
+</details>
 
 ### Mobile
 
+<details>
+<summary>View mobile screenshots</summary>
 <p>
   <img src="docs/images/search-mobile.png" alt="Mobile search" width="180">
   <img src="docs/images/library-mobile.png" alt="Mobile library" width="180">
@@ -36,38 +60,36 @@ inspired by TV Time and Apple Music.
   <img src="docs/images/watchlist-mobile-1.png" alt="Mobile watchlist detail" width="180">
   <img src="docs/images/stats-mobile.png" alt="Mobile stats" width="180">
 </p>
+</details>
 
 ## Project Status
 
 ani-tracker is in early development. Core tracking features are usable, but APIs,
 migrations, UI details, and metadata-provider behavior may still change.
 
-The project is built with AI assistance, with architecture design and code review
-handled by a human maintainer.
+The project is developed with the help of AI-assisted tools. Architecture
+design, feature decisions, code review, and final merges are all handled by the
+maintainer. The project uses Ruff, mypy, and pytest for static checks and
+automated testing.
 
 ## Features
 
-- Local-first: all user data is stored locally. Network access is only used to
-  fetch metadata from upstream services.
-- Multiple metadata providers: choose the provider you prefer for each title.
-  Current providers include [Bangumi](https://bangumi.tv/),
-  [TheTVDB](https://www.thetvdb.com/), and
-  [TMDB](https://www.themoviedb.org/).
-- Metadata provenance control: to keep the design simple and predictable,
-  each title is linked to one upstream metadata provider at a time. This avoids
-  silently mixing data from different providers, and ani-tracker provides a way
-  to migrate your watch history when switching providers.
-- Local metadata snapshots: when upstream metadata changes or when you want to
-  keep the current episode view, you can switch a title to a local snapshot.
-  Provider switching migrates watch state for episodes that can be matched by
-  episode number. Watch records for episodes missing from the target provider
-  may be retained internally, but ani-tracker does not guarantee that those
-  unmatched records will remain visible, recoverable, or manageable after the
-  switch. Use a local snapshot before switching if you need to preserve the
-  current episode context.
-- Desktop and mobile experiences: ani-tracker implements separate frontend
-  interactions for desktop and mobile devices.
-- OIDC / SSO support.
+- **Self-hosted first:** accounts, watch records, and your personal library are
+  stored in a database controlled by the deployer.
+- **Multiple metadata providers:** supports [Bangumi](https://bangumi.tv/),
+  [TheTVDB](https://www.thetvdb.com/), and [TMDB](https://www.themoviedb.org/).
+- **Explicit data provenance:** each title is linked to a single metadata
+  provider at a time, avoiding silently mixing data from different sources.
+- **Local metadata snapshots:** freeze the current title and episode structure
+  to reduce the impact of upstream data changes.
+- **Responsive interactions:** operation flows are optimized separately for
+  desktop and mobile.
+- **Unified authentication:** supports optional OIDC / SSO integration.
+- **Automatic updates:** discovers and imports new episodes, new seasons, and
+  related anime from upstream.
+- **Custom branding:** supports replacing the logo, favicon, PWA icons, and app
+  background.
+- **Multi-user support:** Each user has their own data space, with no interference between them.
 
 ## Quick Start
 
@@ -118,62 +140,6 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED` | Automatically import conservative Bangumi related anime (`续集`/`前传`) for eligible user-library entries. |
 | `OIDC_ENABLED` | Enables optional OIDC / SSO integration. |
 
-### Custom app logo and PWA icons
-
-The default UI logo and favicon use `web/public/liquid-glass-play-icon.svg`. You can replace the branding at deployment time without rebuilding application code by mounting image files into the container and setting these runtime environment variables to their absolute container paths:
-
-| Variable | Description |
-| --- | --- |
-| `APP_LOGO_FILE` | Logo shown in the login/register pages, app navigation, and About settings. SVG, PNG, or WebP are supported. |
-| `APP_FAVICON_FILE` | Browser tab icon. SVG, PNG, or ICO are supported. |
-| `APP_PWA_ICON_192_FILE` | 192x192 PNG icon used by the web app manifest. |
-| `APP_PWA_ICON_512_FILE` | 512x512 PNG icon used by the web app manifest. |
-| `APP_PWA_ICON_MASKABLE_FILE` | 512x512 maskable PNG icon for Android launchers. |
-| `APP_APPLE_TOUCH_ICON_FILE` | 180x180 PNG icon used by iOS when adding the app to the home screen. |
-
-All variables are optional and use the bundled assets when unset. Configured paths must be absolute and readable by the application process. They are container filesystem paths, not browser URLs:
-
-```env
-APP_LOGO_FILE=/opt/ani-tracker/branding/logo.svg
-APP_FAVICON_FILE=/opt/ani-tracker/branding/favicon.svg
-APP_PWA_ICON_192_FILE=/opt/ani-tracker/branding/icon-192x192.png
-APP_PWA_ICON_512_FILE=/opt/ani-tracker/branding/icon-512x512.png
-APP_PWA_ICON_MASKABLE_FILE=/opt/ani-tracker/branding/icon-maskable-512x512.png
-APP_APPLE_TOUCH_ICON_FILE=/opt/ani-tracker/branding/apple-touch-icon.png
-```
-
-The app reads these files on the server and exposes them through stable internal URLs (`/app-logo`, `/favicon-custom`, `/pwa-icon-192`, `/pwa-icon-512`, `/pwa-icon-maskable`, and `/apple-touch-icon-custom`). Container paths are never sent to browsers. After changing the favicon or PWA icons, clear site data and remove and reinstall any home-screen app because browsers aggressively cache these assets.
-
-For the official container image, a practical Docker Compose setup is to mount a host directory read-only at `/opt/ani-tracker/branding`:
-
-```text
-/opt/ani-tracker-branding/
-  logo.svg
-  favicon.svg
-  icon-192x192.png
-  icon-512x512.png
-  icon-maskable-512x512.png
-  apple-touch-icon.png
-```
-
-```yaml
-services:
-  app:
-    image: ghcr.io/aetherrootr/ani-tracker:latest
-    environment:
-      APP_LOGO_FILE: /opt/ani-tracker/branding/logo.svg
-      APP_FAVICON_FILE: /opt/ani-tracker/branding/favicon.svg
-      APP_PWA_ICON_192_FILE: /opt/ani-tracker/branding/icon-192x192.png
-      APP_PWA_ICON_512_FILE: /opt/ani-tracker/branding/icon-512x512.png
-      APP_PWA_ICON_MASKABLE_FILE: /opt/ani-tracker/branding/icon-maskable-512x512.png
-      APP_APPLE_TOUCH_ICON_FILE: /opt/ani-tracker/branding/apple-touch-icon.png
-    volumes:
-      - ani_tracker_data:/var/lib/ani-tracker
-      - /opt/ani-tracker-branding:/opt/ani-tracker/branding:ro
-```
-
-In this example, the application reads `/opt/ani-tracker/branding/logo.svg`, while browsers only request the stable `/app-logo` URL.
-
 ## Non-goals
 
 - ani-tracker does not manage local media files.
@@ -186,130 +152,33 @@ In this example, the application reads `/opt/ani-tracker/branding/logo.svg`, whi
 - Switching metadata providers is best-effort. Unmatched historical episode
   watch records are not actively deleted, but only local snapshots are intended
   to preserve an old episode view for future use.
-- Export tools are still under development.
 - Some UI interactions may be refined in future releases.
 
 ## Roadmap
 
-- Support data export.
-- Support custom background images to improve the frontend experience.
-- Support AniList as a metadata provider.
-- Support configuring streaming platforms for titles, allowing ani-tracker to
-  link from a title to the platform where it can be watched.
+- [x] TV Time data import
+- [ ] Data export
+- [x] Support custom background images to improve the frontend experience
+- [ ] AniList as a metadata provider
+- [ ] Configure streaming platforms and external playback links for titles
+
+## Custom Branding
+
+See [Custom Branding](docs/branding.md).
 
 ## Development
 
-Run the backend application:
+See [Development](docs/development.md).
 
-```bash
-uv run python -m app.main server
-```
+## Reset a user's password
 
-The backend server runs in production mode with Gunicorn by default. Use
-`--prod` to select production mode explicitly, or `--dev` to run the Flask
-development server:
-
-```bash
-uv run python -m app.main server --prod
-uv run python -m app.main server --dev
-```
-
-Run a Celery worker for background jobs:
-
-```bash
-uv run python -m app.main worker
-```
-
-Extra Celery worker arguments are passed through, for example
-`uv run python -m app.main worker --pool=solo`.
-
-Database schema is managed by Alembic. Application startup upgrades the database
-to the latest migration by default.
-
-Run migrations manually:
-
-```bash
-DATABASE_URL=sqlite:///ani_tracker.db uv run alembic upgrade head
-```
-
-Create a new migration after model changes:
-
-```bash
-DATABASE_URL=sqlite:///ani_tracker.db uv run alembic revision --autogenerate -m "message"
-```
-
-Inspect or upgrade an environment:
-
-```bash
-DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/ani_tracker uv run alembic current
-DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/ani_tracker uv run alembic upgrade head
-```
-
-Run a local frontend/backend integration environment:
-
-```bash
-./launch_dev_service.sh
-```
-
-The script starts the backend at `http://localhost:3001` and the frontend at
-`http://localhost:3000`, configures credentialed CORS for the frontend origin,
-starts Docker Postgres and Redis containers, and starts a Celery worker for
-background jobs such as poster downloads. Postgres data is mounted under
-`/tmp/ani-tracker/postgres` and Redis data under `/tmp/ani-tracker/redis`. Press
-`Ctrl+C` to stop the app servers and worker. Docker or a Docker-compatible
-container manager must be installed and running.
-
-Build production release artifacts:
-
-```bash
-scripts/build_release.sh
-```
-
-The release script builds `dist/backend/ani-tracker.pyz` with shiv and
-`dist/web/server.js` with Next standalone output.
-
-Build and run the single-container production image:
-
-```bash
-docker build -t ani-tracker:local .
-docker run --rm -p 8080:8080 \
-  -e SECRET_KEY=change-me \
-  -e DATABASE_URL=postgresql+psycopg://user:password@host:5432/ani_tracker \
-  -e ANIME_TRACKER_INSTANCE_PATH=/var/lib/ani-tracker \
-  -v ani_tracker_data:/var/lib/ani-tracker \
-  ani-tracker:local
-```
-
-The container exposes nginx on `8080`, serves the Next frontend at `/`, and
-proxies `/api/` to the shiv/Gunicorn backend. Override `WEB_CONCURRENCY` to tune
-Gunicorn workers. Run a separate container with `ani-tracker.pyz worker` for
-background jobs, or use Docker Compose to start both services.
-
-Reset a user's password from inside the container:
+Reset a user's password by username from inside the container:
 
 ```bash
 ani-tracker reset-password <username>
 ```
 
 This sets a random 12-character password and prints it to stdout.
-
-Run lint checks:
-
-```bash
-uv run ruff check .
-```
-
-Run type checks:
-
-```bash
-uv run mypy .
-```
-
-Run tests:
-
-```bash
-uv run pytest
-```
 
 ## Contributing
 
