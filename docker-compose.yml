@@ -17,6 +17,22 @@ x-app-environment: &app-environment
   TMDB_INCLUDE_ADULT: ${TMDB_INCLUDE_ADULT:-false}
   TVDB_API_KEY: ${TVDB_API_KEY:-}
   TVDB_PIN: ${TVDB_PIN:-}
+  IMPORT_PROVIDER_TIMEOUT: ${IMPORT_PROVIDER_TIMEOUT:-5}
+  ANIME_SYNC_CRON_HOUR: ${ANIME_SYNC_CRON_HOUR:-4,12,20}
+  ANIME_SYNC_CRON_MINUTE: ${ANIME_SYNC_CRON_MINUTE:-0}
+  UNTRACKED_ANIME_CLEANUP_DISABLED: ${UNTRACKED_ANIME_CLEANUP_DISABLED:-true}
+  UNTRACKED_ANIME_CLEANUP_CRON_MONTHS: ${UNTRACKED_ANIME_CLEANUP_CRON_MONTHS:-}
+  UNTRACKED_ANIME_CLEANUP_CRON_DAY: ${UNTRACKED_ANIME_CLEANUP_CRON_DAY:-}
+  UNTRACKED_ANIME_CLEANUP_CRON_HOUR: ${UNTRACKED_ANIME_CLEANUP_CRON_HOUR:-}
+  UNTRACKED_ANIME_CLEANUP_CRON_MINUTE: ${UNTRACKED_ANIME_CLEANUP_CRON_MINUTE:-}
+  AUTO_IMPORT_TVDB_SEASONS_ENABLED: ${AUTO_IMPORT_TVDB_SEASONS_ENABLED:-false}
+  AUTO_IMPORT_TVDB_SEASONS_CRON_DAY: ${AUTO_IMPORT_TVDB_SEASONS_CRON_DAY:-}
+  AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR: ${AUTO_IMPORT_TVDB_SEASONS_CRON_HOUR:-}
+  AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE: ${AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE:-}
+  AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED: ${AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED:-false}
+  AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY: ${AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_DAY:-}
+  AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR: ${AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_HOUR:-}
+  AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE: ${AUTO_IMPORT_BANGUMI_RELATED_ANIME_CRON_MINUTE:-}
   APP_LOGO_FILE: ${APP_LOGO_FILE:-}
   APP_FAVICON_FILE: ${APP_FAVICON_FILE:-}
   APP_PWA_ICON_192_FILE: ${APP_PWA_ICON_192_FILE:-}
@@ -50,6 +66,24 @@ services:
       redis:
         condition: service_healthy
       app:
+        condition: service_started
+    environment: *app-environment
+    volumes:
+      - ani_tracker_data:/var/lib/ani-tracker
+
+  beat:
+    image: ghcr.io/aetherrootr/ani-tracker:latest
+    restart: unless-stopped
+    command:
+      - python
+      - /opt/ani-tracker/backend/ani-tracker.pyz
+      - beat
+      - --schedule
+      - /var/lib/ani-tracker/celerybeat-schedule
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
         condition: service_started
     environment: *app-environment
     volumes:

@@ -69,6 +69,10 @@ def run_worker(loglevel: str, celery_args: tuple[str, ...]) -> None:
     celery_app.worker_main(['worker', '--loglevel', loglevel, *celery_args])
 
 
+def run_beat(loglevel: str, celery_args: tuple[str, ...]) -> None:
+    celery_app.start(['beat', '--loglevel', loglevel, *celery_args])
+
+
 def generate_password(length: int = 12) -> str:
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
@@ -115,6 +119,13 @@ def server(mode: Literal['dev', 'prod']) -> None:
 @click.pass_context
 def worker(ctx: click.Context, loglevel: str) -> None:
     run_worker(loglevel, tuple(ctx.args))
+
+
+@main.command(context_settings={'ignore_unknown_options': True, 'allow_extra_args': True})
+@click.option('--loglevel', default='info', show_default=True, help='Celery Beat log level.')
+@click.pass_context
+def beat(ctx: click.Context, loglevel: str) -> None:
+    run_beat(loglevel, tuple(ctx.args))
 
 
 @main.command('reset-password')

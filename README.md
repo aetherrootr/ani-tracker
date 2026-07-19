@@ -100,9 +100,10 @@ cp env.example .env
 docker compose up --build
 ```
 
-The compose stack starts the web application, a Celery worker, PostgreSQL, and
-Redis. The app is exposed at `http://localhost:8080` by default. Change
-`APP_PORT` in `.env` if you want to use another port.
+The compose stack starts the web application, a Celery worker, a single Celery
+Beat scheduler, PostgreSQL, and Redis. The app is exposed at
+`http://localhost:8080` by default. Change `APP_PORT` in `.env` if you want to
+use another port.
 
 ## Metadata Providers
 
@@ -132,7 +133,7 @@ Copy `env.example` to `.env` before running Docker Compose. Common settings:
 | `TMDB_API_KEY` | Optional TMDB API key. |
 | `TMDB_ACCESS_TOKEN` | Optional TMDB access token. |
 | `TVDB_API_KEY` | Optional TheTVDB API key. TheTVDB-backed features also require a user-provided API PIN. |
-| `TVDB_API_PIN` | Optional TheTVDB API PIN. Obtain it from a TheTVDB subscription; ani-tracker does not provide one. |
+| `TVDB_PIN` | Optional TheTVDB API PIN. Obtain it from a TheTVDB subscription; ani-tracker does not provide one. |
 | `ANIME_SYNC_CRON_HOUR` | Comma-separated hours for airing anime synchronization. Defaults to `4,12,20`. |
 | `ANIME_SYNC_CRON_MINUTE` | Minute for airing anime synchronization. Defaults to `0`. |
 | `UNTRACKED_ANIME_CLEANUP_DISABLED` | Disables the scheduled `delete_untracked_anime` cleanup when set to `true`. Defaults to `true`. |

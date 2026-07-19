@@ -42,6 +42,14 @@ uv run python -m app.main worker
 Extra Celery worker arguments are passed through, for example
 `uv run python -m app.main worker --pool=solo`.
 
+Run one Celery Beat scheduler for periodic jobs:
+
+```bash
+uv run python -m app.main beat --schedule /tmp/ani-tracker/celerybeat-schedule
+```
+
+Only one Beat scheduler should use a given broker and schedule.
+
 Database schema is managed by Alembic. Application startup upgrades the database
 to the latest migration by default.
 
