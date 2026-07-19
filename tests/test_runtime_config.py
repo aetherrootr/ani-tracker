@@ -190,6 +190,20 @@ def test_cli_worker_subcommand_starts_celery_worker(monkeypatch: pytest.MonkeyPa
     assert worker_args == [['worker', '--loglevel', 'debug', '--pool', 'solo']]
 
 
+def test_cli_beat_subcommand_starts_celery_beat(monkeypatch: pytest.MonkeyPatch) -> None:
+    beat_args: list[list[str]] = []
+
+    def start(argv: list[str]) -> None:
+        beat_args.append(argv)
+
+    monkeypatch.setattr(celery_app, 'start', start)
+
+    result = CliRunner().invoke(main, ['beat', '--loglevel', 'debug', '--schedule', 'celerybeat-schedule'])
+
+    assert result.exit_code == 0
+    assert beat_args == [['beat', '--loglevel', 'debug', '--schedule', 'celerybeat-schedule']]
+
+
 def test_cli_reset_password_sets_generated_password(monkeypatch: pytest.MonkeyPatch, test_instance_path: Path) -> None:
     database_url = f"sqlite:///{test_instance_path / 'test.db'}"
     monkeypatch.setenv('DATABASE_URL', database_url)
