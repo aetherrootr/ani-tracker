@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, ExternalLink, LoaderCircle, Plus, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, ExternalLink, LoaderCircle, Plus, Repeat2, Search, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
@@ -494,7 +494,19 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", statusMenuOpen && "rotate-180")} />
             </button>
 
-            <InfoCard label={t("library.dataSource")} value={providerDisplayName} />
+            <button
+              type="button"
+              className="metadata-card group flex min-h-11 items-center justify-between gap-3 rounded-2xl border p-3 text-left transition-colors hover:bg-[var(--surface-card-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]"
+              aria-label={`${t("library.switchProvider")}: ${providerDisplayName}`}
+              title={t("library.switchProviderHint")}
+              onClick={() => setProviderSwitchOpen(true)}
+            >
+              <span className="min-w-0">
+                <span className="block text-xs font-medium text-muted-foreground">{t("library.dataSource")}</span>
+                <span className="mt-1 block truncate font-semibold">{providerDisplayName}</span>
+              </span>
+              <Repeat2 className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-[var(--accent-solid)]" aria-hidden="true" />
+            </button>
             <InfoCard label={t("anime.airDate")} value={formatDate(data.anime.airDate, locale, t("anime.unknown"))} />
             {data.anime.url ? (
               <a className="metadata-card rounded-2xl border p-3 transition-colors hover:bg-[var(--surface-card-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]" href={data.anime.url} target="_blank" rel="noreferrer">
@@ -551,10 +563,20 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
           setEpisodeConflicts([]);
           setEpisodeRefreshKey((current) => current + 1);
         }}
-        onSwitched={(targetAnimeId, _previousAnimeId, conflicts) => {
-          void conflicts;
+        onSwitched={(response) => {
           setProviderSwitchOpen(false);
-          router.push(`/library/${targetAnimeId}`);
+          if (response.anime.id === animeId) {
+            setData((current) => current ? {
+              ...current,
+              anime: response.anime,
+              progress: response.progress,
+              episodeConflicts: response.episodeConflicts,
+            } : current);
+            setEpisodeConflicts(response.episodeConflicts);
+            setEpisodeRefreshKey((current) => current + 1);
+            return;
+          }
+          router.push(`/library/${response.anime.id}`);
         }}
       />
       <DescriptionSheet

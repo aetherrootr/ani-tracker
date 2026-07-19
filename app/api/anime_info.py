@@ -163,7 +163,12 @@ def search_anime(db: Session, user: User) -> ResponseReturnValue:
             page = provider.search_anime(keyword, limit=limit, offset=offset, language=user.language_preference)
     except ImportProviderTimeoutError:
         return jsonify({'message': 'Import provider request timed out'}), 504
-    except ImportProviderResponseError:
+    except ImportProviderResponseError as exc:
+        current_app.logger.warning(
+            'Import provider search failed for provider=%s',
+            provider_name,
+            exc_info=exc,
+        )
         return jsonify({'message': 'Import provider response error'}), 502
 
     markers = get_search_library_markers(db, user_id=user.id, results=page.results)
