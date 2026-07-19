@@ -1839,17 +1839,24 @@ input[type="search"]::-webkit-search-decoration {
 
 .library-filter-content {
   min-height: 0;
-  flex: 1 1 0;
-  overflow: hidden;
+  flex: 1;
 }
 
 .library-filter-content-viewport {
-  position: absolute;
-  inset: 0;
   padding: 0.5rem 1rem 1rem;
   padding-right: calc(1rem + env(safe-area-inset-right));
   padding-left: calc(1rem + env(safe-area-inset-left));
   scroll-padding-bottom: 1rem;
+}
+
+.library-filter-sheet .library-filter-content {
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.library-filter-sheet .library-filter-content-viewport {
+  position: absolute;
+  inset: 0;
 }
 
 .library-filter-actions {
