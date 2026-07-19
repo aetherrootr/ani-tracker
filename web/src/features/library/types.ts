@@ -1,7 +1,8 @@
 export type UserAnimeStatus = "plan_to_watch" | "watching" | "completed" | "on_hold" | "dropped";
 
 export type LibraryStatusFilter = "all" | Exclude<UserAnimeStatus, "dropped">;
-export type LibraryListFilter = "all" | "tracking" | "backlog";
+export type LibraryUnwatchedFilter = "all" | "yes" | "no";
+export type LibraryAirStatusFilter = "all" | "notStarted" | "airing" | "completed";
 export type LibrarySeasonZeroFilter = "include" | "exclude" | "only";
 export type LibrarySort = "updatedAt" | "name" | "airDate";
 export type SortOrder = "asc" | "desc";
@@ -42,6 +43,7 @@ export type Anime = {
   type: string;
   totalEpisodes: number | null;
   airDate: string | null;
+  airStatus: Exclude<LibraryAirStatusFilter, "all">;
   lastSyncedAt: string | null;
   provider: string;
   externalId: string;

@@ -7,7 +7,8 @@ from app.models.progress import UserAnimeStatus
 
 LibrarySort = Literal['updated_at', 'name', 'air_date']
 LibraryOrder = Literal['asc', 'desc']
-LibraryListFilter = Literal['all', 'tracking', 'backlog']
+LibraryUnwatchedFilter = Literal['all', 'yes', 'no']
+LibraryAirStatusFilter = Literal['all', 'notStarted', 'airing', 'completed']
 LibrarySeasonZeroFilter = Literal['include', 'exclude', 'only']
 EpisodeFilter = Literal['all', 'watched', 'unwatched']
 EpisodeOrder = Literal['asc', 'desc']
@@ -126,11 +127,19 @@ def parse_library_order(value: str | None) -> tuple[LibraryOrder, str | None]:
     return value, None  # type: ignore[return-value]
 
 
-def parse_library_list_filter(value: str | None) -> tuple[LibraryListFilter, str | None]:
+def parse_library_unwatched_filter(value: str | None) -> tuple[LibraryUnwatchedFilter, str | None]:
     if value is None or value == '':
         return 'all', None
-    if value not in {'all', 'tracking', 'backlog'}:
-        return 'all', 'Library list filter is invalid'
+    if value not in {'all', 'yes', 'no'}:
+        return 'all', 'Library unwatched filter is invalid'
+    return value, None  # type: ignore[return-value]
+
+
+def parse_library_air_status_filter(value: str | None) -> tuple[LibraryAirStatusFilter, str | None]:
+    if value is None or value == '':
+        return 'all', None
+    if value not in {'all', 'notStarted', 'airing', 'completed'}:
+        return 'all', 'Library air status filter is invalid'
     return value, None  # type: ignore[return-value]
 
 

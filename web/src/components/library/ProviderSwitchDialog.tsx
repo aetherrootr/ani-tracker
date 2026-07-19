@@ -9,7 +9,7 @@ import { FloatingSearchInput } from "@/components/ui/floating-search-input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchResultCard } from "@/components/search/SearchResultCard";
 import { getImportProviders, switchAnimeProvider, updateMetadataSource } from "@/features/library/api";
-import type { Anime, AnimeProgress, EpisodeConflict, ImportProvider, MetadataSnapshot } from "@/features/library/types";
+import type { Anime, AnimeProgress, EpisodeConflict, ImportProvider, MetadataSnapshot, ProviderSwitchResponse } from "@/features/library/types";
 import { getTvdbSeasons, searchAnime } from "@/features/search/api";
 import type { AnimeSearchResult } from "@/features/search/types";
 import { ApiError } from "@/lib/api-client";
@@ -20,7 +20,7 @@ type Props = {
   metadataSource: string;
   metadataSnapshot: MetadataSnapshot | null;
   onClose: () => void;
-  onSwitched: (animeId: number, previousAnimeId: number, conflicts: EpisodeConflict[]) => void;
+  onSwitched: (response: ProviderSwitchResponse) => void;
   onMetadataSourceChanged: (progress: AnimeProgress, metadataSnapshot: MetadataSnapshot | null) => void;
 };
 
@@ -47,6 +47,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
   const [isLoadingTvdbSeasons, setIsLoadingTvdbSeasons] = useState(false);
   const [tvdbSeasonsError, setTvdbSeasonsError] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<PendingProviderSwitch | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
 
   useEffect(() => {
     if (!open) {
@@ -86,7 +87,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
         }
       });
     return () => controller.abort();
-  }, [open, searchKeyword, targetProvider, t]);
+  }, [open, searchAttempt, searchKeyword, targetProvider, t]);
 
   if (!open) {
     return null;
@@ -106,7 +107,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
     setError(null);
     try {
       const response = await switchAnimeProvider(anime.id, result.provider, result.externalId, confirm);
-      onSwitched(response.anime.id, response.previousAnimeId, response.episodeConflicts);
+      onSwitched(response);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409 && isProviderSwitchConflictBody(err.body)) {
         setPendingSwitch({ result, conflicts: err.body.episodeConflicts });
@@ -168,6 +169,7 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
 
   function closeDialog() {
     setSearchKeyword(anime.originalName);
+    setError(null);
     setIsSearchLocked(true);
     setConfirmUnlockOpen(false);
     setFailedImageUrls(new Set());
@@ -190,6 +192,13 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
       setError(null);
       setIsLoading(true);
     }
+  }
+
+  function retrySearch() {
+    setError(null);
+    setResults([]);
+    setIsLoading(true);
+    setSearchAttempt((current) => current + 1);
   }
 
   function handleImageError(imageUrl: string) {
@@ -251,7 +260,12 @@ export function ProviderSwitchDialog({ open, anime, metadataSource, metadataSnap
           </div>
         </div>
 
-        {error ? <div className="border-b p-4 text-sm font-medium text-destructive">{error}</div> : null}
+        {error ? (
+          <div className="flex items-center justify-between gap-3 border-b p-4 text-sm font-medium text-destructive">
+            <span>{error}</span>
+            {targetProvider !== "local" ? <Button type="button" size="sm" variant="outline" onClick={retrySearch}>{t("search.retry")}</Button> : null}
+          </div>
+        ) : null}
 
         <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4">
           {targetProvider === "local" ? (

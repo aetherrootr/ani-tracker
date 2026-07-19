@@ -13,6 +13,7 @@ from app.models.anime import (
     AnimeSummary,
     EpisodeName,
 )
+from app.models.anime_utils import infer_anime_air_status
 from app.models.progress import (
     UserAnimeMetadataEpisodeSnapshot,
     UserAnimeMetadataSnapshot,
@@ -272,6 +273,7 @@ def serialize_anime(
         'type': anime.type.value,
         'totalEpisodes': anime.total_episodes,
         'airDate': anime.air_date.isoformat() if anime.air_date is not None else None,
+        'airStatus': infer_anime_air_status(anime),
         'lastSyncedAt': anime.last_synced_at.isoformat() if anime.last_synced_at is not None else None,
         'provider': anime.provider_type,
         'externalId': anime.external_id,

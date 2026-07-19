@@ -38,7 +38,8 @@ export function LibraryPageContent() {
     q: query.q,
     status: query.status,
     provider: query.provider,
-    list: query.list,
+    unwatched: query.unwatched,
+    airStatus: query.airStatus,
     seasonZero: query.seasonZero,
     sort: query.sort,
     order: query.order,
@@ -260,7 +261,8 @@ export function LibraryPageContent() {
         q={searchDraft}
         status={query.status}
         provider={query.provider}
-        list={query.list}
+        unwatched={query.unwatched}
+        airStatus={query.airStatus}
         seasonZero={query.seasonZero}
         providers={data?.providers ?? []}
         sort={query.sort}
@@ -329,8 +331,8 @@ export function LibraryPageContent() {
                 <p>{t("library.empty")}</p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   {query.q ? <Button type="button" variant="outline" onClick={() => setSearchDraft("")}>{t("library.clearSearch")}</Button> : null}
-                  <Button type="button" variant="outline" onClick={() => query.update({ status: "all", provider: "all", list: "all", seasonZero: "exclude", sort: "updatedAt", order: "desc", page: 1 })}>{t("library.resetFilters")}</Button>
-                  {!query.q && query.status === "all" && query.provider === "all" && query.list === "all" && query.seasonZero === "exclude" ? (
+                  <Button type="button" variant="outline" onClick={() => query.update({ status: "all", provider: "all", unwatched: "all", airStatus: "all", seasonZero: "exclude", sort: "updatedAt", order: "desc", page: 1 })}>{t("library.resetFilters")}</Button>
+                  {!query.q && query.status === "all" && query.provider === "all" && query.unwatched === "all" && query.airStatus === "all" && query.seasonZero === "exclude" ? (
                     <Link href="/search" className="interactive-surface inline-flex min-h-[38px] items-center justify-center rounded-[var(--radius-control)] bg-[var(--accent-solid)] px-4 py-2 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent-glow)]">
                       {t("library.addAnime")}
                     </Link>

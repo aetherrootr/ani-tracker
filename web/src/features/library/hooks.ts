@@ -10,10 +10,11 @@ import type {
   EpisodeFilter,
   EpisodeOrder,
   LibraryResponse,
-  LibraryListFilter,
+  LibraryAirStatusFilter,
   LibrarySeasonZeroFilter,
   LibrarySort,
   LibraryStatusFilter,
+  LibraryUnwatchedFilter,
   SortOrder,
   TrackingListResponse,
 } from "./types";
@@ -48,8 +49,15 @@ function validSort(value: string | null): LibrarySort {
   return "updatedAt";
 }
 
-function validList(value: string | null): LibraryListFilter {
-  if (value === "tracking" || value === "backlog") {
+function validUnwatched(value: string | null): LibraryUnwatchedFilter {
+  if (value === "yes" || value === "no") {
+    return value;
+  }
+  return "all";
+}
+
+function validAirStatus(value: string | null): LibraryAirStatusFilter {
+  if (value === "notStarted" || value === "airing" || value === "completed") {
     return value;
   }
   return "all";
@@ -97,7 +105,8 @@ export function useLibraryQueryState() {
   const q = searchParams.get("q") ?? "";
   const status = validStatus(searchParams.get("status"));
   const provider = searchParams.get("provider") || "all";
-  const list = validList(searchParams.get("list"));
+  const unwatched = validUnwatched(searchParams.get("unwatched"));
+  const airStatus = validAirStatus(searchParams.get("airStatus"));
   const seasonZero = validSeasonZero(searchParams.get("seasonZero"));
   const sort = validSort(searchParams.get("sort"));
   const order = validOrder(searchParams.get("order"));
@@ -109,7 +118,8 @@ export function useLibraryQueryState() {
     q: string;
     status: LibraryStatusFilter;
     provider: string;
-    list: LibraryListFilter;
+    unwatched: LibraryUnwatchedFilter;
+    airStatus: LibraryAirStatusFilter;
     seasonZero: LibrarySeasonZeroFilter;
     sort: LibrarySort;
     order: SortOrder;
@@ -117,12 +127,13 @@ export function useLibraryQueryState() {
     pageSize: number;
   }>) {
     const params = new URLSearchParams(searchParams.toString());
-    const merged = { q, status, provider, list, seasonZero, sort, order, page, pageSize, ...next };
+    const merged = { q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, ...next };
 
     setParam(params, "q", merged.q, "");
     setParam(params, "status", merged.status, "all");
     setParam(params, "provider", merged.provider, "all");
-    setParam(params, "list", merged.list, "all");
+    setParam(params, "unwatched", merged.unwatched, "all");
+    setParam(params, "airStatus", merged.airStatus, "all");
     setParam(params, "seasonZero", merged.seasonZero, "exclude");
     setParam(params, "sort", merged.sort, "updatedAt");
     setParam(params, "order", merged.order, "desc");
@@ -134,7 +145,7 @@ export function useLibraryQueryState() {
     });
   }
 
-  return { q, status, provider, list, seasonZero, sort, order, page, pageSize, hasPageSize, update, isPending };
+  return { q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, hasPageSize, update, isPending };
 }
 
 function setParam(params: URLSearchParams, key: string, value: string, defaultValue: string) {
@@ -149,14 +160,15 @@ export function useLibraryData(query: {
   q: string;
   status: LibraryStatusFilter;
   provider: string;
-  list: LibraryListFilter;
+  unwatched: LibraryUnwatchedFilter;
+  airStatus: LibraryAirStatusFilter;
   seasonZero: LibrarySeasonZeroFilter;
   sort: LibrarySort;
   order: SortOrder;
   page: number;
   pageSize: number;
 }) {
-  const { q, status, provider, list, seasonZero, sort, order, page, pageSize } = query;
+  const { q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize } = query;
   const [data, setData] = useState<LibraryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,7 +180,7 @@ export function useLibraryData(query: {
     setIsLoading(true);
     setError(null);
 
-    getLibrary({ q, status, provider, list, seasonZero, sort, order, page, pageSize, signal: controller.signal })
+    getLibrary({ q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, signal: controller.signal })
       .then(setData)
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -183,7 +195,7 @@ export function useLibraryData(query: {
       });
 
     return () => controller.abort();
-  }, [q, status, provider, list, seasonZero, sort, order, page, pageSize, retryKey]);
+  }, [q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, retryKey]);
 
   return { data, isLoading, error, retry: () => setRetryKey((current) => current + 1) };
 }

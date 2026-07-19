@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, ExternalLink, LoaderCircle, Plus, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, ExternalLink, LoaderCircle, Plus, Repeat2, Search, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
@@ -417,6 +417,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                   <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent-solid)]">
                     {t(`library.status.${data.progress.status}`)}
                   </span>
+                  <Badge variant={airStatusBadgeVariant(data.anime.airStatus)} className="px-3 py-1 text-sm font-medium">
+                    {t(`library.airStatus.${data.anime.airStatus}`)}
+                  </Badge>
                   <span>{formatAnimeType(data.anime.type, t)}</span>
                   <span>{totalEpisodes > 0 ? t("library.relatedAnimeEpisodeCount", { count: totalEpisodes }) : t("library.episodeCountUnknown")}</span>
                   <span>{data.anime.airDate?.slice(0, 4) ?? t("anime.unknown")}</span>
@@ -491,7 +494,19 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
               <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", statusMenuOpen && "rotate-180")} />
             </button>
 
-            <InfoCard label={t("library.dataSource")} value={providerDisplayName} />
+            <button
+              type="button"
+              className="metadata-card group flex min-h-11 items-center justify-between gap-3 rounded-2xl border p-3 text-left transition-colors hover:bg-[var(--surface-card-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]"
+              aria-label={`${t("library.switchProvider")}: ${providerDisplayName}`}
+              title={t("library.switchProviderHint")}
+              onClick={() => setProviderSwitchOpen(true)}
+            >
+              <span className="min-w-0">
+                <span className="block text-xs font-medium text-muted-foreground">{t("library.dataSource")}</span>
+                <span className="mt-1 block truncate font-semibold">{providerDisplayName}</span>
+              </span>
+              <Repeat2 className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-[var(--accent-solid)]" aria-hidden="true" />
+            </button>
             <InfoCard label={t("anime.airDate")} value={formatDate(data.anime.airDate, locale, t("anime.unknown"))} />
             {data.anime.url ? (
               <a className="metadata-card rounded-2xl border p-3 transition-colors hover:bg-[var(--surface-card-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)]" href={data.anime.url} target="_blank" rel="noreferrer">
@@ -548,10 +563,20 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
           setEpisodeConflicts([]);
           setEpisodeRefreshKey((current) => current + 1);
         }}
-        onSwitched={(targetAnimeId, _previousAnimeId, conflicts) => {
-          void conflicts;
+        onSwitched={(response) => {
           setProviderSwitchOpen(false);
-          router.push(`/library/${targetAnimeId}`);
+          if (response.anime.id === animeId) {
+            setData((current) => current ? {
+              ...current,
+              anime: response.anime,
+              progress: response.progress,
+              episodeConflicts: response.episodeConflicts,
+            } : current);
+            setEpisodeConflicts(response.episodeConflicts);
+            setEpisodeRefreshKey((current) => current + 1);
+            return;
+          }
+          router.push(`/library/${response.anime.id}`);
         }}
       />
       <DescriptionSheet
@@ -883,6 +908,12 @@ function formatProvider(provider: string) {
   return providers[provider.toLowerCase()] ?? provider;
 }
 
+function airStatusBadgeVariant(status: Anime["airStatus"]): "success" | "warning" | "secondary" {
+  if (status === "airing") return "success";
+  if (status === "notStarted") return "warning";
+  return "secondary";
+}
+
 function formatAnimeType(value: string, t: ReturnType<typeof useTranslations>) {
   const key = value.toLowerCase();
   const labels: Record<string, string> = {
@@ -1194,7 +1225,8 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
       q: query,
       status: "all",
       provider: "all",
-      list: "all",
+      unwatched: "all",
+      airStatus: "all",
       seasonZero: "exclude",
       sort: "name",
       order: "asc",
