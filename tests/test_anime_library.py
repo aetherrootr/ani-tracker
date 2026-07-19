@@ -1325,40 +1325,118 @@ def test_library_list_filters_provider_and_returns_available_providers(
     ]
 
 
-def test_library_list_filters_tracking_and_backlog_lists(
+def test_library_list_filters_unwatched_episodes_and_air_status(
     client: FlaskClient,
     db_session: Session,
 ) -> None:
     assert register_user(client).status_code == 201
     now = datetime.now(UTC)
-    tracking = add_library_anime(
+    not_started = add_library_anime(
         db_session,
-        external_id='tracking-filter',
-        original_name='Tracking Filter',
-        names=[('Tracking Filter', 'en')],
+        external_id='not-started-filter',
+        original_name='Not Started Filter',
+        names=[('Not Started Filter', 'en')],
     )
-    add_episode(db_session, tracking, number=1, air_at=now - timedelta(days=1))
-    add_episode(db_session, tracking, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
-    backlog = add_library_anime(
+    add_episode(db_session, not_started, number=1, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    airing_unwatched = add_library_anime(
         db_session,
-        external_id='backlog-filter',
-        original_name='Backlog Filter',
-        names=[('Backlog Filter', 'en')],
+        external_id='airing-unwatched-filter',
+        original_name='Airing Unwatched Filter',
+        names=[('Airing Unwatched Filter', 'en')],
+    )
+    airing_unwatched.total_episodes = 2
+    add_episode(db_session, airing_unwatched, number=1, air_at=now - timedelta(days=1))
+    add_episode(db_session, airing_unwatched, number=2, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    airing_watched = add_library_anime(
+        db_session,
+        external_id='airing-watched-filter',
+        original_name='Airing Watched Filter',
+        names=[('Airing Watched Filter', 'en')],
+    )
+    airing_watched.total_episodes = 2
+    watched_airing_episode = add_episode(db_session, airing_watched, number=1, air_at=now - timedelta(days=1))
+    add_episode(db_session, airing_watched, number=2, status=EpisodeStatus.DELAYED, air_at=now + timedelta(days=1))
+    completed = add_library_anime(
+        db_session,
+        external_id='completed-filter',
+        original_name='Completed Filter',
+        names=[('Completed Filter', 'en')],
         air_date=date(2020, 1, 1),
     )
-    backlog.total_episodes = 1
-    add_episode(db_session, backlog, number=1, air_at=now - timedelta(days=120))
+    completed.total_episodes = 1
+    add_episode(db_session, completed, number=1, air_at=now - timedelta(days=120))
+    db_session.add(
+        UserEpisodeProgress(
+            user_id=1,
+            episode_id=watched_airing_episode.id,
+            watched=True,
+            watched_at=now,
+        ),
+    )
     db_session.commit()
 
-    tracking_response = client.get('/api/anime/library?list=tracking&sort=name&order=asc')
-    backlog_response = client.get('/api/anime/library?list=backlog&sort=name&order=asc')
-    invalid_response = client.get('/api/anime/library?list=recently-watched')
+    unwatched_response = client.get('/api/anime/library?unwatched=yes&sort=name&order=asc')
+    caught_up_airing_response = client.get('/api/anime/library?unwatched=no&airStatus=airing&sort=name&order=asc')
+    not_started_response = client.get('/api/anime/library?airStatus=notStarted&sort=name&order=asc')
+    airing_response = client.get('/api/anime/library?airStatus=airing&sort=name&order=asc')
+    completed_response = client.get('/api/anime/library?airStatus=completed&sort=name&order=asc')
+    invalid_unwatched_response = client.get('/api/anime/library?unwatched=maybe')
+    invalid_air_status_response = client.get('/api/anime/library?airStatus=unknown')
 
-    assert tracking_response.status_code == 200
-    assert [item['anime']['displayName'] for item in tracking_response.get_json()['items']] == ['Tracking Filter']
-    assert backlog_response.status_code == 200
-    assert [item['anime']['displayName'] for item in backlog_response.get_json()['items']] == ['Backlog Filter']
-    assert invalid_response.status_code == 400
+    assert [item['anime']['displayName'] for item in unwatched_response.get_json()['items']] == [
+        'Airing Unwatched Filter',
+        'Completed Filter',
+    ]
+    assert [item['anime']['displayName'] for item in caught_up_airing_response.get_json()['items']] == [
+        'Airing Watched Filter',
+    ]
+    assert [item['anime']['displayName'] for item in not_started_response.get_json()['items']] == [
+        'Not Started Filter',
+    ]
+    assert [item['anime']['displayName'] for item in airing_response.get_json()['items']] == [
+        'Airing Unwatched Filter',
+        'Airing Watched Filter',
+    ]
+    assert [item['anime']['displayName'] for item in completed_response.get_json()['items']] == [
+        'Completed Filter',
+    ]
+    assert invalid_unwatched_response.status_code == 400
+    assert invalid_air_status_response.status_code == 400
+
+
+def test_library_air_status_bounds_unknown_episode_totals_by_recent_activity(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    recent = add_library_anime(
+        db_session,
+        external_id='recent-unknown-total',
+        original_name='Recent Unknown Total',
+        names=[('Recent Unknown Total', 'en')],
+    )
+    recent.total_episodes = None
+    add_episode(db_session, recent, number=1, air_at=now - timedelta(days=1))
+    old = add_library_anime(
+        db_session,
+        external_id='old-unknown-total',
+        original_name='Old Unknown Total',
+        names=[('Old Unknown Total', 'en')],
+    )
+    old.total_episodes = None
+    add_episode(db_session, old, number=1, air_at=now - timedelta(days=120))
+    db_session.commit()
+
+    airing_response = client.get('/api/anime/library?airStatus=airing&sort=name&order=asc')
+    completed_response = client.get('/api/anime/library?airStatus=completed&sort=name&order=asc')
+
+    assert [item['anime']['displayName'] for item in airing_response.get_json()['items']] == [
+        'Recent Unknown Total',
+    ]
+    assert [item['anime']['displayName'] for item in completed_response.get_json()['items']] == [
+        'Old Unknown Total',
+    ]
 
 
 def test_library_list_filters_season_zero_records(
@@ -2214,6 +2292,7 @@ def test_anime_detail_returns_available_names_air_date_and_posters(
     assert response.status_code == 200
     body = response.get_json()['anime']
     assert body['airDate'] == '2009-04-03'
+    assert body['airStatus'] == 'notStarted'
     assert body['availableNames'] == [
         {'id': 1, 'language': 'zh', 'name': '轻音少女'},
         {'id': 2, 'language': 'en', 'name': 'K-On!'},

@@ -607,16 +607,23 @@ export const zhCN = {
     applyFilters: "应用结果",
     statusFilter: "状态",
     providerFilter: "数据源",
-    listFilter: "列表",
+    unwatchedFilter: "已播出未看剧集",
+    airStatusFilter: "放送状态",
     seasonZeroFilter: "第 0 季",
     sortField: "排序字段",
     sortOrder: "排序方向",
     allStatuses: "全部",
     allProviders: "全部数据源",
-    list: {
+    unwatchedEpisodes: {
       all: "全部",
-      tracking: "追番列表",
-      backlog: "补番列表",
+      yes: "有未看",
+      no: "无未看",
+    },
+    airStatus: {
+      all: "全部",
+      notStarted: "未开播",
+      airing: "放送中",
+      completed: "已完结",
     },
     seasonZero: {
       include: "第 0 季：包含",

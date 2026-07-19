@@ -11,12 +11,13 @@ import { FloatingSearchInput } from "@/components/ui/floating-search-input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SelectField } from "@/components/ui/select-field";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
-import type { ImportProvider, LibraryListFilter, LibrarySeasonZeroFilter, LibrarySort, LibraryStatusFilter, SortOrder } from "@/features/library/types";
+import type { ImportProvider, LibraryAirStatusFilter, LibrarySeasonZeroFilter, LibrarySort, LibraryStatusFilter, LibraryUnwatchedFilter, SortOrder } from "@/features/library/types";
 
 type Options = {
   status: LibraryStatusFilter;
   provider: string;
-  list: LibraryListFilter;
+  unwatched: LibraryUnwatchedFilter;
+  airStatus: LibraryAirStatusFilter;
   seasonZero: LibrarySeasonZeroFilter;
   sort: LibrarySort;
   order: SortOrder;
@@ -34,7 +35,8 @@ type Props = Options & {
 const DEFAULT_OPTIONS: Options = {
   status: "all",
   provider: "all",
-  list: "all",
+  unwatched: "all",
+  airStatus: "all",
   seasonZero: "exclude",
   sort: "updatedAt",
   order: "desc",
@@ -246,7 +248,8 @@ const FilterPanel = forwardRef<HTMLDivElement, {
         ) : (
           <ChoiceGroup label={t("library.statusFilter")} options={["all", "plan_to_watch", "watching", "completed", "on_hold"] as LibraryStatusFilter[]} value={values.status} render={(item) => t(item === "all" ? "library.allStatuses" : `library.status.${item}`)} onChange={(status) => onChange({ status })} />
         )}
-        <ChoiceGroup label={t("library.listFilter")} options={["all", "tracking", "backlog"] as LibraryListFilter[]} value={values.list} render={(item) => t(`library.list.${item}`)} onChange={(list) => onChange({ list })} />
+        <ChoiceGroup label={t("library.unwatchedFilter")} options={["all", "yes", "no"] as LibraryUnwatchedFilter[]} value={values.unwatched} render={(item) => t(`library.unwatchedEpisodes.${item}`)} onChange={(unwatched) => onChange({ unwatched })} />
+        <ChoiceGroup label={t("library.airStatusFilter")} options={["all", "notStarted", "airing", "completed"] as LibraryAirStatusFilter[]} value={values.airStatus} render={(item) => t(`library.airStatus.${item}`)} onChange={(airStatus) => onChange({ airStatus })} />
         <SelectField label={t("library.providerFilter")} value={values.provider} onValueChange={(provider) => onChange({ provider })} options={[{ value: "all", label: t("library.allProviders") }, ...providers.map((provider) => ({ value: provider.name, label: provider.label }))]} />
         <ChoiceGroup
           label={t("library.seasonZeroFilter")}
@@ -278,9 +281,9 @@ function ChoiceGroup<T extends string>({ label, options, value, render, onChange
 }
 
 function currentOptions(value: Options): Options {
-  return { status: value.status, provider: value.provider, list: value.list, seasonZero: value.seasonZero, sort: value.sort, order: value.order };
+  return { status: value.status, provider: value.provider, unwatched: value.unwatched, airStatus: value.airStatus, seasonZero: value.seasonZero, sort: value.sort, order: value.order };
 }
 
 function countActiveOptions(value: Options) {
-  return Number(value.status !== DEFAULT_OPTIONS.status) + Number(value.provider !== DEFAULT_OPTIONS.provider) + Number(value.list !== DEFAULT_OPTIONS.list) + Number(value.seasonZero !== DEFAULT_OPTIONS.seasonZero) + Number(value.sort !== DEFAULT_OPTIONS.sort || value.order !== DEFAULT_OPTIONS.order);
+  return Number(value.status !== DEFAULT_OPTIONS.status) + Number(value.provider !== DEFAULT_OPTIONS.provider) + Number(value.unwatched !== DEFAULT_OPTIONS.unwatched) + Number(value.airStatus !== DEFAULT_OPTIONS.airStatus) + Number(value.seasonZero !== DEFAULT_OPTIONS.seasonZero) + Number(value.sort !== DEFAULT_OPTIONS.sort || value.order !== DEFAULT_OPTIONS.order);
 }

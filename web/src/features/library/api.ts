@@ -17,10 +17,11 @@ import type {
   ManualRelatedAnime,
   MetadataSourceResponse,
   ProviderSwitchResponse,
-  LibraryListFilter,
+  LibraryAirStatusFilter,
   LibrarySeasonZeroFilter,
   LibrarySort,
   LibraryStatusFilter,
+  LibraryUnwatchedFilter,
   RelatedAnimeDiscoveryJobResponse,
   TrackingListPage,
   TrackingListResponse,
@@ -57,7 +58,8 @@ export function getLibrary(input: {
   q: string;
   status: LibraryStatusFilter;
   provider: string;
-  list: LibraryListFilter;
+  unwatched: LibraryUnwatchedFilter;
+  airStatus: LibraryAirStatusFilter;
   seasonZero: LibrarySeasonZeroFilter;
   sort: LibrarySort;
   order: SortOrder;
@@ -81,8 +83,11 @@ export function getLibrary(input: {
   if (input.provider !== "all") {
     params.set("provider", input.provider);
   }
-  if (input.list !== "all") {
-    params.set("list", input.list);
+  if (input.unwatched !== "all") {
+    params.set("unwatched", input.unwatched);
+  }
+  if (input.airStatus !== "all") {
+    params.set("airStatus", input.airStatus);
   }
   if (input.seasonZero !== "exclude") {
     params.set("seasonZero", input.seasonZero);

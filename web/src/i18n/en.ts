@@ -610,16 +610,23 @@ export const en = {
     applyFilters: "Apply results",
     statusFilter: "Status",
     providerFilter: "Provider",
-    listFilter: "List",
+    unwatchedFilter: "Aired unwatched episodes",
+    airStatusFilter: "Air status",
     seasonZeroFilter: "Season 0",
     sortField: "Sort field",
     sortOrder: "Sort order",
     allStatuses: "All",
     allProviders: "All providers",
-    list: {
+    unwatchedEpisodes: {
       all: "All",
-      tracking: "Tracking",
-      backlog: "Backlog",
+      yes: "Has unwatched",
+      no: "No unwatched",
+    },
+    airStatus: {
+      all: "All",
+      notStarted: "Not started",
+      airing: "Airing",
+      completed: "Completed",
     },
     seasonZero: {
       include: "Season 0: include",

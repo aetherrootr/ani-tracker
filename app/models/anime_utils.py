@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal
 
 from sqlalchemy import and_, exists, func, not_, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
 from app.models.progress import UserAnimeProgress, UserAnimeStatus, UserEpisodeProgress
+
+LIBRARY_AIRING_RECENT_DAYS = 30
+AnimeAirStatus = Literal['notStarted', 'airing', 'completed']
 
 
 @dataclass(frozen=True)
@@ -305,6 +308,92 @@ def tracking_list_query_parts(*, user_id: int, now: datetime, recent_days: int) 
         'watched_count_subquery': watched_count_subquery,
         'tracking_condition': tracking_condition,
     }
+
+
+def library_filter_conditions(*, user_id: int, now: datetime) -> dict[str, Any]:
+    unwatched_episode = aliased(Episode)
+    watched_progress = aliased(UserEpisodeProgress)
+    aired_episode = aliased(Episode)
+    active_episode = aliased(Episode)
+    imported_episode = aliased(Episode)
+    last_aired_episode = aliased(Episode)
+
+    watched_exists = exists(
+        select(1).where(
+            watched_progress.episode_id == unwatched_episode.id,
+            watched_progress.user_id == user_id,
+            watched_progress.watched.is_(True),
+        ),
+    )
+    has_unwatched_episode = exists(
+        select(1).where(
+            unwatched_episode.anime_id == AnimeMetaInfo.id,
+            unwatched_episode.status == EpisodeStatus.AIRED,
+            ~watched_exists,
+        ),
+    )
+    has_aired_episode = exists(
+        select(1).where(
+            aired_episode.anime_id == AnimeMetaInfo.id,
+            aired_episode.status == EpisodeStatus.AIRED,
+        ),
+    )
+    has_active_episode = exists(
+        select(1).where(
+            active_episode.anime_id == AnimeMetaInfo.id,
+            active_episode.status.in_([EpisodeStatus.UPCOMING, EpisodeStatus.DELAYED]),
+        ),
+    )
+    imported_episode_count = (
+        select(func.count(imported_episode.id))
+        .where(imported_episode.anime_id == AnimeMetaInfo.id)
+        .scalar_subquery()
+    )
+    last_aired_at = (
+        select(func.max(last_aired_episode.air_at))
+        .where(
+            last_aired_episode.anime_id == AnimeMetaInfo.id,
+            last_aired_episode.status == EpisodeStatus.AIRED,
+        )
+        .scalar_subquery()
+    )
+    # Unknown episode totals need a recency bound so old titles do not remain airing forever.
+    may_have_more = or_(
+        has_active_episode,
+        and_(
+            AnimeMetaInfo.total_episodes.is_not(None),
+            AnimeMetaInfo.total_episodes > imported_episode_count,
+        ),
+        and_(
+            AnimeMetaInfo.total_episodes.is_(None),
+            last_aired_at.is_not(None),
+            last_aired_at >= now - timedelta(days=LIBRARY_AIRING_RECENT_DAYS),
+        ),
+    )
+    return {
+        'has_unwatched_episode': has_unwatched_episode,
+        'not_started': ~has_aired_episode,
+        'airing': and_(has_aired_episode, may_have_more),
+        'completed': and_(has_aired_episode, ~may_have_more),
+    }
+
+
+def infer_anime_air_status(anime: AnimeMetaInfo, *, now: datetime | None = None) -> AnimeAirStatus:
+    aired_episodes = [episode for episode in anime.episodes if episode.status == EpisodeStatus.AIRED]
+    if not aired_episodes:
+        return 'notStarted'
+    if any(episode.status in {EpisodeStatus.UPCOMING, EpisodeStatus.DELAYED} for episode in anime.episodes):
+        return 'airing'
+    if anime.total_episodes is not None and anime.total_episodes > len(anime.episodes):
+        return 'airing'
+    if anime.total_episodes is None:
+        last_aired_at = max((episode.air_at for episode in aired_episodes if episode.air_at is not None), default=None)
+        if last_aired_at is not None:
+            normalized_last_aired_at = last_aired_at.replace(tzinfo=UTC) if last_aired_at.tzinfo is None else last_aired_at.astimezone(UTC)
+            current_time = now or datetime.now(UTC)
+            if normalized_last_aired_at >= current_time - timedelta(days=LIBRARY_AIRING_RECENT_DAYS):
+                return 'airing'
+    return 'completed'
 
 
 def season_zero_anime_condition(anime: type[AnimeMetaInfo]):  # type: ignore[no-untyped-def]

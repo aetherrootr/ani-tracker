@@ -417,6 +417,9 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                   <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent-solid)]">
                     {t(`library.status.${data.progress.status}`)}
                   </span>
+                  <Badge variant={airStatusBadgeVariant(data.anime.airStatus)} className="px-3 py-1 text-sm font-medium">
+                    {t(`library.airStatus.${data.anime.airStatus}`)}
+                  </Badge>
                   <span>{formatAnimeType(data.anime.type, t)}</span>
                   <span>{totalEpisodes > 0 ? t("library.relatedAnimeEpisodeCount", { count: totalEpisodes }) : t("library.episodeCountUnknown")}</span>
                   <span>{data.anime.airDate?.slice(0, 4) ?? t("anime.unknown")}</span>
@@ -883,6 +886,12 @@ function formatProvider(provider: string) {
   return providers[provider.toLowerCase()] ?? provider;
 }
 
+function airStatusBadgeVariant(status: Anime["airStatus"]): "success" | "warning" | "secondary" {
+  if (status === "airing") return "success";
+  if (status === "notStarted") return "warning";
+  return "secondary";
+}
+
 function formatAnimeType(value: string, t: ReturnType<typeof useTranslations>) {
   const key = value.toLowerCase();
   const labels: Record<string, string> = {
@@ -1194,7 +1203,8 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
       q: query,
       status: "all",
       provider: "all",
-      list: "all",
+      unwatched: "all",
+      airStatus: "all",
       seasonZero: "exclude",
       sort: "name",
       order: "asc",
