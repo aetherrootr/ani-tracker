@@ -3206,15 +3206,26 @@ def test_local_snapshot_watch_state_updates_snapshot_episode(
     )
     assert snapshot_episode is not None
 
-    response = client.patch(f'/api/watch-state/anime/1/episodes/{snapshot_episode.id}', json={'watched': True})
+    response = client.patch(
+        f'/api/watch-state/anime/1/episodes/{snapshot_episode.id}',
+        json={'watched': True, 'watchedAt': '2020-01-02T03:04:05+09:00'},
+    )
 
     assert response.status_code == 200
     body = response.get_json()
     assert body['episode']['watched'] is True
+    assert body['episode']['watchedAt'].startswith('2020-01-01T18:04:05')
     db_session.refresh(snapshot_episode)
     assert snapshot_episode.watched is True
-    assert snapshot_episode.watched_at is not None
+    assert snapshot_episode.watched_at == datetime(2020, 1, 1, 18, 4, 5)
     assert db_session.scalar(select(UserEpisodeProgress).where(UserEpisodeProgress.watched.is_(True))) is None
+
+    bulk_response = client.patch('/api/watch-state/anime/1/episodes/watched-at')
+
+    assert bulk_response.status_code == 200
+    assert bulk_response.get_json()['matchedCount'] == 1
+    db_session.refresh(snapshot_episode)
+    assert snapshot_episode.watched_at == snapshot_episode.air_at
 
 
 def test_sync_conflict_creates_local_snapshot_before_pruning(
@@ -3308,6 +3319,101 @@ def test_bulk_episode_watch_state_validates_through_scope(client: FlaskClient, d
     response = client.patch(
         f'/api/watch-state/anime/{anime.id}/episodes',
         json={'watched': True, 'scope': 'through', 'throughEpisodeNumber': 0},
+    )
+
+    assert response.status_code == 400
+
+
+def test_episode_watch_state_accepts_custom_watched_at(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='watch-time',
+        original_name='Watch Time',
+        names=[],
+    )
+    episode = add_episode(db_session, anime, number=1)
+    db_session.commit()
+
+    response = client.patch(
+        f'/api/watch-state/anime/{anime.id}/episodes/{episode.id}',
+        json={'watched': True, 'watchedAt': '2021-06-07T20:30:00+08:00'},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['episode']['watchedAt'].startswith('2021-06-07T12:30:00')
+    assert body['progress']['lastWatchedAt'].startswith('2021-06-07T12:30:00')
+    watch_progress = db_session.scalar(
+        select(UserEpisodeProgress).where(UserEpisodeProgress.episode_id == episode.id),
+    )
+    assert watch_progress is not None
+    assert watch_progress.watched_at == datetime(2021, 6, 7, 12, 30)
+
+
+def test_episode_watch_times_can_be_set_to_each_air_time_in_bulk(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(db_session, external_id='bulk-watch-times', original_name='Bulk Watch Times', names=[])
+    first = add_episode(db_session, anime, number=1, air_at=datetime(2020, 1, 1, 12, tzinfo=UTC))
+    second = add_episode(db_session, anime, number=2, air_at=datetime(2020, 1, 8, 12, tzinfo=UTC))
+    without_air_time = add_episode(db_session, anime, number=3)
+    unwatched = add_episode(db_session, anime, number=4, air_at=datetime(2020, 1, 22, 12, tzinfo=UTC))
+    db_session.add_all([
+        UserEpisodeProgress(user_id=1, episode_id=first.id, watched=True, watched_at=datetime(2026, 1, 1, tzinfo=UTC)),
+        UserEpisodeProgress(user_id=1, episode_id=second.id, watched=True, watched_at=datetime(2026, 1, 2, tzinfo=UTC)),
+        UserEpisodeProgress(user_id=1, episode_id=without_air_time.id, watched=True, watched_at=datetime(2026, 1, 3, tzinfo=UTC)),
+    ])
+    db_session.commit()
+
+    response = client.patch(f'/api/watch-state/anime/{anime.id}/episodes/watched-at')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['matchedCount'] == 2
+    assert body['changedCount'] == 2
+    db_session.expire_all()
+    progresses = {
+        item.episode_id: item
+        for item in db_session.scalars(select(UserEpisodeProgress)).all()
+    }
+    assert progresses[first.id].watched_at == first.air_at
+    assert progresses[second.id].watched_at == second.air_at
+    assert progresses[without_air_time.id].watched_at == datetime(2026, 1, 3)
+    assert unwatched.id not in progresses
+
+
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {'watched': True, 'watchedAt': 'not-a-date'},
+        {'watched': True, 'watchedAt': '2021-06-07T12:30:00'},
+        {'watched': False, 'watchedAt': '2021-06-07T12:30:00+00:00'},
+    ],
+)
+def test_episode_watch_state_rejects_invalid_custom_watched_at(
+    client: FlaskClient,
+    db_session: Session,
+    payload: dict[str, object],
+) -> None:
+    assert register_user(client).status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id=f'invalid-watch-time-{payload}',
+        original_name='Invalid Watch Time',
+        names=[],
+    )
+    episode = add_episode(db_session, anime, number=1)
+    db_session.commit()
+
+    response = client.patch(
+        f'/api/watch-state/anime/{anime.id}/episodes/{episode.id}',
+        json=payload,
     )
 
     assert response.status_code == 400

@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import { updateEpisodeWatchState, updateEpisodeWatchStateBulk } from "@/features/library/api";
+import { updateEpisodeWatchState, updateEpisodeWatchStateBulk, updateEpisodeWatchTimesToAirTimes } from "@/features/library/api";
 import { useEpisodes } from "@/features/library/hooks";
 import type { AnimeProgress, Episode, EpisodeFilter, EpisodeOrder } from "@/features/library/types";
 
@@ -80,11 +80,28 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
     try {
       const result = await updateEpisodeWatchState(animeId, episode.id, watched);
       onProgressChange(result.progress);
-      setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? { ...item, watched: result.episode.watched } : item) } : current);
+      setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? { ...item, watched: result.episode.watched, watchedAt: result.episode.watchedAt } : item) } : current);
       if (filter !== "all") retry();
     } catch (err) {
       setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? episode : item) } : current);
       throw err;
+    } finally {
+      setBusyIds((current) => {
+        const next = new Set(current);
+        next.delete(episode.id);
+        return next;
+      });
+    }
+  }
+
+  async function updateWatchTime(episode: Episode, watchedAt: string) {
+    setBusyIds((current) => new Set(current).add(episode.id));
+    try {
+      const result = await updateEpisodeWatchState(animeId, episode.id, true, watchedAt);
+      const updatedEpisode = { ...episode, watched: result.episode.watched, watchedAt: result.episode.watchedAt };
+      onProgressChange(result.progress);
+      setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? updatedEpisode : item) } : current);
+      return updatedEpisode;
     } finally {
       setBusyIds((current) => {
         const next = new Set(current);
@@ -106,6 +123,21 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
       retry();
     } catch (err) {
       setBulkError(err instanceof Error ? err.message : t("library.bulkUpdateFailed"));
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
+  async function setAllWatchTimesToAirTimes() {
+    if (bulkPending) throw new Error(t("library.bulkUpdateFailed"));
+    setBulkPending(true);
+    setBulkError(null);
+    setBulkMessage(null);
+    try {
+      const result = await updateEpisodeWatchTimesToAirTimes(animeId);
+      onProgressChange(result.progress);
+      retry();
+      return result;
     } finally {
       setBulkPending(false);
     }
@@ -149,24 +181,25 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
         <div className="flex min-w-0 items-center gap-1">
           <h2 id="episode-list-title" className="text-2xl font-semibold tracking-tight">{t("library.episodes")}</h2>
           {data ? <span className="ml-2 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{t("library.relatedAnimeEpisodeCount", { count: data.total })}</span> : null}
-          {metadataSource === "local_snapshot" ? null : (
-            <EpisodeTitleSettingsMenu
-              animeId={animeId}
-              episodes={episodes}
-              page={page}
-              totalPages={data?.totalPages ?? 0}
-              total={data?.total ?? 0}
-              isLoading={isLoading}
-              open={openMenu === "settings"}
-              onOpenChange={(open) => setOpenMenu(open ? "settings" : null)}
-              onPageChange={changePage}
-              onEpisodeChange={(episode) => setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? episode : item) } : current)}
-              busy={bulkPending}
-              onMarkTo={(episodeNumber) => void markMany({ watched: true, scope: "through", throughEpisodeNumber: episodeNumber })}
-              onMarkAired={() => void markMany({ watched: true, scope: "aired" })}
-              onClearAll={() => setConfirmClear(true)}
-            />
-          )}
+          <EpisodeTitleSettingsMenu
+            animeId={animeId}
+            episodes={episodes}
+            page={page}
+            totalPages={data?.totalPages ?? 0}
+            total={data?.total ?? 0}
+            isLoading={isLoading}
+            open={openMenu === "settings"}
+            onOpenChange={(open) => setOpenMenu(open ? "settings" : null)}
+            onPageChange={changePage}
+            onEpisodeChange={(episode) => setData((current) => current ? { ...current, episodes: current.episodes.map((item) => item.id === episode.id ? episode : item) } : current)}
+            onWatchTimeChange={updateWatchTime}
+            onSetAllWatchTimesToAirTimes={setAllWatchTimesToAirTimes}
+            canEditTitles={metadataSource !== "local_snapshot"}
+            busy={bulkPending}
+            onMarkTo={(episodeNumber) => void markMany({ watched: true, scope: "through", throughEpisodeNumber: episodeNumber })}
+            onMarkAired={() => void markMany({ watched: true, scope: "aired" })}
+            onClearAll={() => setConfirmClear(true)}
+          />
         </div>
         <div className="episode-section-actions ml-auto flex min-w-0 items-center justify-end gap-2">
           {bulkMessage ? (

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from flask import Blueprint, jsonify, request
 from flask.typing import ResponseReturnValue
 from sqlalchemy.orm import Session
@@ -27,6 +29,7 @@ from app.services.anime_library import (
     get_user_progress,
     set_episode_watch_state,
     set_episode_watch_state_bulk,
+    set_episode_watch_times_to_air_times,
     set_snapshot_episode_watch_state,
 )
 from app.services.anime_statistics import get_watch_timeline
@@ -88,9 +91,29 @@ def update_episode_watch_state(db: Session, user: User, anime_id: int, episode_i
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or not isinstance(payload.get('watched'), bool):
         return jsonify({'message': 'Episode watched state is required'}), 400
+    watched_at = None
+    if 'watchedAt' in payload:
+        if not payload['watched'] or not isinstance(payload['watchedAt'], str):
+            return (
+                jsonify({'message': 'watchedAt requires a watched episode and an ISO 8601 timestamp'}),
+                400,
+            )
+        try:
+            watched_at = datetime.fromisoformat(payload['watchedAt'])
+        except ValueError:
+            return jsonify({'message': 'watchedAt must be a valid ISO 8601 timestamp'}), 400
+        if watched_at.tzinfo is None or watched_at.utcoffset() is None:
+            return jsonify({'message': 'watchedAt must include a timezone'}), 400
+        watched_at = watched_at.astimezone(UTC)
     progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
     if progress is not None and progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
-        snapshot_episode = set_snapshot_episode_watch_state(db, progress=progress, episode_id=episode_id, watched=payload['watched'])
+        snapshot_episode = set_snapshot_episode_watch_state(
+            db,
+            progress=progress,
+            episode_id=episode_id,
+            watched=payload['watched'],
+            watched_at=watched_at,
+        )
         if snapshot_episode is None:
             return jsonify({'message': 'Episode not found'}), 404
         return jsonify(
@@ -107,7 +130,13 @@ def update_episode_watch_state(db: Session, user: User, anime_id: int, episode_i
     episode = db.get(Episode, episode_id)
     if progress is None or episode is None or episode.anime_id != anime_id:
         return jsonify({'message': 'Episode not found'}), 404
-    watch_progress = set_episode_watch_state(db, progress=progress, episode=episode, watched=payload['watched'])
+    watch_progress = set_episode_watch_state(
+        db,
+        progress=progress,
+        episode=episode,
+        watched=payload['watched'],
+        watched_at=watched_at,
+    )
     return jsonify(
         {
             'episode': {
@@ -143,6 +172,20 @@ def update_episode_watch_state_bulk(db: Session, user: User, anime_id: int) -> R
         scope=scope,
         through_episode_number=through_episode_number,
     )
+    return jsonify({
+        'matchedCount': matched_count,
+        'changedCount': changed_count,
+        'progress': serialize_progress(progress),
+    })
+
+
+@watch_state_bp.patch('/anime/<int:anime_id>/episodes/watched-at')
+@require_auth_user
+def update_episode_watch_times_to_air_times(db: Session, user: User, anime_id: int) -> ResponseReturnValue:
+    progress = get_user_progress(db, user_id=user.id, anime_id=anime_id)
+    if progress is None:
+        return jsonify({'message': 'Anime not found'}), 404
+    matched_count, changed_count = set_episode_watch_times_to_air_times(db, progress=progress)
     return jsonify({
         'matchedCount': matched_count,
         'changedCount': changed_count,

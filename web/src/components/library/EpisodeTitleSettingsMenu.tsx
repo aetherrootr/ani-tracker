@@ -1,11 +1,12 @@
 "use client";
 
-import { Settings, X } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { CalendarClock, Settings, X } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { updateEpisodeNamePreference } from "@/features/library/api";
@@ -24,6 +25,9 @@ export function EpisodeTitleSettingsMenu({
   onOpenChange,
   onPageChange,
   onEpisodeChange,
+  onWatchTimeChange,
+  onSetAllWatchTimesToAirTimes,
+  canEditTitles,
   busy,
   onMarkTo,
   onMarkAired,
@@ -39,15 +43,21 @@ export function EpisodeTitleSettingsMenu({
   onOpenChange: (open: boolean) => void;
   onPageChange: (page: number) => void;
   onEpisodeChange: (episode: Episode) => void;
+  onWatchTimeChange: (episode: Episode, watchedAt: string) => Promise<Episode>;
+  onSetAllWatchTimesToAirTimes: () => Promise<{ matchedCount: number; changedCount: number }>;
+  canEditTitles: boolean;
   busy: boolean;
   onMarkTo: (episodeNumber: number) => void;
   onMarkAired: () => void;
   onClearAll: () => void;
 }) {
   const t = useTranslations();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"titles" | "watchTimes" | null>(null);
   const [episodeNumber, setEpisodeNumber] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [batchPending, setBatchPending] = useState(false);
+  const [batchMessage, setBatchMessage] = useState<string | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
   const panelId = useId();
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -102,6 +112,20 @@ export function EpisodeTitleSettingsMenu({
     requestAnimationFrame(() => triggerRef.current?.querySelector("button")?.focus());
   }
 
+  async function setAllWatchTimesToAirTimes() {
+    setBatchPending(true);
+    setBatchMessage(null);
+    setBatchError(null);
+    try {
+      const result = await onSetAllWatchTimesToAirTimes();
+      setBatchMessage(t("library.batchWatchTimesComplete", { changed: result.changedCount, matched: result.matchedCount }));
+    } catch {
+      setBatchError(t("library.batchWatchTimesFailed"));
+    } finally {
+      setBatchPending(false);
+    }
+  }
+
   return (
     <div ref={triggerRef} className="relative">
       <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={t("library.episodeTitleSettings")} aria-expanded={open} aria-haspopup="dialog" aria-controls={panelId} onClick={() => onOpenChange(!open)}>
@@ -117,8 +141,13 @@ export function EpisodeTitleSettingsMenu({
               </Button>
             </div>
             <div className="mt-3 space-y-2">
-              <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setDialogOpen(true); onOpenChange(false); }}>
-                {t("library.editEpisodeTitles")}
+              {canEditTitles ? (
+                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setDialogMode("titles"); onOpenChange(false); }}>
+                  {t("library.editEpisodeTitles")}
+                </Button>
+              ) : null}
+              <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setDialogMode("watchTimes"); onOpenChange(false); }}>
+                {t("library.editEpisodeWatchTimes")}
               </Button>
               <div className="flex gap-2 border-t pt-3">
                 <Input value={episodeNumber} inputMode="numeric" placeholder={t("library.episodeNumber")} onChange={(event) => setEpisodeNumber(event.target.value)} />
@@ -131,20 +160,37 @@ export function EpisodeTitleSettingsMenu({
         </div>,
         document.body,
       ) : null}
-      {dialogOpen ? (
-        <div className="mobile-fixed-below-top-nav fixed inset-0 z-50 flex items-start justify-center bg-background/80 p-4 backdrop-blur-sm md:items-center" role="dialog" aria-modal="true">
-          <div className="glass-dialog flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl border text-foreground md:max-h-[86vh]">
+      {dialogMode && typeof document !== "undefined" ? createPortal(
+        <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
+          <div className="glass-dialog flex h-[88svh] max-h-[52rem] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border text-foreground">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-background/65 p-5 backdrop-blur-xl dark:bg-background/65">
               <div>
-                <h3 className="text-lg font-semibold">{t("library.editEpisodeTitles")}</h3>
+                <h3 className="text-lg font-semibold">{t(dialogMode === "titles" ? "library.editEpisodeTitles" : "library.editEpisodeWatchTimes")}</h3>
                 <p className="text-sm text-muted-foreground">{t("library.episodeTitlePageSummary", { page, totalPages, total })}</p>
+                {dialogMode === "watchTimes" ? <p className="mt-1 text-sm text-muted-foreground">{t("library.episodeWatchTimeDescription")}</p> : null}
               </div>
-              <Button type="button" variant="ghost" size="icon" onClick={() => setDialogOpen(false)}><X className="h-4 w-4" /></Button>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setDialogMode(null)}><X className="h-4 w-4" /></Button>
             </div>
 
-            <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-5">
+            <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1 overflow-hidden" viewportClassName="h-full min-h-0 touch-pan-y space-y-3 overflow-y-auto p-5">
               {isLoading ? <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">{t("app.loadingAccount")}</div> : null}
-              {!isLoading && episodes.map((episode) => {
+              {!isLoading && dialogMode === "watchTimes" ? (
+                <div className="rounded-2xl border bg-card p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="font-medium">{t("library.batchWatchTimesTitle")}</div>
+                      <p className="mt-1 text-sm text-muted-foreground">{t("library.batchWatchTimesDescription")}</p>
+                    </div>
+                    <Button type="button" className="min-h-11 shrink-0" disabled={busy || batchPending} aria-busy={batchPending} onClick={() => void setAllWatchTimesToAirTimes()}>
+                      <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                      {t("library.batchWatchTimesAction")}
+                    </Button>
+                  </div>
+                  {batchMessage ? <p className="mt-3 text-sm text-[var(--watched)]" role="status">{batchMessage}</p> : null}
+                  {batchError ? <p className="mt-3 text-sm text-destructive" role="alert">{batchError}</p> : null}
+                </div>
+              ) : null}
+              {!isLoading && dialogMode === "titles" && episodes.map((episode) => {
                 const availableNames = uniqueEpisodeNames(episode);
                 return (
                   <div key={episode.id} className="rounded-xl border bg-background/60 p-3">
@@ -170,6 +216,12 @@ export function EpisodeTitleSettingsMenu({
                   </div>
                 );
               })}
+              {!isLoading && dialogMode === "watchTimes" && episodes.filter((episode) => episode.watched).map((episode) => (
+                <EpisodeWatchTimeEditor key={episode.id} episode={episode} onSave={onWatchTimeChange} />
+              ))}
+              {!isLoading && dialogMode === "watchTimes" && !episodes.some((episode) => episode.watched) ? (
+                <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">{t("library.noWatchedEpisodesOnPage")}</div>
+              ) : null}
             </ScrollArea>
 
             <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t bg-background/65 p-5 backdrop-blur-xl dark:bg-background/65">
@@ -178,10 +230,78 @@ export function EpisodeTitleSettingsMenu({
               <Button type="button" variant="outline" disabled={page >= totalPages || isLoading} onClick={() => onPageChange(page + 1)}>{t("library.next")}</Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
+}
+
+function EpisodeWatchTimeEditor({ episode, onSave }: { episode: Episode; onSave: (episode: Episode, watchedAt: string) => Promise<Episode> }) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const [value, setValue] = useState(() => toLocalDateTimeValue(episode.watchedAt));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(watchedAt: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await onSave(episode, watchedAt);
+      setValue(toLocalDateTimeValue(updated.watchedAt));
+    } catch {
+      setError(t("library.watchTimeSaveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-background/60 p-3">
+      <div className="flex gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">{episode.episodeNumber}</div>
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="font-medium">{episode.displayName || t("library.episodeFallbackTitle", { episode: episode.episodeNumber })}</div>
+          <div className="space-y-1.5 text-sm font-medium">
+            <span>{t("library.episodeWatchTime")}</span>
+            <DateTimePicker
+              value={value}
+              locale={locale}
+              disabled={saving}
+              labels={{
+                open: t("library.openWatchTimePicker"),
+                previousMonth: t("library.previousMonth"),
+                nextMonth: t("library.nextMonth"),
+                date: t("library.selectWatchDate"),
+                hour: t("library.hour"),
+                minute: t("library.minute"),
+                done: t("library.doneSelectingTime"),
+              }}
+              onChange={setValue}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" disabled={saving || !value} aria-busy={saving} onClick={() => void save(new Date(value).toISOString())}>
+              {t("library.saveWatchTime")}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={saving || !episode.airAt} title={episode.airAt ? undefined : t("library.episodeAirTimeUnavailable")} onClick={() => episode.airAt && void save(episode.airAt)}>
+              {t("library.useEpisodeAirTime")}
+            </Button>
+          </div>
+          {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function toLocalDateTimeValue(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function uniqueEpisodeNames(episode: Episode) {
