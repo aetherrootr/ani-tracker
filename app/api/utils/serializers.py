@@ -144,14 +144,23 @@ def select_episode_name_for_user(
         for name in names:
             if name.id == preferred_name_id:
                 return name
-    preferred_languages = [user.language_preference]
-    if '-' in user.language_preference:
-        preferred_languages.append(user.language_preference.split('-', 1)[0])
-    for language in preferred_languages:
+    preference = user.language_preference.lower()
+    if preference.startswith('zh'):
+        preferred_languages = [preference, 'zho', 'zh', 'zhtw']
+        if preference in {'zh-tw', 'zh-hant'}:
+            preferred_languages = [preference, 'zhtw', 'zh', 'zho']
+    elif preference.startswith('en'):
+        preferred_languages = [preference, 'en', 'eng']
+    elif preference.startswith('ja'):
+        preferred_languages = [preference, 'ja', 'jpn']
+    else:
+        preferred_languages = [preference, preference.split('-', 1)[0]]
+
+    for language in dict.fromkeys([*preferred_languages, 'en', 'eng']):
         for name in names:
-            if name.language == language:
+            if name.language is not None and name.language.lower() == language:
                 return name
-    return names[0] if names else None
+    return None
 
 
 def serialize_summary(summary: AnimeSummary | None, progress: UserAnimeProgress) -> dict[str, Any] | None:

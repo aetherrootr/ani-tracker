@@ -304,7 +304,7 @@ class BangumiImportProvider(ImportProvider):
         external_id = str(episode_id) if isinstance(episode_id, int | str) else None
         name_cn = non_empty_str(episode.get('name_cn'))
         name = non_empty_str(episode.get('name'))
-        title = name_cn or name
+        title = name or name_cn
         names: list[ImportEpisodeName] = []
         seen_names: set[str] = set()
         for value, language in ((name_cn, 'zh'), (name, 'ja')):
