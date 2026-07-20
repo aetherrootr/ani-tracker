@@ -100,10 +100,15 @@ cp env.example .env
 docker compose up --build
 ```
 
-The compose stack starts the web application, a Celery worker, a single Celery
-Beat scheduler, PostgreSQL, and Redis. The app is exposed at
-`http://localhost:8080` by default. Change `APP_PORT` in `.env` if you want to
-use another port.
+The compose stack starts the web application, PostgreSQL, Redis, and one Celery
+worker that handles both user-triggered and scheduled tasks. The app is exposed
+at `http://localhost:8080` by default. Change `APP_PORT` in `.env` if you want
+to use another port.
+
+The worker uses `worker --beat` to run the Celery Beat scheduler in the same
+process. Only one worker should use `--beat` for a given broker and schedule.
+Larger deployments can run additional workers without `--beat`, or use the
+separate `beat` subcommand instead.
 
 ## Metadata Providers
 

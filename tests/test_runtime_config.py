@@ -190,6 +190,20 @@ def test_cli_worker_subcommand_starts_celery_worker(monkeypatch: pytest.MonkeyPa
     assert worker_args == [['worker', '--loglevel', 'debug', '--pool', 'solo']]
 
 
+def test_cli_worker_subcommand_can_run_beat(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker_args: list[list[str]] = []
+
+    def worker_main(argv: list[str]) -> None:
+        worker_args.append(argv)
+
+    monkeypatch.setattr(celery_app, 'worker_main', worker_main)
+
+    result = CliRunner().invoke(main, ['worker', '--beat', '--schedule', 'celerybeat-schedule'])
+
+    assert result.exit_code == 0
+    assert worker_args == [['worker', '--loglevel', 'info', '--beat', '--schedule', 'celerybeat-schedule']]
+
+
 def test_cli_beat_subcommand_starts_celery_beat(monkeypatch: pytest.MonkeyPatch) -> None:
     beat_args: list[list[str]] = []
 

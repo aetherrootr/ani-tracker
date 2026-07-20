@@ -39,6 +39,12 @@ Run a Celery worker for background jobs:
 uv run python -m app.main worker
 ```
 
+Run user-triggered jobs and scheduled jobs with one worker:
+
+```bash
+uv run python -m app.main worker --beat --schedule /tmp/ani-tracker/celerybeat-schedule
+```
+
 Extra Celery worker arguments are passed through, for example
 `uv run python -m app.main worker --pool=solo`.
 
@@ -48,7 +54,8 @@ Run one Celery Beat scheduler for periodic jobs:
 uv run python -m app.main beat --schedule /tmp/ani-tracker/celerybeat-schedule
 ```
 
-Only one Beat scheduler should use a given broker and schedule.
+Only one embedded or standalone Beat scheduler should use a given broker and
+schedule.
 
 Database schema is managed by Alembic. Application startup upgrades the database
 to the latest migration by default.
