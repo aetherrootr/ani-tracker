@@ -240,10 +240,10 @@ export function getLibraryRefreshJob(jobId: string, signal?: AbortSignal) {
   return apiFetch<LibraryRefreshJob>(`/api/anime/library/sync-all/${jobId}`, { signal });
 }
 
-export function updateEpisodeWatchState(animeId: number, episodeId: number, watched: boolean) {
-  return apiFetch<{ episode: { id: number; watched: boolean }; progress: AnimeProgress }>(
+export function updateEpisodeWatchState(animeId: number, episodeId: number, watched: boolean, watchedAt?: string) {
+  return apiFetch<{ episode: { id: number; episodeNumber: number; watched: boolean; watchedAt: string | null }; progress: AnimeProgress }>(
     `/api/watch-state/anime/${animeId}/episodes/${episodeId}`,
-    { method: "PATCH", body: JSON.stringify({ watched }) },
+    { method: "PATCH", body: JSON.stringify({ watched, ...(watchedAt === undefined ? {} : { watchedAt }) }) },
   );
 }
 
@@ -258,6 +258,16 @@ export function updateEpisodeWatchStateBulk(
   }>(`/api/watch-state/anime/${animeId}/episodes`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export function updateEpisodeWatchTimesToAirTimes(animeId: number) {
+  return apiFetch<{
+    matchedCount: number;
+    changedCount: number;
+    progress: AnimeProgress;
+  }>(`/api/watch-state/anime/${animeId}/episodes/watched-at`, {
+    method: "PATCH",
   });
 }
 

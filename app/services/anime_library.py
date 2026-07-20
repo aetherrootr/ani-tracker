@@ -1137,6 +1137,7 @@ def set_episode_watch_state(
     progress: UserAnimeProgress,
     episode: Episode,
     watched: bool,
+    watched_at: datetime | None = None,
 ) -> UserEpisodeProgress | None:
     watch_progress = session.scalar(
         select(UserEpisodeProgress).where(
@@ -1149,7 +1150,7 @@ def set_episode_watch_state(
             watch_progress = UserEpisodeProgress(user_id=progress.user_id, episode_id=episode.id)
             session.add(watch_progress)
         watch_progress.watched = True
-        watch_progress.watched_at = datetime.now(UTC)
+        watch_progress.watched_at = watched_at or datetime.now(UTC)
         if progress.status == UserAnimeStatus.PLAN_TO_WATCH:
             progress.status = UserAnimeStatus.WATCHING
     elif watch_progress is not None:
@@ -1168,6 +1169,7 @@ def set_snapshot_episode_watch_state(
     progress: UserAnimeProgress,
     episode_id: int,
     watched: bool,
+    watched_at: datetime | None = None,
 ) -> UserAnimeMetadataEpisodeSnapshot | None:
     snapshot = _active_metadata_snapshot(session, progress=progress)
     if snapshot is None:
@@ -1176,13 +1178,55 @@ def set_snapshot_episode_watch_state(
     if episode is None or episode.snapshot_id != snapshot.id:
         return None
     episode.watched = watched
-    episode.watched_at = datetime.now(UTC) if watched else None
+    episode.watched_at = (watched_at or datetime.now(UTC)) if watched else None
     if watched and progress.status == UserAnimeStatus.PLAN_TO_WATCH:
         progress.status = UserAnimeStatus.WATCHING
     session.flush()
     recalculate_user_anime_progress(session, progress=progress, marked_watched=watched)
     session.commit()
     return episode
+
+
+def set_episode_watch_times_to_air_times(
+    session: Session,
+    *,
+    progress: UserAnimeProgress,
+) -> tuple[int, int]:
+    changed_count = 0
+    if progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        snapshot_episodes = session.scalars(
+            select(UserAnimeMetadataEpisodeSnapshot).where(
+                UserAnimeMetadataEpisodeSnapshot.snapshot_id == progress.metadata_snapshot_id,
+                UserAnimeMetadataEpisodeSnapshot.watched.is_(True),
+                UserAnimeMetadataEpisodeSnapshot.air_at.is_not(None),
+            ),
+        ).all()
+        matched_count = len(snapshot_episodes)
+        for episode in snapshot_episodes:
+            if episode.watched_at != episode.air_at:
+                episode.watched_at = episode.air_at
+                changed_count += 1
+    else:
+        progress_rows = session.execute(
+            select(UserEpisodeProgress, Episode.air_at)
+            .join(Episode, Episode.id == UserEpisodeProgress.episode_id)
+            .where(
+                Episode.anime_id == progress.anime_id,
+                Episode.air_at.is_not(None),
+                UserEpisodeProgress.user_id == progress.user_id,
+                UserEpisodeProgress.watched.is_(True),
+            ),
+        ).all()
+        matched_count = len(progress_rows)
+        for watch_progress, air_at in progress_rows:
+            if watch_progress.watched_at != air_at:
+                watch_progress.watched_at = air_at
+                changed_count += 1
+
+    session.flush()
+    recalculate_user_anime_progress(session, progress=progress)
+    session.commit()
+    return matched_count, changed_count
 
 
 def recalculate_user_anime_progress(
