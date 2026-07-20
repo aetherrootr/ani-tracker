@@ -289,7 +289,7 @@ export function EpisodeTicket({
 
   function commitGesture(target: boolean) {
     setArmedTarget(null);
-    if (target && requireWatchConfirm) {
+    if (!target || requireWatchConfirm) {
       resetDrag();
       void apply(target);
       return;
@@ -334,7 +334,7 @@ export function EpisodeTicket({
 
   async function apply(target: boolean) {
     if (disabled || pending || target === watched) return;
-    if (target && requireWatchConfirm) {
+    if (!target || requireWatchConfirm) {
       setConfirmTarget(target);
       setConfirmOpen(true);
       return;
@@ -501,9 +501,9 @@ export function EpisodeTicket({
 
       <ConfirmDialog
         open={confirmOpen}
-        title={t("library.confirmWatchTitle")}
-        description={t("library.confirmWatchDescription")}
-        confirmLabel={t("library.markWatched")}
+        title={t(confirmTarget ? "library.confirmWatchTitle" : "library.confirmUnwatchTitle")}
+        description={t(confirmTarget ? "library.confirmWatchDescription" : "library.confirmUnwatchDescription")}
+        confirmLabel={t(confirmTarget ? "library.markWatched" : "library.markUnwatched")}
         onCancel={() => {
           setConfirmOpen(false);
           requestAnimationFrame(() => inputRef.current?.focus());
