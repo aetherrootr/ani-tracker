@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -352,6 +353,23 @@ def test_bangumi_provider_tolerates_missing_optional_fields() -> None:
         url='https://bgm.tv/subject/1',
         raw_data={'id': 1, 'name': ''},
     )
+
+
+def test_bangumi_date_only_episode_uses_jst_status_boundary() -> None:
+    provider = BangumiImportProvider(
+        base_url='https://api.bgm.tv',
+        web_base_url='https://bgm.tv',
+        user_agent='ani-tracker/0.1.0 (test)',
+        timeout=5,
+        session=FakeSession(),  # type: ignore[arg-type]
+    )
+
+    episode = provider._map_episode({'id': 1, 'sort': 1, 'airdate': '2026-07-21'})  # noqa: SLF001
+
+    assert episode is not None
+    assert episode.air_at == datetime(2026, 7, 21, tzinfo=UTC)
+    assert episode.air_at_has_time is False
+    assert episode.status_air_at == datetime(2026, 7, 20, 15, tzinfo=UTC)
 
 
 def test_bangumi_provider_maps_safe_related_anime_only() -> None:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
+from zoneinfo import ZoneInfo
 
 from app.import_provider.utils import coerce_int
 
@@ -46,11 +47,16 @@ def parse_air_at(value: object) -> datetime | None:
     return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
 
 
+def jst_status_air_at(air_at: datetime | None) -> datetime | None:
+    if air_at is None:
+        return None
+    return datetime.combine(air_at.date(), time.min, tzinfo=ZoneInfo('Asia/Tokyo')).astimezone(UTC)
+
+
 def map_episode_status(air_at: datetime | None) -> str:
     if air_at is None:
         return 'unknown'
-    today = datetime.now(UTC).date()
-    return 'aired' if air_at.date() <= today else 'upcoming'
+    return 'aired' if air_at <= datetime.now(UTC) else 'upcoming'
 
 
 def parse_duration(value: object) -> str | None:

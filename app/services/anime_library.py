@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from flask import current_app, has_app_context
 from sqlalchemy import String, and_, cast, delete, exists, false, func, or_, select, update
 from sqlalchemy.orm import Session
 
@@ -44,6 +47,7 @@ from app.models.progress import (
 )
 from app.models.user import User
 from app.services.anime_poster import enqueue_poster_download, upsert_poster_record
+from app.utils import local_timezone
 
 
 @dataclass(frozen=True)
@@ -1438,7 +1442,12 @@ def _upsert_episodes(session: Session, anime: AnimeMetaInfo, episodes: Sequence[
         episode.air_at = resolved_air_at
         episode.air_at_has_time = item.air_at_has_time if item.air_at is not None else False
         episode.duration = item.duration
-        episode.status = _resolved_episode_status(item.status, resolved_air_at)
+        episode.status = _resolved_episode_status(
+            item.status,
+            resolved_air_at,
+            air_at_has_time=episode.air_at_has_time,
+            status_air_at=item.status_air_at,
+        )
         episode.last_synced_at = synced_at
         session.flush()
         _upsert_episode_names(session, episode, item.names, resolved_title)
@@ -1552,11 +1561,28 @@ def _episode_status(value: str) -> EpisodeStatus:
         return EpisodeStatus.UNKNOWN
 
 
-def _resolved_episode_status(value: str, air_at: datetime | None) -> EpisodeStatus:
+def _resolved_episode_status(
+    value: str,
+    air_at: datetime | None,
+    *,
+    air_at_has_time: bool,
+    status_air_at: datetime | None = None,
+    now: datetime | None = None,
+) -> EpisodeStatus:
     if air_at is not None:
-        today = datetime.now(UTC).date()
+        current_time = now or datetime.now(UTC)
+        if air_at_has_time:
+            return EpisodeStatus.AIRED if air_at <= current_time else EpisodeStatus.UPCOMING
+        if status_air_at is not None:
+            return EpisodeStatus.AIRED if status_air_at <= current_time else EpisodeStatus.UPCOMING
+        today = current_time.astimezone(_anime_sync_timezone()).date()
         return EpisodeStatus.AIRED if air_at.date() <= today else EpisodeStatus.UPCOMING
     return _episode_status(value)
+
+
+def _anime_sync_timezone() -> ZoneInfo:
+    configured = current_app.config.get('ANIME_SYNC_TIMEZONE') if has_app_context() else os.environ.get('ANIME_SYNC_TIMEZONE')
+    return ZoneInfo(local_timezone(configured, use_system_timezone=False))
 
 
 def _first_episode_air_date(episodes: Sequence[ImportEpisodeInfo]) -> date | None:
