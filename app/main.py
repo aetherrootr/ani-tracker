@@ -116,9 +116,11 @@ def server(mode: Literal['dev', 'prod']) -> None:
 
 @main.command(context_settings={'ignore_unknown_options': True, 'allow_extra_args': True})
 @click.option('--loglevel', default='info', show_default=True, help='Celery worker log level.')
+@click.option('--beat', is_flag=True, help='Also run the Celery Beat scheduler in this worker.')
 @click.pass_context
-def worker(ctx: click.Context, loglevel: str) -> None:
-    run_worker(loglevel, tuple(ctx.args))
+def worker(ctx: click.Context, loglevel: str, *, beat: bool) -> None:
+    celery_args = ('--beat', *ctx.args) if beat else tuple(ctx.args)
+    run_worker(loglevel, celery_args)
 
 
 @main.command(context_settings={'ignore_unknown_options': True, 'allow_extra_args': True})

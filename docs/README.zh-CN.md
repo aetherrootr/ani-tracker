@@ -81,7 +81,9 @@ cp env.example .env
 docker compose up --build
 ```
 
-Compose 会启动 Web 应用、Celery worker、单实例 Celery Beat 定时调度器、PostgreSQL 和 Redis。默认访问地址为 `http://localhost:8080`。如果需要使用其他端口，可以修改 `.env` 中的 `APP_PORT`。
+Compose 会启动 Web 应用、PostgreSQL、Redis，以及一个同时处理用户触发任务和定时任务的 Celery worker。默认访问地址为 `http://localhost:8080`。如果需要使用其他端口，可以修改 `.env` 中的 `APP_PORT`。
+
+该 worker 使用 `worker --beat` 在同一进程中运行 Celery Beat 调度器。同一个 broker 和 schedule 只能有一个 worker 使用 `--beat`。较大规模的部署可以启动不带 `--beat` 的额外 worker，或改用独立的 `beat` 子命令。
 
 ## 元数据供应商
 
