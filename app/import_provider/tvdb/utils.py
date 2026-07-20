@@ -1,9 +1,45 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.import_provider.exceptions import ImportProviderResponseError
+
+_COUNTRY_TIMEZONES = {
+    'au': 'Australia/Sydney',
+    'aus': 'Australia/Sydney',
+    'ca': 'America/Toronto',
+    'can': 'America/Toronto',
+    'cn': 'Asia/Shanghai',
+    'chn': 'Asia/Shanghai',
+    'de': 'Europe/Berlin',
+    'deu': 'Europe/Berlin',
+    'es': 'Europe/Madrid',
+    'esp': 'Europe/Madrid',
+    'fr': 'Europe/Paris',
+    'fra': 'Europe/Paris',
+    'gb': 'Europe/London',
+    'gbr': 'Europe/London',
+    'hk': 'Asia/Hong_Kong',
+    'hkg': 'Asia/Hong_Kong',
+    'in': 'Asia/Kolkata',
+    'ind': 'Asia/Kolkata',
+    'it': 'Europe/Rome',
+    'ita': 'Europe/Rome',
+    'jp': 'Asia/Tokyo',
+    'jpn': 'Asia/Tokyo',
+    'kr': 'Asia/Seoul',
+    'kor': 'Asia/Seoul',
+    'sg': 'Asia/Singapore',
+    'sgp': 'Asia/Singapore',
+    'th': 'Asia/Bangkok',
+    'tha': 'Asia/Bangkok',
+    'tw': 'Asia/Taipei',
+    'twn': 'Asia/Taipei',
+    'us': 'America/New_York',
+    'usa': 'America/New_York',
+}
 
 
 def build_external_id(series_id: int | str, season_number: int | str) -> str:
@@ -50,6 +86,33 @@ def parse_air_at(value: object) -> datetime | None:
     if parsed is None:
         return None
     return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+
+
+def parse_status_air_at(aired: object, airs_time: object, country: object) -> datetime | None:
+    aired_date = parse_date(aired)
+    timezone = tvdb_air_timezone(country)
+    if aired_date is None or timezone is None:
+        return None
+    local_air_time = _parse_time(airs_time) or time.min
+    return datetime.combine(aired_date, local_air_time, tzinfo=ZoneInfo(timezone)).astimezone(UTC)
+
+
+def tvdb_air_timezone(country: object) -> str | None:
+    if not isinstance(country, str):
+        return None
+    return _COUNTRY_TIMEZONES.get(country.strip().lower())
+
+
+def _parse_time(value: object) -> time | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip().upper()
+    for format_string in ('%H:%M:%S', '%H:%M', '%I:%M %p', '%I %p'):
+        try:
+            return datetime.strptime(text, format_string).time()
+        except ValueError:
+            continue
+    return None
 
 
 def map_status(air_at: datetime | None) -> str:

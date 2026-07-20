@@ -46,6 +46,7 @@ from app.models.progress import (
     UserManualAnimeRelation,
 )
 from app.models.user import User
+from app.services.anime_library import _resolved_episode_status
 from app.services.anime_statistics import get_statistics_summary, get_watch_timeline
 from app.tasks.celery_config import configure_celery
 from tests.test_auth import register_user
@@ -392,6 +393,44 @@ def test_episode_air_time_precision_preserves_exact_midnight(
 
     assert [episode['airAt'][:19] for episode in body['episodes']] == ['2024-04-01T00:00:00', '2024-04-02T00:00:00']
     assert [episode['airAtPrecision'] for episode in body['episodes']] == ['date', 'datetime']
+
+
+def test_date_only_episode_uses_configured_local_date_for_status(app: Flask) -> None:
+    app.config['ANIME_SYNC_TIMEZONE'] = 'Asia/Shanghai'
+    air_at = datetime(2026, 7, 21, tzinfo=UTC)
+    now = datetime(2026, 7, 20, 18, 42, tzinfo=UTC)
+
+    with app.app_context():
+        date_only_status = _resolved_episode_status('upcoming', air_at, air_at_has_time=False, now=now)
+        exact_time_status = _resolved_episode_status('upcoming', air_at, air_at_has_time=True, now=now)
+
+    assert date_only_status == EpisodeStatus.AIRED
+    assert exact_time_status == EpisodeStatus.UPCOMING
+
+
+def test_tvdb_date_only_episode_uses_source_air_time_for_status(app: Flask) -> None:
+    app.config['ANIME_SYNC_TIMEZONE'] = 'Asia/Shanghai'
+    air_at = datetime(2026, 7, 21, tzinfo=UTC)
+    source_air_at = datetime(2026, 7, 21, 14, 30, tzinfo=UTC)
+
+    with app.app_context():
+        before_air_time = _resolved_episode_status(
+            'upcoming',
+            air_at,
+            air_at_has_time=False,
+            status_air_at=source_air_at,
+            now=datetime(2026, 7, 21, 2, 42, tzinfo=UTC),
+        )
+        after_air_time = _resolved_episode_status(
+            'upcoming',
+            air_at,
+            air_at_has_time=False,
+            status_air_at=source_air_at,
+            now=datetime(2026, 7, 21, 15, tzinfo=UTC),
+        )
+
+    assert before_air_time == EpisodeStatus.UPCOMING
+    assert after_air_time == EpisodeStatus.AIRED
 
 
 def test_add_to_library_detects_duplicate_against_existing_anime_alias(

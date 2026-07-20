@@ -69,8 +69,9 @@ def safe_cron_hours(value: object, *, default: str = '4,12,20') -> str:
     return hours
 
 
-def local_timezone(value: object | None = None) -> str:
-    for candidate in (value, os.environ.get('TZ'), _timezone_from_localtime()):
+def local_timezone(value: object | None = None, *, use_system_timezone: bool = True) -> str:
+    candidates = (value, os.environ.get('TZ'), _timezone_from_localtime() if use_system_timezone else None)
+    for candidate in candidates:
         if not isinstance(candidate, str) or not candidate.strip():
             continue
         timezone = candidate.strip()

@@ -19,6 +19,7 @@ from app.import_provider.tvdb.utils import (
     parse_air_at,
     parse_date,
     parse_external_id,
+    parse_status_air_at,
     runtime_to_duration,
     tvdb_language,
 )
@@ -140,6 +141,13 @@ class TVDBImportProvider(ImportProvider):
                 episode,
                 translations=episode_translations.get(self._episode_key(episode), {}),
                 language=request_language,
+                airs_time=series.get('airsTime'),
+                country=first_non_empty(
+                    series.get('originalCountry'),
+                    series.get('country'),
+                    self._company_country(series.get('originalNetwork')),
+                    self._company_country(series.get('latestNetwork')),
+                ),
             )
             for episode in episode_items
         ]
@@ -448,6 +456,8 @@ class TVDBImportProvider(ImportProvider):
         *,
         translations: dict[str, dict[str, Any]],
         language: str | None,
+        airs_time: object,
+        country: object,
     ) -> ImportEpisodeInfo:
         episode_number = coerce_int(episode.get('number'))
         if episode_number is None:
@@ -467,7 +477,12 @@ class TVDBImportProvider(ImportProvider):
             status=map_status(air_at),
             url=f'{self._web_base_url}/series/{series_id}/episodes/{episode_id}' if isinstance(episode_id, int | str) else None,
             raw_data={**episode, 'translations': translations},
+            status_air_at=parse_status_air_at(episode.get('aired'), airs_time, country),
         )
+
+    @staticmethod
+    def _company_country(value: object) -> object:
+        return value.get('country') if isinstance(value, dict) else None
 
     def _episode_items(self, season: dict[str, Any], season_number: int) -> list[dict[str, Any]]:
         episodes = season.get('episodes')

@@ -91,6 +91,8 @@ def series() -> dict[str, Any]:
         'overview': 'series overview',
         'image': 'https://artworks.thetvdb.com/series.jpg',
         'firstAired': '2020-01-01',
+        'originalCountry': 'jpn',
+        'airsTime': '23:30',
         'translations': {
             'nameTranslations': [
                 {'name': '示例动画', 'language': 'zho'},
@@ -389,6 +391,8 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zho' not in [call['url'] for call in session.calls]
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zhtw' not in [call['url'] for call in session.calls]
     assert detail.episodes[0].duration == '00:24:00'
+    assert detail.episodes[0].status_air_at is not None
+    assert detail.episodes[0].status_air_at.isoformat() == '2020-01-01T14:30:00+00:00'
     assert detail.episodes[1].status == 'upcoming'
     assert [item.external_id for item in detail.related_anime] == ['321:0', '321:2']
     assert detail.related_anime[0].poster_source_url == 'https://artworks.thetvdb.com/specials.jpg'

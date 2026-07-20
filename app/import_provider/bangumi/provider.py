@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from app.import_provider.bangumi.utils import (
+    jst_status_air_at,
     map_anime_type,
     map_episode_status,
     parse_air_at,
@@ -311,6 +312,7 @@ class BangumiImportProvider(ImportProvider):
                 names.append(ImportEpisodeName(name=value, language=language))
                 seen_names.add(value)
         air_at = parse_air_at(episode.get('airdate'))
+        status_air_at = jst_status_air_at(air_at)
         return ImportEpisodeInfo(
             provider=self.name,
             external_id=external_id,
@@ -319,7 +321,8 @@ class BangumiImportProvider(ImportProvider):
             names=names,
             air_at=air_at,
             duration=parse_duration(episode.get('duration')),
-            status=map_episode_status(air_at),
+            status=map_episode_status(status_air_at),
             url=f'{self._web_base_url}/ep/{external_id}' if external_id is not None else None,
             raw_data=episode,
+            status_air_at=status_air_at,
         )
