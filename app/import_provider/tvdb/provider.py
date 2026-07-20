@@ -36,6 +36,21 @@ from app.import_provider.types import (
 
 logger = logging.getLogger(__name__)
 
+_COUNTRY_ORIGINAL_LANGUAGES = {
+    'chn': 'zho',
+    'china': 'zho',
+    'gbr': 'eng',
+    'japan': 'jpn',
+    'jpn': 'jpn',
+    'kor': 'kor',
+    'south korea': 'kor',
+    'taiwan': 'zhtw',
+    'twn': 'zhtw',
+    'united kingdom': 'eng',
+    'united states': 'eng',
+    'usa': 'eng',
+}
+
 type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float] | None
 
 
@@ -464,7 +479,9 @@ class TVDBImportProvider(ImportProvider):
             message = 'TVDB episode number is missing'
             raise ImportProviderResponseError(message)
         episode_id = episode.get('id')
-        title = self._localized_translation_value(translations, 'name', language) or first_non_empty(episode.get('name'))
+        original_language = _COUNTRY_ORIGINAL_LANGUAGES.get(str(country).strip().lower()) if country is not None else None
+        original_title = first_non_empty(translations.get(original_language, {}).get('name')) if original_language is not None else None
+        title = original_title or first_non_empty(episode.get('name')) or self._localized_translation_value(translations, 'name', language)
         air_at = parse_air_at(episode.get('aired'))
         return ImportEpisodeInfo(
             provider=self.name,

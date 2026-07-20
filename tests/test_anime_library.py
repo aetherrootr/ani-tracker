@@ -1108,8 +1108,50 @@ def test_episode_list_returns_preferred_episode_name(app: Flask, client: FlaskCl
     episodes = response.get_json()['episodes']
     assert episodes[0]['name'] == {'id': 2, 'language': 'en', 'name': 'The Journey Begins'}
     assert episodes[0]['displayName'] == 'The Journey Begins'
-    assert episodes[1]['name'] == {'id': 3, 'language': 'ja', 'name': '別に魔法じゃなくたって...'}
+    assert episodes[1]['name'] is None
     assert episodes[1]['displayName'] == '別に魔法じゃなくたって...'
+
+
+def test_episode_list_title_uses_language_fallbacks_before_original(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, language_preference='zh-CN').status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='episode-title-fallback',
+        original_name='Episode Secondary Title',
+        names=[('Episode Secondary Title', 'eng')],
+    )
+    first = add_episode(db_session, anime, number=1, title='Imported original')
+    second = add_episode(db_session, anime, number=2, title='Another imported original')
+    first_english = EpisodeName(episode_id=first.id, name='English One', language='eng')
+    first_japanese = EpisodeName(episode_id=first.id, name='日本語一', language='jpn')
+    first_chinese = EpisodeName(episode_id=first.id, name='中文一', language='zho')
+    second_japanese = EpisodeName(episode_id=second.id, name='日本語二', language='jpn')
+    second_english = EpisodeName(episode_id=second.id, name='English Two', language='eng')
+    db_session.add_all([first_english, first_japanese, first_chinese, second_japanese, second_english])
+    db_session.flush()
+    db_session.add_all([
+        UserEpisodeProgress(user_id=1, episode_id=first.id, preferred_name_id=first_japanese.id),
+        UserEpisodeProgress(user_id=1, episode_id=second.id, preferred_name_id=second_japanese.id),
+    ])
+    db_session.commit()
+
+    response = client.get(f'/api/anime/library/{anime.id}/episodes')
+
+    assert response.status_code == 200
+    episodes = response.get_json()['episodes']
+    assert episodes[0]['displayName'] == '日本語一'
+    assert episodes[0]['originalTitle'] == 'Imported original'
+    assert episodes[1]['displayName'] == '日本語二'
+    assert episodes[1]['originalTitle'] == 'Another imported original'
+
+    db_session.query(UserEpisodeProgress).delete()
+    db_session.commit()
+    episodes = client.get(f'/api/anime/library/{anime.id}/episodes').get_json()['episodes']
+    assert episodes[0]['displayName'] == '中文一'
+    assert episodes[1]['displayName'] == 'English Two'
 
 
 def test_episode_list_filters_orders_and_locates_noncontiguous_episodes(

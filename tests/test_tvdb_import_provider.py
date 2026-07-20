@@ -380,14 +380,14 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert 'ita' not in {item.language for item in detail.names}
     assert 'ita' not in {item.language for item in detail.summaries}
     assert [episode.external_id for episode in detail.episodes] == ['101', '102']
-    assert detail.episodes[0].title == '第一话'
+    assert detail.episodes[0].title == '第1話'
     assert [(item.language, item.name) for item in detail.episodes[0].names[:4]] == [
         ('zho', '第一话'),
         ('zhtw', '第一話'),
         ('eng', 'Episode One'),
         ('jpn', '第1話'),
     ]
-    assert detail.episodes[1].title == 'Episode Two'
+    assert detail.episodes[1].title == '第2話'
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zho' not in [call['url'] for call in session.calls]
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zhtw' not in [call['url'] for call in session.calls]
     assert detail.episodes[0].duration == '00:24:00'
@@ -443,7 +443,7 @@ def test_detail_imports_special_season_zero() -> None:
     assert detail.poster_source_url == 'https://artworks.thetvdb.com/specials.jpg'
     assert [episode.external_id for episode in detail.episodes] == ['901']
     assert detail.episodes[0].episode_number == 1
-    assert detail.episodes[0].title == 'OVA One'
+    assert detail.episodes[0].title == 'OVA 1 JP'
     assert detail.episodes[0].duration == '00:25:00'
     assert [item.external_id for item in detail.related_anime] == ['321:1', '321:2']
 
