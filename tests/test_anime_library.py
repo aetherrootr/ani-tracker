@@ -2441,6 +2441,14 @@ def test_episode_name_preference_can_be_set_without_marking_watched(
     assert episode_progress is not None
     assert episode_progress.watched is False
 
+    original_name_response = client.patch('/api/anime/library/1/episodes/1/name-preference', json={'nameId': 1})
+    refreshed_episode = client.get('/api/anime/library/1/episodes').get_json()['episodes'][0]
+
+    assert original_name_response.status_code == 200
+    assert original_name_response.get_json()['episode']['preferredNameId'] == 1
+    assert refreshed_episode['preferredNameId'] == 1
+    assert refreshed_episode['displayName'] == '旅立ちの終わり'
+
 
 def test_poster_preference_can_be_set_and_cleared(app: Flask, client: FlaskClient) -> None:
     install_provider(app)

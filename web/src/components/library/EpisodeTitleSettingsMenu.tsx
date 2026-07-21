@@ -203,7 +203,7 @@ export function EpisodeTitleSettingsMenu({
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <Button type="button" size="sm" variant={episode.preferredNameId === null ? "default" : "outline"} className="h-auto min-h-10 max-w-full whitespace-normal break-words px-3 py-2 text-left leading-snug" disabled={savingId === episode.id} onClick={() => void chooseName(episode, null)}>
-                            {episode.originalTitle}
+                            {t("library.defaultPreference")}
                           </Button>
                           {availableNames.map((name) => (
                             <Button key={name.id} type="button" size="sm" variant={episode.preferredNameId === name.id ? "default" : "outline"} className="h-auto min-h-10 max-w-full whitespace-normal break-words px-3 py-2 text-left leading-snug" disabled={savingId === episode.id} onClick={() => void chooseName(episode, name.id)}>
@@ -305,7 +305,7 @@ function toLocalDateTimeValue(value: string | null) {
 }
 
 function uniqueEpisodeNames(episode: Episode) {
-  const seen = new Set([normalizeTitle(episode.originalTitle)]);
+  const seen = new Set<string>();
   return episode.availableNames.filter((name) => {
     const key = normalizeTitle(name.name);
     if (seen.has(key)) {
