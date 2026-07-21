@@ -3060,8 +3060,91 @@ def test_bangumi_related_anime_discovery_skips_already_matched_related_anime(
 
     summary = discover_bangumi_related_anime_for_user(1)
 
-    assert summary['checked'] == 1
-    assert provider.detail_calls == ['current']
+    assert summary['checked'] == 2
+    assert provider.detail_calls == ['current', 'related']
+
+
+def test_bangumi_related_anime_discovery_refreshes_existing_related_series(
+    app: Flask,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.tasks.bangumi_related_anime_discovery import discover_bangumi_related_anime_for_user
+
+    current = add_library_anime(db_session, external_id='current', original_name='Current', names=[('Current', 'en')])
+    related = add_library_anime(db_session, external_id='related', original_name='Related', names=[('Related', 'en')])
+    db_session.add_all(
+        [
+            AnimeRelation(
+                anime_id=current.id,
+                related_anime_id=related.id,
+                provider_type='bangumi',
+                external_id='related',
+                relation_type='same_series_season',
+                title='Related',
+            ),
+            AnimeRelation(
+                anime_id=related.id,
+                related_anime_id=current.id,
+                provider_type='bangumi',
+                external_id='current',
+                relation_type='same_series_season',
+                title='Current',
+            ),
+        ],
+    )
+    db_session.commit()
+    existing_relation = ImportRelatedAnime(
+        provider='bangumi',
+        external_id='related',
+        title='Related',
+        relation_type='same_series_season',
+        season_number=None,
+        air_date=None,
+        episode_count=None,
+        url='https://bgm.tv/subject/related',
+        poster_source_url=None,
+        raw_data={'id': 'related'},
+    )
+    new_relation = ImportRelatedAnime(
+        provider='bangumi',
+        external_id='new-season',
+        title='New Season',
+        relation_type='same_series_season',
+        season_number=None,
+        air_date=None,
+        episode_count=12,
+        url='https://bgm.tv/subject/new-season',
+        poster_source_url=None,
+        raw_data={'id': 'new-season'},
+    )
+    provider = MutableDetailProvider(
+        {
+            'current': replace(anime_detail('current', title='Current'), related_anime=[existing_relation, new_relation]),
+            'related': anime_detail('related', title='Related'),
+            'new-season': anime_detail('new-season', title='New Season'),
+        },
+    )
+
+    class Factory:
+        @classmethod
+        def from_config(cls, _config):  # type: ignore[no-untyped-def]
+            return ImportProviderFactory({'bangumi': provider})
+
+    monkeypatch.setenv('AUTO_IMPORT_BANGUMI_RELATED_ANIME_ENABLED', 'true')
+    monkeypatch.setattr('app.tasks.bangumi_related_anime_discovery.ImportProviderFactory', Factory)
+    monkeypatch.setattr('app.services.related_anime_discovery.enqueue_poster_download', lambda _poster_id: None)
+    celery_app.conf.database_url = app.config['DATABASE_URL']
+
+    summary = discover_bangumi_related_anime_for_user(1)
+
+    imported = db_session.scalar(
+        select(AnimeMetaInfo).where(AnimeMetaInfo.provider_type == 'bangumi', AnimeMetaInfo.external_id == 'new-season'),
+    )
+    assert summary['checked'] == 2
+    assert summary['imported'] == 1
+    assert imported is not None
+    assert provider.detail_calls == ['current', 'new-season', 'related']
 
 
 def test_tvdb_season_discovery_refreshes_existing_related_series(
