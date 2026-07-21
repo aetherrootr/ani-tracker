@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { useCurrentUser, useUpdateLanguagePreference } from "@/features/auth/hooks";
 import { useLocaleControls } from "@/i18n/provider";
 
+import { clearQueuedLanguageMetadataNotice, queueLanguageMetadataNotice } from "./LanguageMetadataNotice";
+
 export function LanguageToggle() {
   const { locale, setLocale } = useLocaleControls();
   const { user } = useCurrentUser();
@@ -17,17 +19,18 @@ export function LanguageToggle() {
   const [isUpdating, setIsUpdating] = useState(false);
 
   async function handleClick() {
-    setLocale(nextLocale);
-
     if (!user) {
+      setLocale(nextLocale);
       return;
     }
 
     setIsUpdating(true);
+    queueLanguageMetadataNotice();
     try {
       await updateLanguagePreference(nextLocale);
     } catch {
-      setLocale(locale);
+      clearQueuedLanguageMetadataNotice();
+      return;
     } finally {
       setIsUpdating(false);
     }

@@ -277,6 +277,11 @@ class BangumiImportProvider(ImportProvider):
             url=f'{self._web_base_url}/subject/{external_id}',
             poster_source_url=pick_image_url(subject.get('images')),
             raw_data=subject,
+            titles=[
+                ImportAnimeName(name=value, language=language)
+                for value, language in ((name_cn, 'zh'), (name, 'ja'))
+                if value is not None
+            ],
         )
 
     def _is_auto_import_related_subject(self, subject: dict[str, Any]) -> bool:

@@ -28,6 +28,7 @@ from app.models.anime import (
     AnimeName,
     AnimePoster,
     AnimeRelation,
+    AnimeRelationTitle,
     AnimeSummary,
     AnimeType,
     Episode,
@@ -1514,6 +1515,29 @@ def _upsert_related_anime(session: Session, anime: AnimeMetaInfo, related_items:
         relation.poster_source_url = item.poster_source_url
         relation.is_active = True
         relation.removed_at = None
+        session.flush()
+        existing_titles = {
+            relation_title.language: relation_title
+            for relation_title in session.scalars(
+                select(AnimeRelationTitle).where(AnimeRelationTitle.anime_relation_id == relation.id),
+            ).all()
+        }
+        for related_title in item.titles:
+            language = related_title.language
+            localized_title = related_title.name.strip()
+            if language is None or not localized_title:
+                continue
+            relation_title = existing_titles.get(language)
+            if relation_title is None:
+                relation_title = AnimeRelationTitle(
+                    anime_relation_id=relation.id,
+                    language=language,
+                    title=localized_title,
+                )
+                session.add(relation_title)
+                existing_titles[language] = relation_title
+            else:
+                relation_title.title = localized_title
 
     stale_same_series = session.scalars(
         select(AnimeRelation).where(

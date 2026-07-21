@@ -33,6 +33,7 @@ from app.import_provider.types import (
     ImportSearchPage,
     ImportSearchResult,
 )
+from app.languages import SUPPORTED_LANGUAGE_PREFERENCES
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +52,29 @@ _COUNTRY_ORIGINAL_LANGUAGES = {
     'usa': 'eng',
 }
 
+_TVDB_PROJECT_LANGUAGES = {
+    'en': 'eng',
+    'zh-CN': 'zho',
+}
+
 type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float] | None
 
 
 class TVDBImportProvider(ImportProvider):
     name = 'tvdb'
     _search_series_limit = 20
-    _required_detail_languages = ('eng', 'jpn')
+    _required_detail_languages = tuple(
+        dict.fromkeys(
+            [
+                *(
+                    _TVDB_PROJECT_LANGUAGES[language]
+                    for language in SUPPORTED_LANGUAGE_PREFERENCES
+                    if language in _TVDB_PROJECT_LANGUAGES
+                ),
+                'jpn',
+            ],
+        ),
+    )
     _chinese_detail_languages = ('zho', 'zhtw')
     _search_series_workers = 4
     _episode_translation_workers = 8
@@ -181,7 +198,13 @@ class TVDBImportProvider(ImportProvider):
             episodes=episodes,
             raw_data={'series': series, 'season': season, 'episodes': season.get('episodes')},
             air_date=self._season_air_date(season, episodes),
-            related_anime=self._related_seasons(series, season_number, language=request_language),
+            related_anime=self._related_seasons(
+                series,
+                season_number,
+                language=request_language,
+                languages=detail_languages,
+                series_translations=series_translations,
+            ),
         )
 
     def _login(self) -> str:
@@ -515,7 +538,15 @@ class TVDBImportProvider(ImportProvider):
                 items.append(episode)
         return sorted(items, key=lambda item: coerce_int(item.get('number'), 0) or 0)
 
-    def _related_seasons(self, series: dict[str, Any], current_season_number: int, *, language: str | None) -> list[ImportRelatedAnime]:
+    def _related_seasons(
+        self,
+        series: dict[str, Any],
+        current_season_number: int,
+        *,
+        language: str | None,
+        languages: list[str],
+        series_translations: dict[str, dict[str, Any]],
+    ) -> list[ImportRelatedAnime]:
         series_id = series.get('id')
         if not isinstance(series_id, int | str):
             return []
@@ -538,6 +569,14 @@ class TVDBImportProvider(ImportProvider):
             if season_number is None:
                 continue
             merged_season = {**season, **{key: value for key, value in season_detail.items() if value is not None}}
+            titles = [
+                ImportAnimeName(
+                    name=self._season_title(series, merged_season, language=title_language, translations=series_translations),
+                    language=title_language,
+                )
+                for title_language in languages
+                if first_non_empty(series_translations.get(title_language, {}).get('name')) is not None
+            ]
             related.append(
                 ImportRelatedAnime(
                     provider=self.name,
@@ -550,6 +589,7 @@ class TVDBImportProvider(ImportProvider):
                     url=self._season_url(series, season_number),
                     poster_source_url=self._poster_url(merged_season) or self._poster_url(series),
                     raw_data=season,
+                    titles=titles,
                 ),
             )
         return related
@@ -760,8 +800,7 @@ class TVDBImportProvider(ImportProvider):
 
     def _preferred_languages(self, language: str | None) -> list[str]:
         languages: list[str] = []
-        extra_languages = self._chinese_detail_languages if language in self._chinese_detail_languages else ()
-        for value in (language, *extra_languages, *self._required_detail_languages):
+        for value in (language, *self._chinese_detail_languages, *self._required_detail_languages):
             if value is not None and value not in languages:
                 languages.append(value)
         return languages

@@ -28,8 +28,14 @@ from app.import_provider.types import (
     ImportSearchResult,
 )
 from app.import_provider.utils import coerce_int, non_empty_str
+from app.languages import SUPPORTED_LANGUAGE_PREFERENCES
 
 logger = logging.getLogger(__name__)
+
+_TMDB_PROJECT_LANGUAGES = {
+    'en': 'en-US',
+    'zh-CN': 'zh-CN',
+}
 
 type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float] | None
 
@@ -37,7 +43,19 @@ type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float
 class TmdbImportProvider(ImportProvider):
     name = 'tmdb'
     _tmdb_page_size = 20
-    _required_detail_languages = ('en-US', 'zh-CN', 'zh-TW', 'ja-JP')
+    _required_detail_languages = tuple(
+        dict.fromkeys(
+            [
+                *(
+                    _TMDB_PROJECT_LANGUAGES[language]
+                    for language in SUPPORTED_LANGUAGE_PREFERENCES
+                    if language in _TMDB_PROJECT_LANGUAGES
+                ),
+                'zh-TW',
+                'ja-JP',
+            ],
+        ),
+    )
 
     def __init__(
         self,
@@ -124,7 +142,6 @@ class TmdbImportProvider(ImportProvider):
             series,
             season_summary,
             season,
-            language=primary_language,
             localized_series=series_by_language,
             localized_seasons=season_by_language,
         )
@@ -259,7 +276,6 @@ class TmdbImportProvider(ImportProvider):
         season_summary: dict[str, Any],
         season: dict[str, Any],
         *,
-        language: str,
         localized_series: dict[str, dict[str, Any]],
         localized_seasons: dict[str, dict[str, Any]],
     ) -> ImportAnimeDetail:
@@ -270,7 +286,33 @@ class TmdbImportProvider(ImportProvider):
             raise ImportProviderResponseError(message)
         title = self._season_title(series, season)
         original_title = non_empty_str(series.get('original_name'))
-        episodes = [self._map_tv_episode(series_id, season_number, episode, series, language=language) for episode in season.get('episodes', []) if isinstance(episode, dict)]
+        localized_episodes = {
+            item_language: {
+                episode_number: episode
+                for episode in localized_season.get('episodes', [])
+                if isinstance(episode, dict)
+                and (episode_number := coerce_int(episode.get('episode_number'))) is not None
+            }
+            for item_language, localized_season in localized_seasons.items()
+        }
+        episodes: list[ImportEpisodeInfo] = []
+        for episode in season.get('episodes', []):
+            if not isinstance(episode, dict):
+                continue
+            episode_number = coerce_int(episode.get('episode_number'))
+            episodes.append(
+                self._map_tv_episode(
+                    series_id,
+                    season_number,
+                    episode,
+                    series,
+                    localized_episodes={
+                        item_language: episodes_by_number[episode_number]
+                        for item_language, episodes_by_number in localized_episodes.items()
+                        if episode_number is not None and episode_number in episodes_by_number
+                    },
+                ),
+            )
         return ImportAnimeDetail(
             provider=self.name,
             external_id=build_tv_season_external_id(series_id, season_number),
@@ -285,7 +327,7 @@ class TmdbImportProvider(ImportProvider):
             episodes=episodes,
             raw_data={'series': series, 'season_summary': season_summary, 'season': season},
             air_date=parse_date(season.get('air_date')) or self._first_episode_date(episodes) or parse_date(series.get('first_air_date')),
-            related_anime=self._related_seasons(series, season_number),
+            related_anime=self._related_seasons(series, season_number, localized_series=localized_series),
         )
 
     def _map_tv_episode(
@@ -295,7 +337,7 @@ class TmdbImportProvider(ImportProvider):
         episode: dict[str, Any],
         series: dict[str, Any],
         *,
-        language: str,
+        localized_episodes: dict[str, dict[str, Any]],
     ) -> ImportEpisodeInfo:
         episode_number = coerce_int(episode.get('episode_number'))
         if episode_number is None:
@@ -306,12 +348,19 @@ class TmdbImportProvider(ImportProvider):
         duration = runtime_to_duration(episode.get('runtime'))
         if duration is None and isinstance(series.get('episode_run_time'), list) and series['episode_run_time']:
             duration = runtime_to_duration(series['episode_run_time'][0])
+        names: list[ImportEpisodeName] = []
+        seen_names: set[str] = set()
+        for item_language, localized_episode in localized_episodes.items():
+            localized_title = non_empty_str(localized_episode.get('name'))
+            if localized_title is not None and localized_title not in seen_names:
+                names.append(ImportEpisodeName(name=localized_title, language=item_language))
+                seen_names.add(localized_title)
         return ImportEpisodeInfo(
             provider=self.name,
             external_id=f'tv:{series_id}:season:{season_number}:episode:{episode_number}',
             episode_number=episode_number,
             title=title,
-            names=[ImportEpisodeName(name=title, language=language)] if title is not None else [],
+            names=names,
             air_at=air_at,
             duration=duration,
             status=map_status(air_at),
@@ -319,7 +368,13 @@ class TmdbImportProvider(ImportProvider):
             raw_data=episode,
         )
 
-    def _related_seasons(self, series: dict[str, Any], current_season_number: int) -> list[ImportRelatedAnime]:
+    def _related_seasons(
+        self,
+        series: dict[str, Any],
+        current_season_number: int,
+        *,
+        localized_series: dict[str, dict[str, Any]],
+    ) -> list[ImportRelatedAnime]:
         series_id = series.get('id')
         seasons = series.get('seasons')
         if not isinstance(series_id, int | str) or not isinstance(seasons, list):
@@ -331,6 +386,23 @@ class TmdbImportProvider(ImportProvider):
             season_number = coerce_int(season.get('season_number'))
             if season_number is None or season_number == 0 or season_number == current_season_number:
                 continue
+            titles: list[ImportAnimeName] = []
+            for item_language, localized_item in localized_series.items():
+                localized_season = next(
+                    (
+                        item
+                        for item in localized_item.get('seasons', [])
+                        if isinstance(item, dict) and coerce_int(item.get('season_number')) == season_number
+                    ),
+                    None,
+                )
+                if localized_season is not None:
+                    titles.append(
+                        ImportAnimeName(
+                            name=self._season_title(localized_item, localized_season),
+                            language=item_language,
+                        ),
+                    )
             related.append(
                 ImportRelatedAnime(
                     provider=self.name,
@@ -343,6 +415,7 @@ class TmdbImportProvider(ImportProvider):
                     url=f'{self._web_base_url}/tv/{series_id}/season/{season_number}',
                     poster_source_url=self._poster_url(season.get('poster_path') or series.get('poster_path')),
                     raw_data=season,
+                    titles=titles,
                 ),
             )
         return related
@@ -435,6 +508,8 @@ class TmdbImportProvider(ImportProvider):
     def _detail_languages(self, language: str | None) -> list[str]:
         languages: list[str] = []
         request_language = self._request_language(language)
+        if request_language == 'en':
+            request_language = 'en-US'
         for value in (request_language, *self._required_detail_languages):
             if value is not None and value not in languages:
                 languages.append(value)

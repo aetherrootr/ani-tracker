@@ -22,8 +22,9 @@ def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -
         assert "alembic_version" in inspector.get_table_names()
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "202607180002"
+        assert version == "202607220001"
         assert "user_wallpapers" in inspector.get_table_names()
+        assert "anime_relation_title" in inspector.get_table_names()
         user_columns = {column["name"]: column for column in inspector.get_columns("users")}
         assert {
             "desktop_wallpaper_mode",
