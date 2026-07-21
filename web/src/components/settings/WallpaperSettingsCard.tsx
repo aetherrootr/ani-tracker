@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- Private previews require the browser's authenticated request. */
 
-import { CheckCircle2, Monitor, Smartphone, Trash2, Upload } from "lucide-react";
+import { Check, CheckCircle2, Monitor, Smartphone, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRef, useState, type ComponentType } from "react";
 
@@ -13,6 +13,7 @@ import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
 import { useCurrentUser, useUpdateShareWallpapersOnLogin, useUpdateWallpaperGlassAppearance, useWallpaperActions } from "@/features/auth/hooks";
 import type { UserWallpaper, WallpaperGlassStyle, WallpaperMode, WallpaperVariant } from "@/features/auth/types";
 import { getApiUrl } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MODE_OPTIONS = ["default", "fixed", "random"] as const;
@@ -280,7 +281,26 @@ function WallpaperCollection({ variant, icon: Icon, uploadedCount, uploadLimit }
           </div>
         </div>
 
-        <SlidingOptionGroup ariaLabel={t("settings.wallpaper.modeLabel")} options={MODE_OPTIONS} value={mode} render={(value) => t(`settings.wallpaper.modes.${value}`)} onChange={(value: WallpaperMode) => void handleModeChange(value)} className="max-w-sm" />
+        <fieldset className={cn("grid gap-2 sm:grid-cols-3", isSaving && "opacity-60")} disabled={isSaving}>
+          <legend className="sr-only">{t("settings.wallpaper.modeLabel")}</legend>
+          {MODE_OPTIONS.map((option) => {
+            const selected = mode === option;
+            return (
+              <label
+                key={option}
+                className={cn(
+                  "flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-xl border bg-background/65 px-3 py-2.5 text-sm font-medium leading-5 text-foreground transition-colors hover:bg-[var(--surface-hover)] has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-glow)]",
+                  selected && "border-[color-mix(in_srgb,var(--accent-solid)_42%,var(--border))] bg-[var(--accent-soft)]",
+                  isSaving && "cursor-not-allowed",
+                )}
+              >
+                <input className="sr-only" type="radio" name={`${variant}-wallpaper-mode`} value={option} checked={selected} onChange={() => void handleModeChange(option)} />
+                <span>{t(`settings.wallpaper.modes.${option}`)}</span>
+                {selected ? <Check className="h-4 w-4 shrink-0 text-[var(--accent-solid)]" aria-hidden="true" /> : null}
+              </label>
+            );
+          })}
+        </fieldset>
         <p className="text-xs leading-5 text-muted-foreground">{t(`settings.wallpaper.${mode}Description`)}</p>
 
         {wallpapers.length ? (

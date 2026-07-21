@@ -465,7 +465,9 @@ html.dark[data-wallpaper-tone] .user-wallpaper-protection {
 .wallpaper-gallery-delete:hover { background: rgb(20 18 28 / 0.9); }
 .wallpaper-gallery-delete:focus-visible { outline: none; box-shadow: 0 0 0 3px white inset, 0 0 0 4px var(--accent-solid); }
 .wallpaper-gallery-select:disabled, .wallpaper-gallery-delete:disabled { opacity: 0.55; }
-.wallpaper-empty { display: flex; min-height: 7rem; align-items: center; justify-content: center; gap: 0.75rem; border: 1px dashed var(--border-neutral); border-radius: var(--radius-control); background: var(--ambient); color: var(--text-secondary); font-size: 0.8125rem; font-weight: 600; }
+.wallpaper-empty { display: flex; min-height: 7rem; align-items: center; justify-content: center; gap: 0.875rem; padding: 1.5rem clamp(1.25rem, 4vw, 2rem); border: 1px dashed var(--border-neutral); border-radius: var(--radius-control); background: var(--ambient); color: var(--text-secondary); font-size: 0.8125rem; font-weight: 600; }
+.wallpaper-empty > svg { flex: none; }
+.wallpaper-empty > span { max-width: 32rem; line-height: 1.5; }
 
 .page-heading-surface {
   padding-block: 0.25rem 0.5rem;
