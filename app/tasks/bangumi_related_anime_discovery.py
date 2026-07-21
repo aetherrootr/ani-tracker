@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.celery_app import celery_app
 from app.db import default_database_url, ensure_database_current
 from app.import_provider import ImportProviderFactory
-from app.models.anime import AnimeMetaInfo, AnimeRelation
+from app.models.anime import AnimeMetaInfo
 from app.models.progress import UserAnimeProgress
 from app.services.related_anime_discovery import discover_related_anime_for_user_anime
 from app.tasks.anime_sync import _provider_config
@@ -41,7 +41,7 @@ def discover_bangumi_related_anime_for_all_users() -> dict[str, int]:
             rows = session.execute(
                 select(UserAnimeProgress.user_id, UserAnimeProgress.anime_id)
                 .join(UserAnimeProgress.anime)
-                .where(AnimeMetaInfo.provider_type == 'bangumi', UserAnimeProgress.anime_id.not_in(_matched_related_anime_ids('bangumi')))
+                .where(AnimeMetaInfo.provider_type == 'bangumi')
                 .order_by(UserAnimeProgress.user_id, UserAnimeProgress.anime_id),
             ).all()
             summary['checked'] = len(rows)
@@ -92,7 +92,6 @@ def discover_bangumi_related_anime_for_user(user_id: int, progress_callback: Pro
                 .where(
                     UserAnimeProgress.user_id == user_id,
                     AnimeMetaInfo.provider_type == 'bangumi',
-                    UserAnimeProgress.anime_id.not_in(_matched_related_anime_ids('bangumi')),
                 )
                 .order_by(UserAnimeProgress.anime_id),
             ).all()
@@ -130,14 +129,6 @@ def discover_bangumi_related_anime_for_user(user_id: int, progress_callback: Pro
     finally:
         engine.dispose()
     return summary
-
-
-def _matched_related_anime_ids(provider_name: str):  # type: ignore[no-untyped-def]
-    return select(AnimeRelation.related_anime_id).where(
-        AnimeRelation.provider_type == provider_name,
-        AnimeRelation.relation_type == 'same_series_season',
-        AnimeRelation.related_anime_id.is_not(None),
-    )
 
 
 def _discovery_progress_details(summary: dict[str, int], *, anime_id: int, anime_title: str | None, processed: int, total: int) -> dict[str, object]:

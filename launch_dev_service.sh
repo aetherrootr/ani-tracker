@@ -104,21 +104,30 @@ if [[ -n "${OIDC_ENV_FILE}" && ! -f "${OIDC_ENV_FILE}" ]]; then
 fi
 
 cleanup() {
-  if [[ -n "${frontend_pid}" ]] && kill -0 "${frontend_pid}" 2>/dev/null; then
-    kill "${frontend_pid}"
-  fi
-
-  if [[ -n "${backend_pid}" ]] && kill -0 "${backend_pid}" 2>/dev/null; then
-    kill "${backend_pid}"
-  fi
-
-  if [[ -n "${worker_pid}" ]] && kill -0 "${worker_pid}" 2>/dev/null; then
-    kill "${worker_pid}"
-  fi
+  terminate_process_tree "${frontend_pid}"
+  terminate_process_tree "${backend_pid}"
+  terminate_process_tree "${worker_pid}"
 
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker stop "${POSTGRES_CONTAINER}" "${REDIS_CONTAINER}" >/dev/null 2>&1 || true
   fi
+}
+
+terminate_process_tree() {
+  local pid="$1"
+  local child_pid
+
+  if [[ -z "${pid}" ]] || ! kill -0 "${pid}" 2>/dev/null; then
+    return 0
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r child_pid; do
+      terminate_process_tree "${child_pid}"
+    done < <(pgrep -P "${pid}" 2>/dev/null || true)
+  fi
+
+  kill "${pid}" 2>/dev/null || true
 }
 
 wait_for_url() {

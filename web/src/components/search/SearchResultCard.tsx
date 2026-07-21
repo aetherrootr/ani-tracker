@@ -202,19 +202,19 @@ export function SearchResultCard({ result, imageFailed, onImageError, onLibraryA
         </CardContent>
       </Card>
 
-      <ModalSurface open={showTvdbSeasons && !duplicateConflict} titleId={tvdbTitleId} descriptionId={tvdbDescriptionId} busy={isAdding} panelClassName="h-[100svh] pt-[env(safe-area-inset-top)] sm:h-auto sm:max-h-[90svh] sm:max-w-3xl sm:rounded-[var(--radius-modal)] sm:pt-0" onClose={() => setShowTvdbSeasons(false)}>
+      <ModalSurface open={showTvdbSeasons && !duplicateConflict} titleId={tvdbTitleId} descriptionId={tvdbDescriptionId} busy={isAdding} panelClassName="h-[100svh] pt-[env(safe-area-inset-top)] sm:h-[90svh] sm:max-w-3xl sm:rounded-[var(--radius-modal)] sm:pt-0" onClose={() => setShowTvdbSeasons(false)}>
         <div className="flex shrink-0 items-start justify-between gap-3 border-b bg-background/85 p-4 backdrop-blur sm:p-5">
           <div className="min-w-0 flex-1"><h2 id={tvdbTitleId} className="text-lg font-semibold tracking-tight">{t("search.tvdbSeasonsTitle")}</h2><p id={tvdbDescriptionId} className="mt-1 text-sm text-muted-foreground">{t("search.tvdbSeasonsDescription")}</p><p className="mt-3 break-words rounded-xl bg-muted/40 p-3 text-sm">{result.title}</p></div>
           <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0" data-dialog-close aria-label={t("search.closeTvdbSeasons")} disabled={isAdding} onClick={() => setShowTvdbSeasons(false)}><X className="h-4 w-4" aria-hidden="true" /></Button>
         </div>
-        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4">
+        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-3 p-4 pb-28 sm:pb-4">
           {isLoadingTvdbSeasons ? <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />{t("search.loadingTvdbSeasons")}</p> : null}
           {tvdbSeasonsError ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-destructive" role="alert"><span>{tvdbSeasonsError}</span><Button type="button" variant="outline" size="sm" onClick={() => { setTvdbSeasons(null); void openTvdbSeasons(); }}>{t("search.retry")}</Button></div> : null}
           {tvdbSeasons?.length === 0 ? <p className="text-sm text-muted-foreground">{t("search.tvdbSeasonsEmpty")}</p> : null}
           {addError ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert"><span>{addError}</span><Button type="button" variant="outline" size="sm" onClick={retryAdd}>{t("search.retry")}</Button></div> : null}
           {tvdbSeasons?.map((season) => <SeasonRow key={season.externalId} season={season} locale={locale} status={seasonStatuses[season.externalId]} disabled={isAddingAllSeasons || (isAdding && addingExternalId !== season.externalId)} onAdd={() => void addToLibrary(season)} />)}
         </ScrollArea>
-        <div className="flex shrink-0 flex-col gap-2 border-t p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-end">
+        <div className="relative z-10 flex shrink-0 flex-col gap-2 border-t bg-background/90 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur sm:flex-row sm:items-center sm:justify-end">
           {isAddingAllSeasons ? <p className="mr-auto text-sm text-muted-foreground" role="status">{t("search.addAllProgress", { completed: bulkProgress.completed, total: bulkProgress.total })}</p> : null}
           <Button type="button" variant="outline" className="min-h-11" disabled={isAdding && !isAddingAllSeasons} onClick={() => { if (isAddingAllSeasons) cancelBulkRef.current = true; else setShowTvdbSeasons(false); }}>{isAddingAllSeasons ? t("search.stopAdding") : t("library.cancel")}</Button>
           <Button type="button" className="min-h-11" disabled={isAddingAllSeasons || isAdding || !tvdbSeasons?.some((season) => !season.inLibrary)} onClick={() => void addAllTvdbSeasons()}>{isAddingAllSeasons ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}{t("search.addAllSeasons")}</Button>
