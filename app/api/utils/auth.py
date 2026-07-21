@@ -11,11 +11,11 @@ from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.db import get_db
+from app.languages import SUPPORTED_LANGUAGE_PREFERENCES
 from app.models.user import DEFAULT_LANGUAGE_PREFERENCE, User
 
 USERNAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-SUPPORTED_LANGUAGE_PREFERENCES = {'zh-CN', 'en'}
 
 
 def hash_password(password: str) -> str:

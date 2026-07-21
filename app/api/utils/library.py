@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.utils.parsing import LibraryOrder, LibrarySort
 from app.api.utils.serializers import (
     anime_display_sort_key,
+    select_anime_name_for_user,
     select_episode_name_for_user,
     serialize_anime,
     serialize_episode_with_watch_state,
@@ -145,15 +146,8 @@ def library_search_rank(progress: UserAnimeProgress, terms: Sequence[str], user:
 
 
 def select_anime_display_name(anime: AnimeMetaInfo, progress: UserAnimeProgress, user: User) -> str:
-    selected_name = next((name for name in anime.names if name.id == progress.preferred_name_id), None)
-    if selected_name is not None:
-        return selected_name.name
-    preferred_language = user.language_preference.split('-', 1)[0] if user.language_preference else None
-    if preferred_language:
-        selected_name = next((name for name in anime.names if name.language == preferred_language), None)
-        if selected_name is not None:
-            return selected_name.name
-    return anime.names[0].name if anime.names else anime.original_name
+    selected_name = select_anime_name_for_user(anime.names, progress, user)
+    return selected_name.name if selected_name is not None else anime.original_name
 
 
 def escape_like(value: str) -> str:

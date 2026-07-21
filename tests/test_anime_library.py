@@ -30,6 +30,7 @@ from app.models.anime import (
     AnimeName,
     AnimePoster,
     AnimeRelation,
+    AnimeRelationTitle,
     AnimeSummary,
     Episode,
     EpisodeName,
@@ -575,6 +576,46 @@ def test_related_anime_uses_library_display_name(
     assert related_item['inLibrary'] is True
     assert related_item['airDate'] == '2026-07-05'
     assert related_item['episodeCount'] == 12
+
+
+def test_related_anime_title_follows_each_user_language(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, language_preference='zh-CN').status_code == 201
+    english_client = app.test_client()
+    assert register_user(
+        english_client,
+        username='english-user',
+        email='english@example.test',
+        language_preference='en',
+    ).status_code == 201
+    current = AnimeMetaInfo(provider_type='tvdb', external_id='current:1', original_name='Current Anime')
+    db_session.add(current)
+    db_session.flush()
+    relation = AnimeRelation(
+        anime_id=current.id,
+        provider_type='tvdb',
+        external_id='related:2',
+        relation_type='same_series_season',
+        title='Fallback title',
+    )
+    db_session.add(relation)
+    db_session.flush()
+    db_session.add_all([
+        AnimeRelationTitle(anime_relation_id=relation.id, language='zho', title='中文关联标题'),
+        AnimeRelationTitle(anime_relation_id=relation.id, language='eng', title='English related title'),
+        UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH),
+        UserAnimeProgress(user_id=2, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH),
+    ])
+    db_session.commit()
+
+    chinese_related = client.get(f'/api/anime/{current.id}').get_json()['anime']['relatedAnime'][0]
+    english_related = english_client.get(f'/api/anime/{current.id}').get_json()['anime']['relatedAnime'][0]
+
+    assert chinese_related['title'] == '中文关联标题'
+    assert english_related['title'] == 'English related title'
 
 
 def test_provider_switch_without_target_related_falls_back_to_old_provider_relation(
@@ -2417,6 +2458,46 @@ def test_anime_name_preference_can_be_set_and_validates_name_owner(
     assert detail_response.get_json()['anime']['displayName'] == 'K-On!'
 
 
+def test_default_name_and_summary_follow_user_language(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client, language_preference='zh-CN').status_code == 201
+    anime = add_library_anime(
+        db_session,
+        external_id='language-defaults',
+        original_name='Original Title',
+        names=[('English Title', 'eng'), ('中文标题', 'zho')],
+    )
+    english_summary = AnimeSummary(anime_id=anime.id, language='eng', summary='English summary')
+    chinese_summary = AnimeSummary(anime_id=anime.id, language='zho', summary='中文简介')
+    db_session.add_all([chinese_summary, english_summary])
+    db_session.commit()
+
+    initial = client.get(f'/api/anime/{anime.id}').get_json()['anime']
+    assert initial['displayName'] == '中文标题'
+    assert initial['summary']['summary'] == '中文简介'
+    assert initial['preferredNameId'] is None
+
+    assert client.patch('/api/user/me/preferences', json={'languagePreference': 'en'}).status_code == 200
+    updated = client.get(f'/api/anime/{anime.id}').get_json()['anime']
+    assert updated['displayName'] == 'English Title'
+    assert updated['summary']['summary'] == 'English summary'
+    assert updated['preferredNameId'] is None
+
+    assert client.patch(
+        f'/api/anime/library/{anime.id}/summary-preference',
+        json={'summaryId': chinese_summary.id},
+    ).status_code == 200
+    default_response = client.patch(
+        f'/api/anime/library/{anime.id}/summary-preference',
+        json={'summaryId': None},
+    )
+    assert default_response.status_code == 200
+    assert default_response.get_json()['summary']['summary'] == 'English summary'
+    assert default_response.get_json()['progress']['preferredSummaryId'] is None
+
+
 def test_episode_name_preference_can_be_set_without_marking_watched(
     app: Flask,
     client: FlaskClient,
@@ -2440,6 +2521,14 @@ def test_episode_name_preference_can_be_set_without_marking_watched(
     episode_progress = db_session.scalar(select(UserEpisodeProgress))
     assert episode_progress is not None
     assert episode_progress.watched is False
+
+    original_name_response = client.patch('/api/anime/library/1/episodes/1/name-preference', json={'nameId': 1})
+    refreshed_episode = client.get('/api/anime/library/1/episodes').get_json()['episodes'][0]
+
+    assert original_name_response.status_code == 200
+    assert original_name_response.get_json()['episode']['preferredNameId'] == 1
+    assert refreshed_episode['preferredNameId'] == 1
+    assert refreshed_episode['displayName'] == '旅立ちの終わり'
 
 
 def test_poster_preference_can_be_set_and_cleared(app: Flask, client: FlaskClient) -> None:
@@ -2906,6 +2995,10 @@ def test_bangumi_related_anime_discovery_imports_plan_to_watch(
         url='https://bgm.tv/subject/related',
         poster_source_url='https://example.test/related.jpg',
         raw_data={'id': 'related'},
+        titles=[
+            ImportAnimeName(name='关联动画', language='zh'),
+            ImportAnimeName(name='Related', language='en'),
+        ],
     )
     provider = MutableDetailProvider(
         {
@@ -2924,6 +3017,8 @@ def test_bangumi_related_anime_discovery_imports_plan_to_watch(
     assert result.imported_anime_ids == [related.id]
     progress = db_session.scalar(select(UserAnimeProgress).where(UserAnimeProgress.user_id == 1, UserAnimeProgress.anime_id == related.id))
     assert progress is not None
+    relation_titles = db_session.scalars(select(AnimeRelationTitle).order_by(AnimeRelationTitle.language)).all()
+    assert [(title.language, title.title) for title in relation_titles] == [('en', 'Related'), ('zh', '关联动画')]
 
 
 def test_bangumi_related_anime_discovery_skips_already_matched_related_anime(

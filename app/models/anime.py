@@ -214,10 +214,32 @@ class AnimeRelation(TimestampedBase):
     )
     related_anime: Mapped[AnimeMetaInfo | None] = relationship(foreign_keys=[related_anime_id])
     poster: Mapped[AnimePoster | None] = relationship(foreign_keys=[poster_id])
+    titles: Mapped[list[AnimeRelationTitle]] = relationship(
+        back_populates="relation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     @validates("provider_type")
     def _validate_provider_type(self, _key: str, provider_type: ProviderType | str) -> str:
         return validate_provider_type(provider_type)
+
+
+class AnimeRelationTitle(TimestampedBase):
+    __tablename__ = "anime_relation_title"
+    __table_args__ = (
+        UniqueConstraint("anime_relation_id", "language", name="uq_anime_relation_title_relation_language"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anime_relation_id: Mapped[int] = mapped_column(
+        ForeignKey("anime_relation.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    language: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    relation: Mapped[AnimeRelation] = relationship(back_populates="titles")
 
 
 class Episode(TimestampedBase):

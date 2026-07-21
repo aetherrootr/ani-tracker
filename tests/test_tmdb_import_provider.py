@@ -1,3 +1,5 @@
+# ruff: noqa: SLF001
+
 from __future__ import annotations
 
 from typing import Any
@@ -237,7 +239,28 @@ def test_tv_detail_imports_only_requested_season_and_related_seasons() -> None:
     assert detail.episodes[1].status == 'upcoming'
     assert [item.external_id for item in detail.related_anime] == ['tv:1399:season:1']
     assert detail.related_anime[0].poster_source_url == 'https://image.tmdb.org/t/p/w500/series.jpg'
+    assert [title.language for title in detail.related_anime[0].titles] == ['en-US', 'zh-CN', 'zh-TW', 'ja-JP']
     assert [call['params']['language'] for call in session.calls] == ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'en-US', 'zh-CN', 'zh-TW', 'ja-JP']
+
+
+def test_tv_episode_merges_localized_names() -> None:
+    detail_provider = provider(FakeSession())
+
+    episode = detail_provider._map_tv_episode(
+        1399,
+        2,
+        {'episode_number': 1, 'name': 'The North Remembers', 'air_date': '2012-04-01'},
+        {'episode_run_time': [55]},
+        localized_episodes={
+            'en-US': {'episode_number': 1, 'name': 'The North Remembers'},
+            'zh-CN': {'episode_number': 1, 'name': '北境永不遗忘'},
+        },
+    )
+
+    assert [(name.language, name.name) for name in episode.names] == [
+        ('en-US', 'The North Remembers'),
+        ('zh-CN', '北境永不遗忘'),
+    ]
 
 
 @pytest.mark.parametrize('external_id', ['1399', 'person:1', 'movie:', 'tv:1399', 'tv:1399:season:'])

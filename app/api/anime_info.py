@@ -38,6 +38,7 @@ from app.api.utils.parsing import (
 from app.api.utils.providers import get_import_provider_factory
 from app.api.utils.serializers import (
     select_anime_name_for_user,
+    select_summary_for_user,
     serialize_anime,
     serialize_anime_name,
     serialize_duplicate_anime_candidate,
@@ -1124,6 +1125,7 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
             selectinload(AnimeMetaInfo.episodes),
             selectinload(AnimeMetaInfo.posters),
             selectinload(AnimeMetaInfo.related_anime).selectinload(AnimeRelation.poster),
+            selectinload(AnimeMetaInfo.related_anime).selectinload(AnimeRelation.titles),
         )
         .where(AnimeMetaInfo.id == anime_id),
     )
@@ -1485,9 +1487,7 @@ def update_summary_preference(db: Session, user: User, anime_id: int) -> Respons
     if set_summary_preference(db, progress=progress, summary_id=summary_id) is None:
         return jsonify({'message': 'summaryId is invalid'}), 400
     summaries = db.scalars(select(AnimeSummary).where(AnimeSummary.anime_id == anime_id).order_by(AnimeSummary.id)).all()
-    selected = next((summary for summary in summaries if summary.id == summary_id), None) if summary_id is not None else None
-    if selected is None and summaries:
-        selected = summaries[0]
+    selected = select_summary_for_user(summaries, progress, user)
     return jsonify(
         {
             'summary': serialize_summary(selected, progress),

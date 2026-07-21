@@ -115,7 +115,14 @@ export function AnimeHeroSettingsMenu({
     setError(null);
     try {
       const result = await updateSummaryPreference(anime.id, summaryId);
-      onAnimeChange({ ...anime, summary: result.summary });
+      onAnimeChange({
+        ...anime,
+        summary: result.summary,
+        availableSummaries: anime.availableSummaries?.map((summary) => ({
+          ...summary,
+          isPreferred: summary.id === summaryId,
+        })),
+      });
       setDialog(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("library.saveFailed"));
@@ -179,8 +186,8 @@ export function AnimeHeroSettingsMenu({
         ) : null}
       </div>
 
-      <ChoiceDialog open={dialog === "name"} title={t("library.changeTitle")} error={error} restoreFocusRef={triggerRef} onClose={() => setDialog(null)}>
-        <ChoiceButton active={anime.preferredNameId === null} onClick={() => chooseName(null)}>{anime.originalName}</ChoiceButton>
+      <ChoiceDialog open={dialog === "name"} title={t("library.changeTitle")} description={t("library.titlePreferenceDescription")} error={error} restoreFocusRef={triggerRef} onClose={() => setDialog(null)}>
+        <ChoiceButton active={anime.preferredNameId === null} onClick={() => chooseName(null)}>{t("library.defaultPreference")}</ChoiceButton>
         {(anime.availableNames ?? []).map((name) => (
           <ChoiceButton key={name.id} active={anime.preferredNameId === name.id} onClick={() => chooseName(name.id)}>
             {name.name}<span className="text-muted-foreground">{name.language ?? "-"}</span>
@@ -188,10 +195,10 @@ export function AnimeHeroSettingsMenu({
         ))}
       </ChoiceDialog>
 
-      <ChoiceDialog open={dialog === "summary"} title={t("library.summaryPreference")} error={error} restoreFocusRef={triggerRef} onClose={() => setDialog(null)}>
-        <ChoiceButton active={false} onClick={() => chooseSummary(null)}>{t("library.defaultPreference")}</ChoiceButton>
+      <ChoiceDialog open={dialog === "summary"} title={t("library.summaryPreference")} description={t("library.summaryPreferenceDescription")} error={error} restoreFocusRef={triggerRef} onClose={() => setDialog(null)}>
+        <ChoiceButton active={!(anime.availableSummaries ?? []).some((summary) => summary.isPreferred)} onClick={() => chooseSummary(null)}>{t("library.defaultPreference")}</ChoiceButton>
         {(anime.availableSummaries ?? []).map((summary) => (
-          <ChoiceButton key={summary.id} active={anime.summary?.id === summary.id} onClick={() => chooseSummary(summary.id)}>
+          <ChoiceButton key={summary.id} active={Boolean(summary.isPreferred)} onClick={() => chooseSummary(summary.id)}>
             <span>{summary.language ?? "-"}</span><span className="line-clamp-2 text-left text-muted-foreground">{summary.summary}</span>
           </ChoiceButton>
         ))}
@@ -220,9 +227,10 @@ function MenuButton({ children, disabled, onClick }: { children: ReactNode; disa
   return <button type="button" role="menuitem" disabled={disabled} className="block min-h-11 w-full rounded-xl px-3 py-2 text-left hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-glow)] disabled:pointer-events-none disabled:opacity-50" onClick={onClick}>{children}</button>;
 }
 
-function ChoiceDialog({ open, title, error, children, restoreFocusRef, onClose }: { open: boolean; title: string; error: string | null; children: ReactNode; restoreFocusRef: RefObject<HTMLDivElement | null>; onClose: () => void }) {
+function ChoiceDialog({ open, title, description, error, children, restoreFocusRef, onClose }: { open: boolean; title: string; description?: string; error: string | null; children: ReactNode; restoreFocusRef: RefObject<HTMLDivElement | null>; onClose: () => void }) {
   const t = useTranslations();
   const titleId = useId();
+  const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeDialog = useEffectEvent(onClose);
 
@@ -270,10 +278,13 @@ function ChoiceDialog({ open, title, error, children, restoreFocusRef, onClose }
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-background/88 p-3 backdrop-blur-md sm:items-center sm:p-4" role="presentation" onClick={onClose}>
-      <div ref={dialogRef} className="glass-dialog max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-hidden rounded-[var(--radius-modal)] border text-foreground" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(event) => event.stopPropagation()}>
+      <div ref={dialogRef} className="glass-dialog max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-hidden rounded-[var(--radius-modal)] border text-foreground" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onClick={(event) => event.stopPropagation()}>
         <ScrollArea ariaLabel={t("app.scrollableContent")} className="max-h-[calc(100dvh-1.5rem)]" viewportClassName="max-h-[calc(100dvh-1.5rem)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
+              {description ? <p id={descriptionId} className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p> : null}
+            </div>
             <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" data-dialog-close aria-label={t("library.closeChoiceDialog")} onClick={onClose}><X className="h-4 w-4" /></Button>
           </div>
           <div className="space-y-2" role="radiogroup">{children}</div>

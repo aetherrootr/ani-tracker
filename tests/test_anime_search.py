@@ -424,6 +424,10 @@ def test_bangumi_provider_maps_safe_related_anime_only() -> None:
     assert [item.external_id for item in detail.related_anime] == ['100', '104']
     assert detail.related_anime[0].provider == 'bangumi'
     assert detail.related_anime[0].title == '葬送的芙莉莲 第二季'
+    assert [(title.language, title.name) for title in detail.related_anime[0].titles] == [
+        ('zh', '葬送的芙莉莲 第二季'),
+        ('ja', 'Frieren 2'),
+    ]
     assert detail.related_anime[0].relation_type == 'same_series_season'
     assert detail.related_anime[0].season_number is None
     assert detail.related_anime[0].air_date is None

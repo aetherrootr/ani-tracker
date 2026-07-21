@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { AppMainScrollArea } from "./AppMainScrollArea";
 import { DesktopSidebar } from "./DesktopSidebar";
+import { LanguageMetadataNotice } from "./LanguageMetadataNotice";
 import { MobileTopNav } from "./MobileTopNav";
 import { PwaInstallPrompt } from "./PwaInstallPrompt";
 import { UserWallpaper } from "./UserWallpaper";
@@ -12,6 +13,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <UserWallpaper />
       <DesktopSidebar />
       <PwaInstallPrompt />
+      <LanguageMetadataNotice />
       <div className="app-shell-content min-w-0 flex-1 overflow-hidden">
         <MobileTopNav />
         <AppMainScrollArea>{children}</AppMainScrollArea>

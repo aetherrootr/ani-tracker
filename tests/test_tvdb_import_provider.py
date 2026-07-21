@@ -44,6 +44,8 @@ class FakeSession:
             raise self.error
         response = self.responses.get(url)
         if response is None:
+            if url.endswith(('/translations/zho', '/translations/zhtw')):
+                return FakeResponse(404, {'status': 'failure', 'data': None})
             message = f'unexpected URL {url}'
             raise AssertionError(message)
         if isinstance(response, list):
@@ -397,6 +399,7 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert [item.external_id for item in detail.related_anime] == ['321:0', '321:2']
     assert detail.related_anime[0].poster_source_url == 'https://artworks.thetvdb.com/specials.jpg'
     assert detail.related_anime[1].poster_source_url == 'https://artworks.thetvdb.com/s2-related.jpg'
+    assert {'zho', 'zhtw', 'eng', 'jpn'} == {title.language for title in detail.related_anime[1].titles}
     assert detail.related_anime[1].air_date is not None
     assert detail.related_anime[1].air_date.isoformat() == '2021-07-01'
 
@@ -446,6 +449,7 @@ def test_detail_imports_special_season_zero() -> None:
     assert detail.episodes[0].title == 'OVA 1 JP'
     assert detail.episodes[0].duration == '00:25:00'
     assert [item.external_id for item in detail.related_anime] == ['321:1', '321:2']
+    assert 'https://api4.thetvdb.com/v4/series/321/translations/zho' in [call['url'] for call in session.calls]
 
 
 def test_related_season_without_own_air_date_does_not_fallback_to_series_date() -> None:
@@ -501,12 +505,13 @@ def test_search_and_detail_do_not_fallback_to_series_air_date_for_season_air_dat
     assert detail.air_date is None
 
 
-def test_detail_only_fetches_user_language_english_and_japanese_for_non_chinese_user() -> None:
+def test_detail_fetches_supported_languages_for_non_chinese_user() -> None:
     session = FakeSession(
         {
             'https://api4.thetvdb.com/v4/login': login_response(),
             'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'status': 'success', 'data': series()}),
             'https://api4.thetvdb.com/v4/series/321/translations/kor': tvdb_translation('예시 애니메이션', '한국어 소개', 'kor'),
+            'https://api4.thetvdb.com/v4/series/321/translations/zho': tvdb_translation('示例动画', '中文简介', 'zho'),
             'https://api4.thetvdb.com/v4/series/321/translations/eng': tvdb_translation('Example Anime', 'series English overview', 'eng'),
             'https://api4.thetvdb.com/v4/series/321/translations/jpn': tvdb_translation('サンプルアニメ', 'series Japanese overview', 'jpn'),
             'https://api4.thetvdb.com/v4/seasons/11/extended': FakeResponse(
@@ -525,6 +530,7 @@ def test_detail_only_fetches_user_language_english_and_japanese_for_non_chinese_
                 },
             ),
             'https://api4.thetvdb.com/v4/seasons/11/translations/kor': tvdb_translation(overview='시즌 한국어 소개', language='kor'),
+            'https://api4.thetvdb.com/v4/seasons/11/translations/zho': tvdb_translation(overview='季度中文简介', language='zho'),
             'https://api4.thetvdb.com/v4/seasons/11/translations/eng': tvdb_translation(overview='season English overview', language='eng'),
             'https://api4.thetvdb.com/v4/seasons/11/translations/jpn': tvdb_translation(overview='season Japanese overview', language='jpn'),
             'https://api4.thetvdb.com/v4/episodes/101/translations/kor': tvdb_translation('첫 번째 에피소드', None, 'kor'),
@@ -539,9 +545,9 @@ def test_detail_only_fetches_user_language_english_and_japanese_for_non_chinese_
     urls = [call['url'] for call in session.calls]
 
     assert detail.title == '예시 애니메이션 Season 1'
-    assert {'kor', 'eng', 'jpn'}.issubset({item.language for item in detail.names})
-    assert 'https://api4.thetvdb.com/v4/series/321/translations/zho' not in urls
-    assert 'https://api4.thetvdb.com/v4/series/321/translations/zhtw' not in urls
+    assert {'kor', 'zho', 'eng', 'jpn'}.issubset({item.language for item in detail.names})
+    assert 'https://api4.thetvdb.com/v4/series/321/translations/zho' in urls
+    assert 'https://api4.thetvdb.com/v4/series/321/translations/zhtw' in urls
     assert 'https://api4.thetvdb.com/v4/episodes/101/translations/zho' not in urls
     assert 'https://api4.thetvdb.com/v4/episodes/101/translations/zhtw' not in urls
 

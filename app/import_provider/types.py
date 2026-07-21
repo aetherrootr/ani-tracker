@@ -81,6 +81,7 @@ class ImportRelatedAnime:
     url: str | None
     poster_source_url: str | None
     raw_data: dict[str, Any]
+    titles: list[ImportAnimeName] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,7 @@ from app.models.anime import (
     AnimeName,
     AnimePoster,
     AnimeRelation,
+    AnimeRelationTitle,
     AnimeSummary,
     EpisodeName,
 )
@@ -23,6 +24,19 @@ from app.models.progress import (
 from app.models.user import User
 from app.services.anime_library import DuplicateAnimeCandidate
 from app.services.name_keys import build_name_keys
+
+
+def language_preference_codes(language_preference: str) -> list[str]:
+    preference = language_preference.lower()
+    if preference.startswith('zh'):
+        if preference in {'zh-tw', 'zh-hant'}:
+            return [preference, 'zhtw', 'zh', 'zho']
+        return [preference, 'zho', 'zh', 'zhtw']
+    if preference.startswith('en'):
+        return [preference, 'en', 'eng']
+    if preference.startswith('ja'):
+        return [preference, 'ja', 'jpn']
+    return list(dict.fromkeys([preference, preference.split('-', 1)[0]]))
 
 
 def serialize_import_search_result(
@@ -73,12 +87,9 @@ def select_summary_for_user(
         for summary in summaries:
             if summary.id == progress.preferred_summary_id:
                 return summary
-    preferred_languages = [user.language_preference]
-    if '-' in user.language_preference:
-        preferred_languages.append(user.language_preference.split('-', 1)[0])
-    for language in preferred_languages:
+    for language in language_preference_codes(user.language_preference):
         for summary in summaries:
-            if summary.language == language:
+            if summary.language.lower() == language:
                 return summary
     return summaries[0] if summaries else None
 
@@ -124,12 +135,9 @@ def select_anime_name_for_user(
         for name in names:
             if name.id == progress.preferred_name_id:
                 return name
-    preferred_languages = [user.language_preference]
-    if '-' in user.language_preference:
-        preferred_languages.append(user.language_preference.split('-', 1)[0])
-    for language in preferred_languages:
+    for language in language_preference_codes(user.language_preference):
         for name in names:
-            if name.language == language:
+            if name.language is not None and name.language.lower() == language:
                 return name
     return names[0] if names else None
 
@@ -144,18 +152,7 @@ def select_episode_name_for_user(
         for name in names:
             if name.id == preferred_name_id:
                 return name
-    preference = user.language_preference.lower()
-    if preference.startswith('zh'):
-        preferred_languages = [preference, 'zho', 'zh', 'zhtw']
-        if preference in {'zh-tw', 'zh-hant'}:
-            preferred_languages = [preference, 'zhtw', 'zh', 'zho']
-    elif preference.startswith('en'):
-        preferred_languages = [preference, 'en', 'eng']
-    elif preference.startswith('ja'):
-        preferred_languages = [preference, 'ja', 'jpn']
-    else:
-        preferred_languages = [preference, preference.split('-', 1)[0]]
-
+    preferred_languages = language_preference_codes(user.language_preference)
     for language in dict.fromkeys([*preferred_languages, 'en', 'eng']):
         for name in names:
             if name.language is not None and name.language.lower() == language:
@@ -345,7 +342,7 @@ def serialize_related_anime(
     in_library = related_anime_id is not None
     if library_anime_ids is not None:
         in_library = related_anime_id in library_anime_ids
-    title = relation.title
+    title = select_anime_relation_title_for_user(relation.titles, user) or relation.title
     related_progress = (related_anime_progresses or {}).get(related_anime_id) if related_anime_id is not None else None
     mapped_anime = related_progress.anime if related_progress is not None else override_anime or relation.related_anime
     if related_progress is not None:
@@ -374,6 +371,18 @@ def serialize_related_anime(
         'allowProviderImport': allow_provider_import,
     }
     return data
+
+
+def select_anime_relation_title_for_user(
+    titles: Sequence[AnimeRelationTitle],
+    user: User,
+) -> str | None:
+    for language in language_preference_codes(user.language_preference):
+        for title in titles:
+            if title.language.lower() == language:
+                return title.title
+    fallback = next((title for title in titles if title.language.lower() == 'und'), None)
+    return fallback.title if fallback is not None else None
 
 
 def anime_display_sort_key(anime: AnimeMetaInfo, progress: UserAnimeProgress, user: User) -> tuple[str, str]:
