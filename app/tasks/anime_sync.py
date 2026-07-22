@@ -32,17 +32,51 @@ def sync_airing_anime() -> dict[str, int]:
     return sync_airing_anime_metadata()
 
 
-def sync_airing_anime_metadata(progress_callback: ProgressCallback | None = None) -> dict[str, int]:
+@celery_app.task(
+    name='app.tasks.anime_sync.sync_incremental_provider_airing_anime',
+    autoretry_for=(Exception,),
+    retry_kwargs={'countdown': 5 * 60, 'max_retries': 3},
+)
+def sync_incremental_provider_airing_anime() -> dict[str, int]:
+    if not bool(celery_app.conf.get('provider_updates_enabled', True)):
+        return _empty_airing_sync_summary()
+    return sync_airing_anime_metadata(supports_updates=True)
+
+
+@celery_app.task(
+    name='app.tasks.anime_sync.sync_non_incremental_provider_airing_anime',
+    autoretry_for=(Exception,),
+    retry_kwargs={'countdown': 5 * 60, 'max_retries': 3},
+)
+def sync_non_incremental_provider_airing_anime() -> dict[str, int]:
+    supports_updates = False if bool(celery_app.conf.get('provider_updates_enabled', True)) else None
+    return sync_airing_anime_metadata(supports_updates=supports_updates)
+
+
+def _empty_airing_sync_summary() -> dict[str, int]:
+    return {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0}
+
+
+def sync_airing_anime_metadata(
+    progress_callback: ProgressCallback | None = None,
+    *,
+    supports_updates: bool | None = None,
+) -> dict[str, int]:
     database_url = str(celery_app.conf.get('database_url') or os.environ.get('DATABASE_URL') or default_database_url())
     ensure_database_current(database_url)
     connect_args = {'check_same_thread': False} if database_url.startswith('sqlite') else {}
     engine = create_engine(database_url, connect_args=connect_args)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     provider_factory = ImportProviderFactory.from_config(_provider_config())
-    summary = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0}
+    provider_names = {
+        provider.name
+        for provider in provider_factory.list_providers()
+        if supports_updates is None or provider.supports_updates == supports_updates
+    }
+    summary = _empty_airing_sync_summary()
     try:
         with session_factory() as session:
-            anime_ids = _airing_anime_ids(session)
+            anime_ids = _airing_anime_ids(session, provider_names=provider_names)
             summary['checked'] = len(anime_ids)
             if progress_callback is not None:
                 progress_callback(_airing_sync_progress_details(summary, processed=0, total=len(anime_ids)))
@@ -307,10 +341,10 @@ def _update_refresh_job(job_dir: str | None, job_id: str | None, **fields: objec
     update_library_refresh_job(job_dir, job_id, **fields)
 
 
-def _airing_anime_ids(session) -> list[int]:  # type: ignore[no-untyped-def]
+def _airing_anime_ids(session, *, provider_names: set[str] | None = None) -> list[int]:  # type: ignore[no-untyped-def]
     episode_count = func.count(Episode.id)
     upcoming_episode_count = func.count(Episode.id).filter(Episode.status == EpisodeStatus.UPCOMING)
-    rows = session.execute(
+    statement = (
         select(AnimeMetaInfo.id)
         .outerjoin(Episode, Episode.anime_id == AnimeMetaInfo.id)
         .group_by(AnimeMetaInfo.id)
@@ -320,8 +354,13 @@ def _airing_anime_ids(session) -> list[int]:  # type: ignore[no-untyped-def]
                 episode_count < AnimeMetaInfo.total_episodes,
                 upcoming_episode_count > 0,
             ),
-        ),
-    ).all()
+        )
+    )
+    if provider_names is not None:
+        if not provider_names:
+            return []
+        statement = statement.where(AnimeMetaInfo.provider_type.in_(provider_names))
+    rows = session.execute(statement).all()
     return [row.id for row in rows]
 
 

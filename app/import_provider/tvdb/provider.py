@@ -8,7 +8,11 @@ from typing import Any
 import requests
 
 from app.import_provider.base import ImportProvider
-from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
+from app.import_provider.exceptions import (
+    ImportProviderNotFoundError,
+    ImportProviderResponseError,
+    ImportProviderTimeoutError,
+)
 from app.import_provider.tvdb.utils import (
     build_external_id,
     coerce_int,
@@ -29,9 +33,12 @@ from app.import_provider.types import (
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
+    ImportProviderUpdate,
+    ImportProviderUpdateBatch,
     ImportRelatedAnime,
     ImportSearchPage,
     ImportSearchResult,
+    ProviderUpdateMethod,
 )
 from app.languages import SUPPORTED_LANGUAGE_PREFERENCES
 
@@ -62,6 +69,7 @@ type QueryParam = str | bytes | int | float | Iterable[str | bytes | int | float
 
 class TVDBImportProvider(ImportProvider):
     name = 'tvdb'
+    update_streams = ('episodes', 'series')
     _search_series_limit = 20
     _required_detail_languages = tuple(
         dict.fromkeys(
@@ -207,6 +215,53 @@ class TVDBImportProvider(ImportProvider):
             ),
         )
 
+    def get_updates(self, *, since: int, stream: str, page: int = 0, max_pages: int = 100) -> ImportProviderUpdateBatch:
+        updates: list[ImportProviderUpdate] = []
+        seen: set[tuple[str, int, int, ProviderUpdateMethod]] = set()
+        pages_read = 0
+        while pages_read < max_pages:
+            body = self._request_json('/updates', params={'since': since, 'type': stream, 'page': page})
+            for item in self._response_data_list(body, 'TVDB updates response is invalid'):
+                if not isinstance(item, dict):
+                    continue
+                record_id = coerce_int(item.get('recordId'))
+                timestamp = coerce_int(item.get('timeStamp'))
+                method_value = coerce_int(item.get('methodInt'))
+                item_type = item.get('entityType')
+                if record_id is None or timestamp is None or method_value is None or not isinstance(item_type, str):
+                    continue
+                try:
+                    method = ProviderUpdateMethod(method_value)
+                except ValueError:
+                    continue
+                key = (item_type, record_id, timestamp, method)
+                if key in seen:
+                    continue
+                seen.add(key)
+                updates.append(
+                    ImportProviderUpdate(
+                        entity_type=item_type,
+                        record_id=record_id,
+                        timestamp=timestamp,
+                        method=method,
+                        parent_id=coerce_int(item.get('seriesId')),
+                        raw_data=item,
+                    ),
+                )
+            links = body.get('links') if isinstance(body, dict) else None
+            if not isinstance(links, dict) or not links.get('next'):
+                return ImportProviderUpdateBatch(updates=updates)
+            page += 1
+            pages_read += 1
+        return ImportProviderUpdateBatch(updates=updates, next_page=page)
+
+    def get_episode_base(self, episode_id: int) -> dict[str, Any] | None:
+        try:
+            body = self._request_json(f'/episodes/{episode_id}', suppress_not_found_log=True)
+        except ImportProviderNotFoundError:
+            return None
+        return self._response_data_dict(body, 'TVDB episode response is invalid')
+
     def _login(self) -> str:
         if self._api_key is None:
             message = 'TVDB credentials are not configured'
@@ -268,6 +323,8 @@ class TVDBImportProvider(ImportProvider):
             if response.status_code != 404 or not suppress_not_found_log:
                 logger.warning('TVDB returned status code %s for %s', response.status_code, path)
             message = 'TVDB returned an error response'
+            if response.status_code == 404:
+                raise ImportProviderNotFoundError(message)
             raise ImportProviderResponseError(message)
         try:
             body = response.json()

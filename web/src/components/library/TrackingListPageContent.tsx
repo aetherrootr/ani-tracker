@@ -9,7 +9,7 @@ import { useDesktopPlatform } from "@/components/layout/platform-layout";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SlidingOptionGroup } from "@/components/ui/sliding-option-group";
-import { getTrackingList, getTrackingListPage, updateEpisodeWatchState } from "@/features/library/api";
+import { getTrackingListLoaded, getTrackingListPage, updateEpisodeWatchState } from "@/features/library/api";
 import type { TrackingListKey } from "@/features/library/api";
 import { useTrackingList } from "@/features/library/hooks";
 import type { TrackingListItem, TrackingListResponse } from "@/features/library/types";
@@ -66,10 +66,12 @@ export function TrackingListPageContent() {
     const previousIndex = data[listKey].items.findIndex((candidate) => candidate.episode.id === item.episode.id);
     const operationKey = `${listKey}-${item.anime.id}-${item.episode.id}`;
     setSavingKeys((current) => new Set(current).add(operationKey));
+    setData((current) => current);
 
     try {
       await updateEpisodeWatchState(item.anime.id, item.episode.id, watched);
-      const next = await getTrackingList();
+      const refreshed = await getTrackingListLoaded(data);
+      const next = { ...data, ...refreshed };
       setData(watched && listKey !== "recentlyWatched" ? keepAnimeAtPosition(next, listKey, item.anime.id, previousIndex) : next);
       setSuccessNotice(Date.now());
     } catch (error) {
@@ -89,6 +91,7 @@ export function TrackingListPageContent() {
     }
 
     setLoadingMoreKey(listKey);
+    setData((current) => current);
     try {
       const current = data[listKey];
       const next = await getTrackingListPage({
@@ -96,13 +99,13 @@ export function TrackingListPageContent() {
         limit: current.limit,
         offset: current.offset + current.items.length,
       });
-      setData({
-        ...data,
+      setData((latest) => latest ? {
+        ...latest,
         [listKey]: {
           ...next,
-          items: mergeTrackingItems(current.items, next.items),
+          items: mergeTrackingItems(latest[listKey].items, next.items),
         },
-      });
+      } : latest);
     } finally {
       setLoadingMoreKey(null);
     }

@@ -248,6 +248,8 @@ class Episode(TimestampedBase):
         UniqueConstraint("anime_id", "episode_number", name="uq_episode_anime_id_episode_number"),
         Index("ix_episode_anime_id_episode_number", "anime_id", "episode_number"),
         Index("ix_episode_air_at", "air_at"),
+        Index("ix_episode_provider_external_id", "provider_external_id"),
+        Index("ix_episode_status_status_air_at", "status", "status_air_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -256,9 +258,11 @@ class Episode(TimestampedBase):
         nullable=False,
     )
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider_external_id: Mapped[str | None] = mapped_column(String(255))
     original_title: Mapped[str | None] = mapped_column(String(255))
     air_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     air_at_has_time: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    status_air_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration: Mapped[str | None] = mapped_column(String(16))
     status: Mapped[EpisodeStatus] = mapped_column(
         Enum(

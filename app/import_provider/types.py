@@ -12,6 +12,30 @@ class ProviderType(enum.StrEnum):
     TVDB = 'tvdb'
 
 
+class ProviderUpdateMethod(enum.IntEnum):
+    CREATE = 1
+    UPDATE = 2
+    DELETE = 3
+
+
+@dataclass(frozen=True)
+class ImportProviderUpdate:
+    entity_type: str
+    record_id: int | str
+    timestamp: int
+    method: ProviderUpdateMethod
+    # Optional provider-specific parent record ID, such as a TVDB series ID for an episode update.
+    parent_id: int | str | None = None
+    affected_external_ids: tuple[str, ...] = ()
+    raw_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ImportProviderUpdateBatch:
+    updates: list[ImportProviderUpdate] = field(default_factory=list)
+    next_page: int | None = None
+
+
 @dataclass(frozen=True)
 class ImportSearchResult:
     provider: str

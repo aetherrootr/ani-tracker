@@ -10,7 +10,7 @@ import requests
 from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.tvdb import TVDBImportProvider
-from app.import_provider.types import ProviderType
+from app.import_provider.types import ProviderType, ProviderUpdateMethod
 from app.tasks.anime_sync import _provider_config
 
 
@@ -67,9 +67,84 @@ def provider(session: FakeSession, *, api_key: str | None = 'test-key', pin: str
     )
 
 
+def test_provider_declares_updates_capability() -> None:
+    tvdb = provider(FakeSession())
+
+    assert tvdb.supports_updates is True
+    assert tvdb.update_streams == ('episodes', 'series')
+
+
 def login_response(token: str | None = None) -> FakeResponse:
     token = token or 'token-1'
     return FakeResponse(200, {'status': 'success', 'data': {'token': token}})
+
+
+def test_updates_follow_pagination_and_deduplicate_events() -> None:
+    first_event = {
+        'entityType': 'episodes',
+        'recordId': 101,
+        'timeStamp': 1_721_000_000,
+        'methodInt': 2,
+        'seriesId': 321,
+    }
+    session = FakeSession(
+        {
+            'https://api4.thetvdb.com/v4/login': login_response(),
+            'https://api4.thetvdb.com/v4/updates': [
+                FakeResponse(200, {'status': 'success', 'data': [first_event], 'links': {'next': '/updates?page=1'}}),
+                FakeResponse(
+                    200,
+                    {
+                        'status': 'success',
+                        'data': [
+                            first_event,
+                            {**first_event, 'recordId': 102, 'methodInt': 1},
+                            {**first_event, 'recordId': 103, 'methodInt': 99},
+                        ],
+                        'links': {'next': None},
+                    },
+                ),
+            ],
+        },
+    )
+
+    batch = provider(session).get_updates(since=1_720_000_000, stream='episodes')
+    updates = batch.updates
+
+    assert batch.next_page is None
+    assert [(item.record_id, item.method, item.parent_id) for item in updates] == [
+        (101, ProviderUpdateMethod.UPDATE, 321),
+        (102, ProviderUpdateMethod.CREATE, 321),
+    ]
+    update_calls = [call for call in session.calls if call['url'].endswith('/updates')]
+    assert [call['params']['page'] for call in update_calls] == [0, 1]
+    assert all(call['params']['type'] == 'episodes' for call in update_calls)
+
+
+def test_updates_return_continuation_page_at_page_budget() -> None:
+    event = {
+        'entityType': 'episodes',
+        'recordId': 101,
+        'timeStamp': 1_721_000_000,
+        'methodInt': 2,
+        'seriesId': 321,
+    }
+    session = FakeSession(
+        {
+            'https://api4.thetvdb.com/v4/login': login_response(),
+            'https://api4.thetvdb.com/v4/updates': FakeResponse(
+                200,
+                {'status': 'success', 'data': [event], 'links': {'next': '/updates?page=4'}},
+            ),
+        },
+    )
+
+    batch = provider(session).get_updates(since=1_720_000_000, stream='episodes', page=3, max_pages=1)
+
+    assert [item.record_id for item in batch.updates] == [101]
+    assert batch.next_page == 4
+    update_call = next(call for call in session.calls if call['url'].endswith('/updates'))
+    assert update_call['params']['page'] == 3
 
 
 def tvdb_translation(name: str | None = None, overview: str | None = None, language: str = 'eng') -> FakeResponse:

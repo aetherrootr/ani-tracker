@@ -36,6 +36,7 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
   const [bulkError, setBulkError] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement | null>(null);
   const pendingRangePageRef = useRef<number | null>(null);
+  const handledHashRef = useRef<string | null>(null);
   const { data, setData, isLoading, error, retry } = useEpisodes({ animeId, page, q, filter, order, locateEpisodeNumber, locateEpisodeId, refreshKey });
   const episodes = useMemo(() => data?.episodes ?? [], [data?.episodes]);
   const nextEpisodeNumber = (progress.lastWatchedEpisodeNumber ?? 0) + 1;
@@ -65,14 +66,17 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
       return;
     }
     const hashId = window.location.hash.startsWith("#episode-") ? window.location.hash.slice(1) : null;
+    const hashIntent = hashId ? `${animeId}:${hashId}` : null;
+    if (!hashIntent || handledHashRef.current === hashIntent) return;
     const element = document.getElementById(hashId ?? "");
     if (element) {
+      handledHashRef.current = hashIntent;
       window.requestAnimationFrame(() => {
         element.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
         element.querySelector<HTMLElement>("input[type='checkbox'], [role='checkbox']")?.focus({ preventScroll: true });
       });
     }
-  }, [isLoading, episodes]);
+  }, [animeId, isLoading, episodes]);
 
   async function updateWatch(episode: Episode, watched: boolean) {
     setBusyIds((current) => new Set(current).add(episode.id));
@@ -96,6 +100,7 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
 
   async function updateWatchTime(episode: Episode, watchedAt: string) {
     setBusyIds((current) => new Set(current).add(episode.id));
+    setData((current) => current);
     try {
       const result = await updateEpisodeWatchState(animeId, episode.id, true, watchedAt);
       const updatedEpisode = { ...episode, watched: result.episode.watched, watchedAt: result.episode.watchedAt };
@@ -114,6 +119,7 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
   async function markMany(input: { watched: boolean; scope: "all" | "aired" | "through"; throughEpisodeNumber?: number }) {
     if (bulkPending) return;
     setBulkPending(true);
+    setData((current) => current);
     setBulkError(null);
     setBulkMessage(null);
     try {
@@ -131,6 +137,7 @@ export function EpisodeList({ animeId, metadataSource, progress, refreshKey = 0,
   async function setAllWatchTimesToAirTimes() {
     if (bulkPending) throw new Error(t("library.bulkUpdateFailed"));
     setBulkPending(true);
+    setData((current) => current);
     setBulkError(null);
     setBulkMessage(null);
     try {

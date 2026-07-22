@@ -46,7 +46,9 @@ def get_tracking_list_tracking(db: Session, user: User) -> ResponseReturnValue:
     offset, error = parse_library_offset(request.args.get('offset'))
     if error is not None:
         return jsonify({'message': error}), 400
-    return jsonify(tracking_list_tracking_page(db, user, limit=limit, offset=offset))
+    response = jsonify(tracking_list_tracking_page(db, user, limit=limit, offset=offset))
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @watch_state_bp.get('/tracking-list/backlog')

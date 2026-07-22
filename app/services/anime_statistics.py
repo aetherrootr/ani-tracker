@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.serializers import select_anime_name_for_user, select_episode_name_for_user
 from app.models.anime import AnimeMetaInfo, Episode, EpisodeStatus
+from app.models.anime_utils import episode_effectively_aired_condition
 from app.models.progress import (
     UserAnimeMetadataEpisodeSnapshot,
     UserAnimeMetadataSnapshot,
@@ -62,7 +63,7 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
     first_week_start = current_week_start - timedelta(weeks=WEEKLY_STATISTICS_WEEKS - 1)
     first_day = current_week_start - timedelta(weeks=DAILY_STATISTICS_WEEKS - 1)
     last_day = first_day + timedelta(days=DAILY_STATISTICS_WEEKS * 7 - 1)
-    episodes = _active_episode_rows(user.id)
+    episodes = _active_episode_rows(user.id, now=calculated_at)
     active = episodes.c.anime_status != UserAnimeStatus.DROPPED.value
     watched = and_(active, episodes.c.watched.is_(True))
     unwatched_aired_conditions = [
@@ -168,7 +169,7 @@ def get_statistics_summary(session: Session, user: User, *, today: date | None =
 def get_watch_timeline(session: Session, user: User, *, limit: int, offset: int) -> dict[str, Any]:
     limit, offset = validate_pagination(limit, offset, max_limit=100)
     time_zone = ZoneInfo(user.time_zone)
-    episodes = _active_episode_rows(user.id)
+    episodes = _active_episode_rows(user.id, now=datetime.now(UTC))
     timeline_filter = and_(
         episodes.c.anime_status != UserAnimeStatus.DROPPED.value,
         episodes.c.watched.is_(True),
@@ -257,7 +258,7 @@ def start_of_week(value: date, week_start_day: int) -> date:
     return value - timedelta(days=(value.weekday() - week_start_day) % 7)
 
 
-def _active_episode_rows(user_id: int):  # type: ignore[no-untyped-def]
+def _active_episode_rows(user_id: int, *, now: datetime):  # type: ignore[no-untyped-def]
     local_source = UserAnimeMetadataSource.LOCAL_SNAPSHOT.value
     upstream = (
         select(
@@ -266,7 +267,10 @@ def _active_episode_rows(user_id: int):  # type: ignore[no-untyped-def]
             UserAnimeProgress.anime_id.label('anime_id'),
             Episode.id.label('episode_id'),
             Episode.episode_number.label('episode_number'),
-            cast(Episode.status, String(32)).label('status'),
+            case(
+                (episode_effectively_aired_condition(Episode, now=now), EpisodeStatus.AIRED.value),
+                else_=cast(Episode.status, String(32)),
+            ).label('status'),
             Episode.duration.label('duration'),
             func.coalesce(UserEpisodeProgress.watched, false()).label('watched'),
             UserEpisodeProgress.watched_at.label('watched_at'),

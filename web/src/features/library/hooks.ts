@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { SetStateAction } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { getAnimeDetail, getEpisodes, getLibrary, getTrackingList } from "./api";
+import { getAnimeDetail, getEpisodes, getLibrary, getTrackingList, getTrackingListLoaded } from "./api";
 import type {
   AnimeDetailResponse,
   EpisodeListResponse,
@@ -216,23 +217,43 @@ export function useAnimeDetail(animeId: number) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const dataRef = useRef(data);
+  const dataGenerationRef = useRef(0);
+  const backgroundRetryKeyRef = useRef<number | null>(null);
+
+  function updateData(update: SetStateAction<AnimeDetailResponse | null>) {
+    dataGenerationRef.current += 1;
+    setData((current) => {
+      const next = typeof update === "function" ? update(current) : update;
+      dataRef.current = next;
+      return next;
+    });
+  }
 
   useEffect(() => {
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsLoading(true);
-    setError(null);
+    const background = backgroundRetryKeyRef.current === retryKey;
+    if (background) backgroundRetryKeyRef.current = null;
+    const requestGeneration = dataGenerationRef.current;
+    if (!background) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     getAnimeDetail(animeId, controller.signal)
-      .then(setData)
+      .then((next) => {
+        if (requestGeneration !== dataGenerationRef.current) return;
+        dataRef.current = next;
+        setData(next);
+      })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
           return;
         }
-        setError(err instanceof Error ? err.message : "Request failed");
+        if (!background || !dataRef.current) setError(err instanceof Error ? err.message : "Request failed");
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && !background) {
           setIsLoading(false);
         }
       });
@@ -240,7 +261,36 @@ export function useAnimeDetail(animeId: number) {
     return () => controller.abort();
   }, [animeId, retryKey]);
 
-  return { data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) };
+  useEffect(() => {
+    let lastRefreshAt = Date.now();
+    const refreshWhenAvailable = () => {
+      const now = Date.now();
+      if (document.visibilityState !== "visible" || !navigator.onLine || now - lastRefreshAt < 1000) return;
+      lastRefreshAt = now;
+      setRetryKey((current) => {
+        const next = current + 1;
+        backgroundRetryKeyRef.current = next;
+        return next;
+      });
+    };
+    document.addEventListener("visibilitychange", refreshWhenAvailable);
+    window.addEventListener("online", refreshWhenAvailable);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenAvailable);
+      window.removeEventListener("online", refreshWhenAvailable);
+    };
+  }, [animeId]);
+
+  return {
+    data,
+    setData: updateData,
+    isLoading,
+    error,
+    retry: () => {
+      backgroundRetryKeyRef.current = null;
+      setRetryKey((current) => current + 1);
+    },
+  };
 }
 
 export function useEpisodes(input: {
@@ -258,23 +308,43 @@ export function useEpisodes(input: {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const dataRef = useRef(data);
+  const dataGenerationRef = useRef(0);
+  const backgroundRetryKeyRef = useRef<number | null>(null);
+
+  function updateData(update: SetStateAction<EpisodeListResponse | null>) {
+    dataGenerationRef.current += 1;
+    setData((current) => {
+      const next = typeof update === "function" ? update(current) : update;
+      dataRef.current = next;
+      return next;
+    });
+  }
 
   useEffect(() => {
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsLoading(true);
-    setError(null);
+    const background = backgroundRetryKeyRef.current === retryKey;
+    if (background) backgroundRetryKeyRef.current = null;
+    const requestGeneration = dataGenerationRef.current;
+    if (!background) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     getEpisodes({ animeId, page, q, filter, order, locateEpisodeNumber, locateEpisodeId, pageSize: EPISODE_PAGE_SIZE, signal: controller.signal })
-      .then(setData)
+      .then((next) => {
+        if (requestGeneration !== dataGenerationRef.current) return;
+        dataRef.current = next;
+        setData(next);
+      })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") {
           return;
         }
-        setError(err instanceof Error ? err.message : "Request failed");
+        if (!background || !dataRef.current) setError(err instanceof Error ? err.message : "Request failed");
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && !background) {
           setIsLoading(false);
         }
       });
@@ -282,8 +352,37 @@ export function useEpisodes(input: {
     return () => controller.abort();
   }, [animeId, filter, locateEpisodeId, locateEpisodeNumber, order, page, q, refreshKey, retryKey]);
 
+  useEffect(() => {
+    let lastRefreshAt = Date.now();
+    const refreshWhenAvailable = () => {
+      const now = Date.now();
+      if (document.visibilityState !== "visible" || !navigator.onLine || now - lastRefreshAt < 1000) return;
+      lastRefreshAt = now;
+      setRetryKey((current) => {
+        const next = current + 1;
+        backgroundRetryKeyRef.current = next;
+        return next;
+      });
+    };
+    document.addEventListener("visibilitychange", refreshWhenAvailable);
+    window.addEventListener("online", refreshWhenAvailable);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenAvailable);
+      window.removeEventListener("online", refreshWhenAvailable);
+    };
+  }, [animeId]);
+
   return useMemo(
-    () => ({ data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),
+    () => ({
+      data,
+      setData: updateData,
+      isLoading,
+      error,
+      retry: () => {
+        backgroundRetryKeyRef.current = null;
+        setRetryKey((current) => current + 1);
+      },
+    }),
     [data, error, isLoading],
   );
 }
@@ -293,32 +392,102 @@ export function useTrackingList() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const dataRef = useRef(data);
+  const dataGenerationRef = useRef(0);
+
+  function updateData(update: SetStateAction<TrackingListResponse | null>) {
+    dataGenerationRef.current += 1;
+    setData((current) => {
+      const next = typeof update === "function" ? update(current) : update;
+      dataRef.current = next;
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
+    let requestInFlight = true;
+    let lastRefreshAt = Date.now();
+    const initialGeneration = dataGenerationRef.current;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
 
     getTrackingList(controller.signal)
-      .then(setData)
+      .then((next) => {
+        if (!active || initialGeneration !== dataGenerationRef.current) return;
+        dataRef.current = next;
+        setData(next);
+      })
       .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") {
+        if (!active || (err instanceof DOMException && err.name === "AbortError")) {
           return;
         }
         setError(err instanceof Error ? err.message : "Request failed");
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        requestInFlight = false;
+        if (active) {
           setIsLoading(false);
         }
       });
 
-    return () => controller.abort();
+    function refreshTracking(force = false) {
+      const now = Date.now();
+      const currentData = dataRef.current;
+      if (force && !currentData && !requestInFlight) {
+        setRetryKey((current) => current + 1);
+        return;
+      }
+      if (
+        requestInFlight ||
+        !currentData ||
+        document.visibilityState !== "visible" ||
+        !navigator.onLine ||
+        now - lastRefreshAt < (force ? 1000 : 60_000)
+      ) {
+        return;
+      }
+
+      requestInFlight = true;
+      lastRefreshAt = now;
+      const requestGeneration = dataGenerationRef.current;
+      getTrackingListLoaded(currentData, ["tracking", "backlog"], controller.signal)
+        .then(({ tracking, backlog }) => {
+          if (!tracking || !backlog) return;
+          if (!active || !dataRef.current || requestGeneration !== dataGenerationRef.current) return;
+          const next = { ...dataRef.current, tracking, backlog };
+          dataRef.current = next;
+          setData(next);
+        })
+        // Background refreshes leave the current page and its error state intact.
+        .catch(() => undefined)
+        .finally(() => {
+          requestInFlight = false;
+        });
+    }
+
+    const intervalId = window.setInterval(refreshTracking, 60_000);
+    const refreshWhenAvailable = () => refreshTracking(true);
+    document.addEventListener("visibilitychange", refreshWhenAvailable);
+    window.addEventListener("online", refreshWhenAvailable);
+
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshWhenAvailable);
+      window.removeEventListener("online", refreshWhenAvailable);
+    };
   }, [retryKey]);
 
   return useMemo(
-    () => ({ data, setData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),
+    () => ({ data, setData: updateData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),
     [data, error, isLoading],
   );
 }
