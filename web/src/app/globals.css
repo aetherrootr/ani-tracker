@@ -2435,10 +2435,16 @@ body.episode-ticket-drag-lock {
 .episode-number strong { font-size: 1.125rem; line-height: 1.15; }
 .episode-copy,
 .tracking-ticket-copy { min-width: 0; flex: 1; }
-.episode-copy h3,
+.episode-title,
 .tracking-ticket-copy h3 { color: var(--text-primary); font-size: 1rem; font-weight: 650; line-height: 1.35; }
-.episode-copy h3 { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.episode-original-title { overflow: hidden; margin-top: 0.2rem; color: var(--text-secondary); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+.episode-title-trigger { display: block; width: fit-content; max-width: 100%; min-width: 0; cursor: grab; border-radius: 0.25rem; text-align: start; }
+.episode-title-trigger:focus-visible { outline: none; }
+.episode-title-trigger:focus-visible .episode-title-text { border-radius: 0.2rem; box-shadow: 0 0 0 3px var(--accent-glow); }
+.episode-title-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.episode-title-label { cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.episode-ticket[data-phase="tracking"] .episode-title-trigger,
+.episode-ticket[data-phase="tracking"] .episode-title-label { cursor: grabbing; }
+.episode-original-title { display: block; overflow: hidden; margin-top: 0.2rem; color: var(--text-secondary); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
 
 .episode-ticket-badges {
   display: flex;
@@ -2538,6 +2544,18 @@ body.episode-ticket-drag-lock {
 .episode-ticket[data-density="recent"] .tracking-ticket-date { display: none; }
 
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .episode-row-ticket .episode-ticket { height: 6rem; }
+  .episode-row-ticket .episode-ticket-body { padding: 0.625rem 0.75rem; }
+  .episode-row-ticket .episode-detail-content { gap: 0.625rem; }
+  .episode-row-ticket .episode-number { width: 2.75rem; height: 2.75rem; }
+  .episode-row-ticket .episode-title { font-size: 0.9375rem; line-height: 1.3; }
+  .episode-row-ticket .episode-title-trigger { position: relative; z-index: 1; }
+  .episode-row-ticket .episode-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; -webkit-line-clamp: 1; }
+  .episode-row-ticket .episode-original-title { margin-top: 0.125rem; font-size: 0.6875rem; }
+  .episode-row-ticket .episode-ticket-badges { flex-wrap: nowrap; gap: 0.25rem; margin-bottom: 0.2rem; }
+  .episode-row-ticket .episode-badge { min-height: 1.125rem; padding-inline: 0.4rem; }
+  .episode-row-ticket .episode-ticket-metadata { flex-wrap: nowrap; gap: 0.5rem; margin-top: 0.3rem; font-size: 0.6875rem; white-space: nowrap; }
+
   .tracking-ticket-copy h3 a,
   .tracking-ticket-episode-title {
     -webkit-line-clamp: 1;
@@ -2568,9 +2586,22 @@ body.episode-ticket-drag-lock {
   .episode-ticket:hover .episode-ticket-front { border-color: color-mix(in srgb, var(--text-secondary) 28%, var(--border-neutral)); }
   .episode-ticket-front { cursor: default; }
   .episode-ticket:hover .episode-ticket-front { cursor: grab; }
-  .episode-copy h3,
+  .episode-title,
   .tracking-ticket-copy h3 { font-size: 0.9375rem; }
   .tracking-ticket-poster { width: 3.25rem; }
+}
+
+@media (any-pointer: coarse) {
+  .episode-row-ticket .episode-title-trigger { position: relative; z-index: 1; }
+  .episode-row-ticket .episode-title-trigger::before {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    content: "";
+    transform: translate(-50%, -50%);
+  }
 }
 
 @media (max-width: 380px) {
@@ -2666,6 +2697,7 @@ body.episode-ticket-drag-lock {
   .episode-ticket-checkbox:checked { background: Highlight; color: HighlightText; }
   .episode-ticket[data-watched] .episode-ticket-front { border-inline-start: 4px solid Highlight; }
   .episode-ticket-rail { background: Canvas; color: CanvasText; }
+  .episode-title-trigger:focus-visible .episode-title-text { outline: 2px solid Highlight; outline-offset: 2px; box-shadow: none; }
 }
 
 .segmented-track {

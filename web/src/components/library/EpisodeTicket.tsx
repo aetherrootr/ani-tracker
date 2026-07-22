@@ -10,13 +10,15 @@ import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 const EDGE_GUARD = 24;
-const HYSTERESIS = 12;
+const MOBILE_HYSTERESIS = 12;
 const MOBILE_COMMIT_THRESHOLD = 76;
 const MOBILE_HORIZONTAL_LOCK = 5;
 const MOBILE_VERTICAL_LOCK = 8;
 const MOBILE_VERTICAL_MAX_HORIZONTAL = 28;
 const MOBILE_AXIS_RATIO = 1.12;
+const DESKTOP_HYSTERESIS = 24;
 const DESKTOP_HORIZONTAL_LOCK = 6;
+const DESKTOP_VERTICAL_LOCK = 12;
 const DESKTOP_AXIS_RATIO = 1.2;
 
 type DragSession = {
@@ -62,6 +64,7 @@ export function EpisodeTicket({
   const frontRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<DragSession | null>(null);
+  const scrollLockOwnerRef = useRef(Symbol("episode-ticket-scroll-lock"));
   const suppressInteractiveClickRef = useRef(false);
   const clickSuppressTimerRef = useRef<number | null>(null);
   const nativeTouchHandlersRef = useRef<{
@@ -69,6 +72,13 @@ export function EpisodeTicket({
     move: (event: TouchEvent) => void;
     end: () => void;
     cancel: () => void;
+  } | null>(null);
+  const pointerHandlersRef = useRef<{
+    interrupt: (event: PointerEvent) => void;
+    move: (event: PointerEvent) => void;
+    complete: (event: PointerEvent) => void;
+    cancel: (event: PointerEvent) => void;
+    leave: (event: PointerEvent) => void;
   } | null>(null);
   const resetTimerRef = useRef<number | null>(null);
   const outgoingContentRef = useRef<ReactNode>(null);
@@ -87,11 +97,16 @@ export function EpisodeTicket({
   const pending = pendingTarget !== null;
 
   useEffect(() => {
+    const scrollLockOwner = scrollLockOwnerRef.current;
+
     function releaseInterruptedDrag() {
+      blockedPointerStarts.clear();
+      blockNextTouchStart = false;
       const session = dragRef.current;
+      unlockMobileScroll(scrollLockOwner);
       if (!session) return;
-      if (session.scrollLocked) unlockMobileScroll();
       dragRef.current = null;
+      suppressInteractiveClickRef.current = false;
       setDragX(0);
       setArmedTarget(null);
       setPhase("rest");
@@ -99,24 +114,45 @@ export function EpisodeTicket({
 
     function cancelWithEscape(event: KeyboardEvent) {
       if (event.key === "Escape" && dragRef.current) {
-        if (dragRef.current.scrollLocked) unlockMobileScroll();
+        const session = dragRef.current;
         dragRef.current = null;
+        if (session.scrollLocked) unlockMobileScroll(scrollLockOwner);
+        suppressInteractiveClickRef.current = false;
         setPhase("returning");
         setDragX(0);
         setArmedTarget(null);
         resetTimerRef.current = window.setTimeout(() => setPhase("rest"), 210);
       }
     }
+    const interruptPointer = (event: PointerEvent) => pointerHandlersRef.current?.interrupt(event);
+    const movePointer = (event: PointerEvent) => pointerHandlersRef.current?.move(event);
+    const completePointer = (event: PointerEvent) => pointerHandlersRef.current?.complete(event);
+    const cancelPointer = (event: PointerEvent) => pointerHandlersRef.current?.cancel(event);
+    const leavePointer = (event: PointerEvent) => pointerHandlersRef.current?.leave(event);
     window.addEventListener("keydown", cancelWithEscape);
+    window.addEventListener("blur", releaseInterruptedDrag);
     window.addEventListener("pagehide", releaseInterruptedDrag);
+    window.addEventListener("pointerdown", interruptPointer, true);
+    window.addEventListener("pointermove", movePointer, { passive: false });
+    window.addEventListener("pointerup", completePointer);
+    window.addEventListener("pointercancel", cancelPointer);
+    window.addEventListener("pointerout", leavePointer);
     document.addEventListener("visibilitychange", releaseInterruptedDrag);
     return () => {
       window.removeEventListener("keydown", cancelWithEscape);
+      window.removeEventListener("blur", releaseInterruptedDrag);
       window.removeEventListener("pagehide", releaseInterruptedDrag);
+      window.removeEventListener("pointerdown", interruptPointer, true);
+      window.removeEventListener("pointermove", movePointer);
+      window.removeEventListener("pointerup", completePointer);
+      window.removeEventListener("pointercancel", cancelPointer);
+      window.removeEventListener("pointerout", leavePointer);
       document.removeEventListener("visibilitychange", releaseInterruptedDrag);
       if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
       if (clickSuppressTimerRef.current !== null) window.clearTimeout(clickSuppressTimerRef.current);
-      if (dragRef.current?.scrollLocked) unlockMobileScroll();
+      suppressInteractiveClickRef.current = false;
+      dragRef.current = null;
+      unlockMobileScroll(scrollLockOwner);
     };
   }, []);
 
@@ -127,15 +163,20 @@ export function EpisodeTicket({
     const move = (event: TouchEvent) => nativeTouchHandlersRef.current?.move(event);
     const end = () => nativeTouchHandlersRef.current?.end();
     const cancel = () => nativeTouchHandlersRef.current?.cancel();
+    const cancelMultiTouch = (event: TouchEvent) => {
+      if (event.touches.length > 1 && dragRef.current?.pointerType === "touch") nativeTouchHandlersRef.current?.cancel();
+    };
     front.addEventListener("touchstart", start, { passive: true });
     front.addEventListener("touchmove", move, { passive: false });
     front.addEventListener("touchend", end, { passive: true });
     front.addEventListener("touchcancel", cancel, { passive: true });
+    document.addEventListener("touchstart", cancelMultiTouch, { passive: true, capture: true });
     return () => {
       front.removeEventListener("touchstart", start);
       front.removeEventListener("touchmove", move);
       front.removeEventListener("touchend", end);
       front.removeEventListener("touchcancel", cancel);
+      document.removeEventListener("touchstart", cancelMultiTouch, true);
     };
   }, []);
 
@@ -147,18 +188,17 @@ export function EpisodeTicket({
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === "touch") return;
+    if (blockedPointerStarts.delete(event.pointerId)) return;
     if (disabled || pending || event.button !== 0) return;
-    startDrag(event.clientX, event.clientY, event.pointerId, event.pointerType, event.target as HTMLElement, false);
+    startDrag(event.clientX, event.clientY, event.pointerId, event.pointerType, event.target as HTMLElement, event.pointerType === "pen");
   }
 
   function startDrag(clientX: number, clientY: number, pointerId: number, pointerType: string, target: HTMLElement, allowInteractive: boolean) {
-    if (dragRef.current) {
-      cancelDrag();
-      return false;
-    }
+    if (dragRef.current) cancelDrag();
     if (disabled || pending) return false;
     const interactiveStart = Boolean(target.closest("a,button,input,select,textarea,[data-ticket-interactive]"));
-    if (interactiveStart && !allowInteractive) return false;
+    const dragSurfaceStart = Boolean(target.closest("[data-ticket-drag-surface]"));
+    if (interactiveStart && !allowInteractive && !dragSurfaceStart) return false;
     const root = rootRef.current;
     const rect = root?.getBoundingClientRect();
     if (!root || !rect) return false;
@@ -167,6 +207,10 @@ export function EpisodeTicket({
     const distanceFromLeading = rtl ? window.innerWidth - clientX : clientX;
     if (touchLike && distanceFromLeading <= EDGE_GUARD) return false;
     const desktop = pointerType === "mouse";
+    finishCommit();
+    if (clickSuppressTimerRef.current !== null) window.clearTimeout(clickSuppressTimerRef.current);
+    clickSuppressTimerRef.current = null;
+    suppressInteractiveClickRef.current = false;
     dragRef.current = {
       pointerId,
       pointerType,
@@ -180,21 +224,6 @@ export function EpisodeTicket({
       interactiveStart,
     };
     return true;
-  }
-
-  function moveDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const session = dragRef.current;
-    if (!session || session.pointerId !== event.pointerId) return;
-    const previousAxis = session.axis;
-    const horizontal = updateDrag(event.clientX, event.clientY);
-    if (previousAxis === "pending" && session.axis === "horizontal") {
-      try {
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-      } catch {
-        // Older WebKit builds can reject capture while still delivering the pointer sequence.
-      }
-    }
-    if (horizontal) event.preventDefault();
   }
 
   function updateDrag(clientX: number, clientY: number) {
@@ -211,7 +240,7 @@ export function EpisodeTicket({
     if (session.axis === "pending") {
       if (absX < lockDistance && absY < lockDistance) return;
       const verticalIntent = desktop
-        ? absY > absX * axisRatio
+        ? absY >= DESKTOP_VERTICAL_LOCK && absY > absX * axisRatio
         : absY >= MOBILE_VERTICAL_LOCK && absX <= MOBILE_VERTICAL_MAX_HORIZONTAL && absY > absX * axisRatio;
       if (verticalIntent) {
         session.axis = "vertical";
@@ -221,7 +250,7 @@ export function EpisodeTicket({
       session.axis = "horizontal";
       if (session.interactiveStart) suppressInteractiveClickRef.current = true;
       if (!desktop) {
-        lockMobileScroll();
+        lockMobileScroll(scrollLockOwnerRef.current);
         session.scrollLocked = true;
       }
       setPhase("tracking");
@@ -233,10 +262,11 @@ export function EpisodeTicket({
     const limit = unavailable ? (session.pointerType === "mouse" ? 32 : 24) : session.threshold * 1.12;
     const visualX = Math.sign(deltaX) * Math.min(Math.abs(deltaX), limit);
     const distance = Math.abs(semanticX);
+    const hysteresis = desktop ? DESKTOP_HYSTERESIS : MOBILE_HYSTERESIS;
 
     if (!unavailable) {
       if (session.armed === null && distance >= session.threshold) session.armed = target;
-      if (session.armed !== null && (session.armed !== target || distance < session.threshold - HYSTERESIS)) session.armed = null;
+      if (session.armed !== null && (session.armed !== target || distance < session.threshold - hysteresis)) session.armed = null;
     } else {
       session.armed = null;
     }
@@ -245,17 +275,11 @@ export function EpisodeTicket({
     return true;
   }
 
-  function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const session = dragRef.current;
-    if (!session || session.pointerId !== event.pointerId) return;
-    completeDrag();
-  }
-
   function completeDrag() {
     const session = dragRef.current;
     if (!session) return;
     dragRef.current = null;
-    if (session.scrollLocked) unlockMobileScroll();
+    if (session.scrollLocked) unlockMobileScroll(scrollLockOwnerRef.current);
     if (session.axis === "horizontal" && session.interactiveStart) {
       if (clickSuppressTimerRef.current !== null) window.clearTimeout(clickSuppressTimerRef.current);
       clickSuppressTimerRef.current = window.setTimeout(() => {
@@ -275,8 +299,12 @@ export function EpisodeTicket({
   }
 
   function cancelDrag() {
-    if (dragRef.current?.scrollLocked) unlockMobileScroll();
+    const session = dragRef.current;
     dragRef.current = null;
+    if (session?.scrollLocked) unlockMobileScroll(scrollLockOwnerRef.current);
+    suppressInteractiveClickRef.current = false;
+    if (clickSuppressTimerRef.current !== null) window.clearTimeout(clickSuppressTimerRef.current);
+    clickSuppressTimerRef.current = null;
     resetDrag();
   }
 
@@ -373,6 +401,10 @@ export function EpisodeTicket({
 
   nativeTouchHandlersRef.current = {
     start(event) {
+      if (blockNextTouchStart) {
+        blockNextTouchStart = false;
+        return;
+      }
       if (event.touches.length !== 1) {
         if (dragRef.current) cancelDrag();
         return;
@@ -393,6 +425,53 @@ export function EpisodeTicket({
     },
     cancel() {
       if (dragRef.current?.pointerType === "touch") cancelDrag();
+    },
+  };
+  pointerHandlersRef.current = {
+    interrupt(event) {
+      if (dragRef.current) {
+        if (dragRef.current.pointerId !== event.pointerId) {
+          if (event.pointerType === "touch") {
+            blockNextTouchStart = true;
+            window.setTimeout(() => {
+              blockNextTouchStart = false;
+            }, 0);
+          } else {
+            blockedPointerStarts.add(event.pointerId);
+            queueMicrotask(() => blockedPointerStarts.delete(event.pointerId));
+          }
+        }
+        cancelDrag();
+        return;
+      }
+      suppressInteractiveClickRef.current = false;
+      if (clickSuppressTimerRef.current !== null) window.clearTimeout(clickSuppressTimerRef.current);
+      clickSuppressTimerRef.current = null;
+    },
+    move(event) {
+      const session = dragRef.current;
+      if (session?.pointerType === "touch" || session?.pointerId !== event.pointerId) return;
+      if (event.buttons === 0) {
+        if (session.axis === "horizontal" && session.armed !== null) completeDrag();
+        else cancelDrag();
+        return;
+      }
+      if (updateDrag(event.clientX, event.clientY)) event.preventDefault();
+    },
+    complete(event) {
+      blockedPointerStarts.delete(event.pointerId);
+      const session = dragRef.current;
+      if (session?.pointerType !== "touch" && session?.pointerId === event.pointerId) completeDrag();
+    },
+    cancel(event) {
+      blockedPointerStarts.delete(event.pointerId);
+      const session = dragRef.current;
+      if (session?.pointerType !== "touch" && session?.pointerId === event.pointerId) cancelDrag();
+    },
+    leave(event) {
+      if (event.relatedTarget === null) blockedPointerStarts.delete(event.pointerId);
+      const session = dragRef.current;
+      if (event.relatedTarget === null && session?.pointerType !== "touch" && session?.pointerId === event.pointerId) cancelDrag();
     },
   };
 
@@ -445,11 +524,6 @@ export function EpisodeTicket({
             transform: dragX ? `translate3d(${dragX}px, 0, 0)${phase === "tracking" ? " scale(0.994)" : ""}` : undefined,
           } as React.CSSProperties}
           onPointerDown={beginDrag}
-          onPointerMove={moveDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={(event) => {
-            if (event.pointerType !== "touch") cancelDrag();
-          }}
           onClickCapture={(event) => {
             if (!suppressInteractiveClickRef.current) return;
             suppressInteractiveClickRef.current = false;
@@ -457,9 +531,6 @@ export function EpisodeTicket({
             clickSuppressTimerRef.current = null;
             event.preventDefault();
             event.stopPropagation();
-          }}
-          onLostPointerCapture={(event) => {
-            if (dragRef.current?.pointerId === event.pointerId) cancelDrag();
           }}
           onAnimationEnd={(event) => {
             if (event.animationName.startsWith("episode-ticket-commit") || event.animationName === "episode-ticket-restore") finishCommit();
@@ -521,19 +592,21 @@ function clamp(min: number, value: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-let mobileScrollLockCount = 0;
+const mobileScrollLockOwners = new Set<symbol>();
+const blockedPointerStarts = new Set<number>();
+let blockNextTouchStart = false;
 
-function lockMobileScroll() {
-  mobileScrollLockCount += 1;
-  if (mobileScrollLockCount > 1) return;
+function lockMobileScroll(owner: symbol) {
+  if (mobileScrollLockOwners.has(owner)) return;
+  mobileScrollLockOwners.add(owner);
+  if (mobileScrollLockOwners.size > 1) return;
   document.documentElement.classList.add("episode-ticket-drag-lock");
   document.body.classList.add("episode-ticket-drag-lock");
   document.addEventListener("touchmove", preventLockedTouchMove, { passive: false, capture: true });
 }
 
-function unlockMobileScroll() {
-  mobileScrollLockCount = Math.max(0, mobileScrollLockCount - 1);
-  if (mobileScrollLockCount > 0) return;
+function unlockMobileScroll(owner: symbol) {
+  if (!mobileScrollLockOwners.delete(owner) || mobileScrollLockOwners.size > 0) return;
   document.documentElement.classList.remove("episode-ticket-drag-lock");
   document.body.classList.remove("episode-ticket-drag-lock");
   document.removeEventListener("touchmove", preventLockedTouchMove, true);

@@ -131,7 +131,7 @@ Recommended fixed ticket metrics at standard text sizes:
 
 | Context | Fixed height | Horizontal padding | Gap |
 |---|---:|---:|---:|
-| Mobile portrait | `112px` | `14-16px` | `10-12px` |
+| Mobile portrait | `96px` | `12px` | `10px` |
 | Mobile landscape | `96px` | `14-16px` | `10-12px` |
 | Desktop compact | `88px` | `14-16px` | `10-12px` |
 | Desktop comfortable | `104px` | `16-18px` | `12px` |
@@ -152,8 +152,8 @@ Reading priority:
 Rules:
 
 - The main title SHOULD use `15-17px` on mobile and `14-16px` on desktop.
-- The main title MUST retain up to two lines.
-- Long titles **MUST** use a two-line clamp and ellipsis within the fixed height. The complete title MUST remain available through the accessible name and a product-defined episode title or detail destination.
+- The main title SHOULD retain up to two lines where space permits. The compact mobile tier MAY use one line after reducing the title to no less than `15px`.
+- Long titles **MUST** use a one- or two-line clamp and ellipsis within the fixed height. The complete title MUST remain available through the accessible name and a directly activatable episode title or detail destination.
 - Essential identity MUST NOT disappear during drag.
 - Lower-priority metadata progressively hides or condenses before title, state, or controls are clipped. Metadata may fade slightly during drag, but primary text must remain readable.
 - The body MUST NOT become a single giant button because it may contain links or selectable text.
@@ -381,14 +381,14 @@ Recommended values:
 - Mobile: `horizontalLockDistance = 5px`, `axisRatio = 1.12`.
 - Desktop: `horizontalLockDistance = 6px`, `axisRatio = 1.2`.
 
-On mobile, vertical intent wins only when all of the following are true: `abs(deltaY) >= 8px`, `abs(deltaX) <= 28px`, and `abs(deltaY) > abs(deltaX) * 1.12`. This deliberate horizontal bias prevents small vertical finger drift from repeatedly stealing an intended ticket swipe. Desktop vertical intent wins when vertical movement exceeds horizontal movement by the desktop axis ratio. Once vertical intent wins:
+On mobile, vertical intent wins only when all of the following are true: `abs(deltaY) >= 8px`, `abs(deltaX) <= 28px`, and `abs(deltaY) > abs(deltaX) * 1.12`. This deliberate horizontal bias prevents small vertical finger drift from repeatedly stealing an intended ticket swipe. Desktop vertical intent wins after at least `12px` of vertical movement and when vertical movement exceeds horizontal movement by the desktop axis ratio. Once vertical intent wins:
 
 - the ticket returns to rest if it moved at all;
 - the horizontal gesture is abandoned for that pointer sequence;
 - normal page scrolling continues;
 - no state feedback or haptic plays.
 
-After horizontal lock, the control **MUST** capture the active pointer when supported and lock vertical scrolling for the entire active viewport and relevant nested scroll container. This lock applies only to that pointer sequence and remains active until release, cancellation, lost capture, navigation interruption, or another defined cancellation condition.
+After horizontal lock, the control **MUST** retain ownership of the active gesture through pointer capture or equivalent window-level pointer tracking, and lock vertical scrolling for the entire active viewport and relevant nested scroll container. This lock applies only to that pointer sequence and remains active until release, cancellation, navigation interruption, or another defined cancellation condition.
 
 - The lock begins only after horizontal intent wins; it **MUST NOT** begin on pointer down or during the undecided slop phase.
 - Activating the lock **MUST NOT** change the existing scroll position, trigger overscroll, or move page content.
@@ -441,7 +441,7 @@ Requirements:
 To prevent armed-state flicker:
 
 - enter Armed at the full threshold;
-- leave Armed only after moving back approximately `10-14px` below the threshold.
+- leave Armed only after moving back approximately `10-14px` below the threshold on touch, or `20-24px` for a desktop pointer where release recoil is more common.
 
 The visual label and haptic follow armed-state changes, not every pixel.
 
