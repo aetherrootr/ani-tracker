@@ -22,6 +22,7 @@ from app.models.progress import (
     UserEpisodeProgress,
     UserManualAnimeRelation,
 )
+from app.models.provider_sync import ProviderSyncCursor
 from app.models.user import User, UserOidcIdentity, UserWallpaper
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "Episode",
     "EpisodeName",
     "EpisodeStatus",
+    "ProviderSyncCursor",
     "ProviderType",
     "User",
     "UserAnimeMetadataEpisodeSnapshot",

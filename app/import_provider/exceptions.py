@@ -11,3 +11,7 @@ class ImportProviderTimeoutError(ImportProviderError):
 
 class ImportProviderResponseError(ImportProviderError):
     """Raised when an import provider returns an unusable response."""
+
+
+class ImportProviderNotFoundError(ImportProviderResponseError):
+    """Raised when an import provider record no longer exists."""

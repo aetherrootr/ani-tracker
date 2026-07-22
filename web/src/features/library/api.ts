@@ -99,7 +99,7 @@ export function getLibrary(input: {
 }
 
 export function getAnimeDetail(animeId: number, signal?: AbortSignal) {
-  return apiFetch<AnimeDetailResponse>(`/api/anime/${animeId}`, { signal });
+  return apiFetch<AnimeDetailResponse>(`/api/anime/${animeId}`, { signal, cache: "no-store" });
 }
 
 export function getImportProviders(signal?: AbortSignal) {
@@ -144,7 +144,7 @@ export function getEpisodes(input: {
 
   return apiFetch<EpisodeListResponse>(
     `/api/anime/library/${input.animeId}/episodes?${params.toString()}`,
-    { signal: input.signal },
+    { signal: input.signal, cache: "no-store" },
   );
 }
 
@@ -173,8 +173,37 @@ export function getTrackingListPage(input: {
   const query = params.toString();
   return apiFetch<TrackingListPage<TrackingListItem>>(
     `/api/watch-state/tracking-list/${TRACKING_LIST_ENDPOINTS[input.list]}${query ? `?${query}` : ""}`,
-    { signal: input.signal },
+    { signal: input.signal, cache: "no-store" },
   );
+}
+
+async function refreshLoadedTrackingPage(
+  list: TrackingListKey,
+  current: TrackingListPage<TrackingListItem>,
+  signal?: AbortSignal,
+) {
+  const requestedCount = Math.max(current.items.length, current.limit);
+  const requests = [];
+  for (let offset = 0; offset < requestedCount; offset += 100) {
+    requests.push(getTrackingListPage({ list, limit: Math.min(100, requestedCount - offset), offset, signal }));
+  }
+  const pages = await Promise.all(requests);
+  const items = pages.flatMap((page) => page.items).filter(
+    (item, index, all) => all.findIndex((candidate) => candidate.episode.id === item.episode.id) === index,
+  );
+  const total = pages[0]?.total ?? 0;
+  return { items, total, limit: current.limit, offset: 0, hasMore: items.length < total };
+}
+
+export async function getTrackingListLoaded(
+  current: TrackingListResponse,
+  lists: TrackingListKey[] = ["tracking", "backlog", "recentlyWatched"],
+  signal?: AbortSignal,
+) {
+  const entries = await Promise.all(
+    lists.map(async (list) => [list, await refreshLoadedTrackingPage(list, current[list], signal)] as const),
+  );
+  return Object.fromEntries(entries) as Partial<TrackingListResponse>;
 }
 
 export async function getTrackingList(signal?: AbortSignal) {

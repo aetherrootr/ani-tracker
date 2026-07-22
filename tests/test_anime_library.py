@@ -16,14 +16,18 @@ from app.celery_app import celery_app
 from app.import_provider.base import ImportProvider
 from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
 from app.import_provider.factory import ImportProviderFactory
+from app.import_provider.tvdb import TVDBImportProvider
 from app.import_provider.types import (
     ImportAnimeDetail,
     ImportAnimeName,
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
+    ImportProviderUpdate,
+    ImportProviderUpdateBatch,
     ImportRelatedAnime,
     ImportSearchPage,
+    ProviderUpdateMethod,
 )
 from app.models.anime import (
     AnimeMetaInfo,
@@ -46,10 +50,18 @@ from app.models.progress import (
     UserEpisodeProgress,
     UserManualAnimeRelation,
 )
+from app.models.provider_sync import ProviderSyncCursor
 from app.models.user import User
 from app.services.anime_library import _resolved_episode_status
 from app.services.anime_statistics import get_statistics_summary, get_watch_timeline
+from app.services.episode_status import refresh_effective_episode_statuses
 from app.tasks.celery_config import configure_celery
+from app.tasks.provider_updates import (
+    _acquire_cursor,
+    _affected_anime_ids,
+    _complete_cursor,
+    _missing_status_air_time_anime_ids,
+)
 from tests.test_auth import register_user
 
 
@@ -131,6 +143,14 @@ class FakeProvider(ImportProvider):
             ],
             raw_data={'id': int(external_id)},
         )
+
+
+def test_provider_without_get_updates_uses_default_capability() -> None:
+    provider = FakeProvider()
+
+    assert provider.supports_updates is False
+    assert provider.update_streams == ()
+    assert provider.get_updates(since=123, stream='episodes') == ImportProviderUpdateBatch()
 
 
 class MutableDetailProvider(FakeProvider):
@@ -253,6 +273,7 @@ def add_episode(
     air_at: datetime | None = None,
     title: str | None = None,
     duration: str | None = None,
+    status_air_at: datetime | None = None,
 ) -> Episode:
     episode = Episode(
         anime_id=anime.id,
@@ -261,10 +282,130 @@ def add_episode(
         air_at=air_at,
         duration=duration,
         status=status,
+        status_air_at=status_air_at,
     )
     session.add(episode)
     session.flush()
     return episode
+
+
+def test_refresh_effective_episode_statuses_only_flips_due_upcoming(db_session: Session) -> None:
+    now = datetime(2026, 7, 23, 12, tzinfo=UTC)
+    anime = add_library_anime(
+        db_session,
+        external_id='status-refresh',
+        original_name='Status Refresh',
+        names=[('Status Refresh', 'en')],
+    )
+    due = add_episode(
+        db_session,
+        anime,
+        number=1,
+        status=EpisodeStatus.UPCOMING,
+        status_air_at=now,
+    )
+    future = add_episode(
+        db_session,
+        anime,
+        number=2,
+        status=EpisodeStatus.UPCOMING,
+        status_air_at=now + timedelta(minutes=1),
+    )
+    delayed = add_episode(
+        db_session,
+        anime,
+        number=3,
+        status=EpisodeStatus.DELAYED,
+        status_air_at=now - timedelta(minutes=1),
+    )
+    db_session.commit()
+
+    assert refresh_effective_episode_statuses(db_session, now=now) == 1
+    db_session.commit()
+
+    assert due.status == EpisodeStatus.AIRED
+    assert future.status == EpisodeStatus.UPCOMING
+    assert delayed.status == EpisodeStatus.DELAYED
+    assert refresh_effective_episode_statuses(db_session, now=now) == 0
+
+
+def test_tracking_list_treats_due_upcoming_episode_as_aired(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    anime = add_library_anime(
+        db_session,
+        external_id='effective-tracking',
+        original_name='Effective Tracking',
+        names=[('Effective Tracking', 'en')],
+    )
+    episode = add_episode(
+        db_session,
+        anime,
+        number=1,
+        status=EpisodeStatus.UPCOMING,
+        air_at=now,
+        status_air_at=now - timedelta(seconds=1),
+    )
+    db_session.commit()
+
+    response = client.get('/api/watch-state/tracking-list/tracking')
+
+    assert response.status_code == 200
+    assert response.headers['Cache-Control'] == 'private, no-store'
+    body = response.get_json()
+    assert body['items'][0]['episode']['id'] == episode.id
+    assert body['items'][0]['episode']['status'] == 'aired'
+    assert body['items'][0]['airedEpisodeCount'] == 1
+    assert db_session.get(Episode, episode.id).status == EpisodeStatus.UPCOMING
+
+
+def test_due_upcoming_episode_is_effectively_aired_across_upstream_features(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    now = datetime.now(UTC)
+    anime = add_library_anime(
+        db_session,
+        external_id='effective-upstream-features',
+        original_name='Effective Upstream Features',
+        names=[('Effective Upstream Features', 'en')],
+    )
+    anime.total_episodes = 1
+    episode = add_episode(
+        db_session,
+        anime,
+        number=1,
+        status=EpisodeStatus.UPCOMING,
+        air_at=now,
+        status_air_at=now - timedelta(seconds=1),
+    )
+    db_session.commit()
+
+    detail = client.get(f'/api/anime/{anime.id}').get_json()
+    episode_list = client.get(f'/api/anime/library/{anime.id}/episodes').get_json()
+    library = client.get('/api/anime/library?unwatched=yes').get_json()
+    statistics = client.get('/api/statistics/summary').get_json()
+
+    assert detail['anime']['airStatus'] == 'completed'
+    assert episode_list['episodes'][0]['status'] == 'aired'
+    assert [item['anime']['id'] for item in library['items']] == [anime.id]
+    assert statistics['unwatchedAiredEpisodeCount'] == 1
+
+    bulk_response = client.patch(
+        f'/api/watch-state/anime/{anime.id}/episodes',
+        json={'watched': True, 'scope': 'aired'},
+    )
+
+    assert bulk_response.status_code == 200
+    assert bulk_response.get_json()['matchedCount'] == 1
+    assert db_session.scalar(
+        select(UserEpisodeProgress.watched).where(UserEpisodeProgress.episode_id == episode.id),
+    ) is True
+    assert db_session.get(Episode, episode.id).status == EpisodeStatus.UPCOMING
 
 
 def test_add_to_library_requires_login(client: FlaskClient) -> None:
@@ -2859,6 +3000,54 @@ def test_sync_airing_anime_task_selects_airing_and_continues_after_failure(
     assert progress_updates[-1]['failed'] == 1
 
 
+def test_airing_sync_candidates_can_be_partitioned_by_provider(db_session: Session) -> None:
+    from app.tasks.anime_sync import _airing_anime_ids
+
+    now = datetime.now(UTC)
+    bangumi = add_library_anime(
+        db_session,
+        provider_type='bangumi',
+        external_id='partition-bangumi',
+        original_name='Partition Bangumi',
+        names=[],
+    )
+    tvdb = add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='321:1',
+        original_name='Partition TVDB',
+        names=[],
+    )
+    add_episode(db_session, bangumi, number=1, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    add_episode(db_session, tvdb, number=1, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    db_session.commit()
+
+    assert _airing_anime_ids(db_session, provider_names={'bangumi'}) == [bangumi.id]
+    assert _airing_anime_ids(db_session, provider_names={'tvdb'}) == [tvdb.id]
+    assert _airing_anime_ids(db_session, provider_names=set()) == []
+
+
+def test_disabling_provider_updates_falls_back_to_four_hour_full_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.tasks import anime_sync as anime_sync_task
+
+    calls: list[bool | None] = []
+    empty_summary = {'checked': 0, 'synced': 0, 'failed': 0, 'episodeConflicts': 0, 'postersQueued': 0}
+
+    def sync(*_args, supports_updates=None, **_kwargs):  # type: ignore[no-untyped-def]
+        calls.append(supports_updates)
+        return empty_summary
+
+    monkeypatch.setattr(anime_sync_task, 'sync_airing_anime_metadata', sync)
+    celery_app.conf.provider_updates_enabled = False
+    try:
+        assert anime_sync_task.sync_incremental_provider_airing_anime() == empty_summary
+        anime_sync_task.sync_non_incremental_provider_airing_anime()
+    finally:
+        celery_app.conf.provider_updates_enabled = True
+
+    assert calls == [None]
+
+
 def test_refresh_airing_anime_task_persists_progress_and_releases_lock(
     test_instance_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2903,15 +3092,19 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
             'CELERY_BROKER_URL': 'memory://',
             'ANIME_SYNC_CRON_HOUR': '4,12,20',
             'ANIME_SYNC_CRON_MINUTE': 0,
+            'PROVIDER_UPDATES_ENABLED': False,
             'UNTRACKED_ANIME_CLEANUP_DISABLED': False,
             'UNTRACKED_ANIME_CLEANUP_CRON_DAY': 7,
             'UNTRACKED_ANIME_CLEANUP_CRON_HOUR': 8,
             'UNTRACKED_ANIME_CLEANUP_CRON_MINUTE': 9,
         },
     )
-    default_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
+    default_schedule = celery_app.conf.beat_schedule['sync-incremental-provider-airing-anime']['schedule']
+    non_incremental_schedule = celery_app.conf.beat_schedule['sync-non-incremental-provider-airing-anime']['schedule']
+    episode_status_schedule = celery_app.conf.beat_schedule['refresh-effective-episode-statuses']
     cleanup_schedule = celery_app.conf.beat_schedule['delete-untracked-anime']['schedule']
     assert 'discover-tvdb-seasons' not in celery_app.conf.beat_schedule
+    assert 'poll-provider-updates' not in celery_app.conf.beat_schedule
     configure_celery(
         {
             'CELERY_BROKER_URL': 'memory://',
@@ -2923,11 +3116,15 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
             'AUTO_IMPORT_TVDB_SEASONS_CRON_MINUTE': 13,
         },
     )
-    override_schedule = celery_app.conf.beat_schedule['sync-airing-anime']['schedule']
+    override_schedule = celery_app.conf.beat_schedule['sync-incremental-provider-airing-anime']['schedule']
     tvdb_season_schedule = celery_app.conf.beat_schedule['discover-tvdb-seasons']['schedule']
 
     assert default_schedule.hour == {4, 12, 20}
     assert default_schedule.minute == {0}
+    assert non_incremental_schedule.hour == {0, 4, 8, 12, 16, 20}
+    assert non_incremental_schedule.minute == {0}
+    assert episode_status_schedule['schedule'] == pytest.approx(60.0)
+    assert episode_status_schedule['options']['expires'] == 55
     assert cleanup_schedule.month_of_year == {2, 5, 8, 11}
     assert cleanup_schedule.day_of_month == {7}
     assert cleanup_schedule.hour == {8}
@@ -2937,6 +3134,162 @@ def test_celery_beat_schedule_defaults_and_env_override() -> None:
     assert tvdb_season_schedule.day_of_month == {11}
     assert tvdb_season_schedule.hour == {12}
     assert tvdb_season_schedule.minute == {13}
+
+
+def test_celery_beat_schedule_adds_provider_updates_poll() -> None:
+    configure_celery(
+        {
+            'CELERY_BROKER_URL': 'memory://',
+            'PROVIDER_UPDATES_ENABLED': True,
+            'PROVIDER_UPDATES_INTERVAL_SECONDS': 900,
+        },
+    )
+
+    schedule = celery_app.conf.beat_schedule['poll-provider-updates']
+
+    assert schedule['schedule'] == pytest.approx(900.0)
+    assert schedule['options']['expires'] == 840
+
+
+def test_tvdb_update_cursor_lease_prevents_overlapping_pollers(db_session: Session) -> None:
+    now = datetime(2026, 7, 23, 12, tzinfo=UTC)
+
+    first_cursor = _acquire_cursor(
+        db_session,
+        stream='episodes',
+        owner='first',
+        now=now,
+        initial_cursor=100,
+        lease_seconds=600,
+    )
+    overlapping_cursor = _acquire_cursor(
+        db_session,
+        stream='episodes',
+        owner='second',
+        now=now + timedelta(seconds=1),
+        initial_cursor=200,
+        lease_seconds=600,
+    )
+
+    assert first_cursor == 100
+    assert overlapping_cursor is None
+
+    _complete_cursor(db_session, stream='episodes', owner='first', cursor=150, cursor_page=3)
+    next_cursor = _acquire_cursor(
+        db_session,
+        stream='episodes',
+        owner='second',
+        now=now + timedelta(seconds=2),
+        initial_cursor=200,
+        lease_seconds=600,
+    )
+
+    assert next_cursor == 150
+    row = db_session.scalar(select(ProviderSyncCursor).where(ProviderSyncCursor.stream == 'episodes'))
+    assert row is not None
+    assert row.lease_owner == 'second'
+    assert row.cursor_page == 3
+
+
+def test_tvdb_episode_update_without_series_id_resolves_episode_record(db_session: Session) -> None:
+    anime = add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='321:2',
+        original_name='TVDB Missing Series ID',
+        names=[],
+    )
+
+    class EpisodeLookup(TVDBImportProvider):
+        def __init__(self) -> None:
+            pass
+
+        def get_episode_base(self, episode_id: int) -> dict[str, int]:
+            assert episode_id == 63057
+            return {'seriesId': 321, 'seasonNumber': 2}
+
+    affected = _affected_anime_ids(
+        db_session,
+        EpisodeLookup(),
+        [
+            ImportProviderUpdate(
+                entity_type='episodes',
+                record_id=63057,
+                timestamp=123,
+                method=ProviderUpdateMethod.CREATE,
+            ),
+        ],
+        stream='episodes',
+    )
+
+    assert affected == [anime.id]
+
+
+def test_generic_provider_update_maps_declared_external_ids(db_session: Session) -> None:
+    anime = add_library_anime(
+        db_session,
+        provider_type='tmdb',
+        external_id='series:1',
+        original_name='Generic Updates',
+        names=[],
+    )
+
+    class IncrementalProvider(FakeProvider):
+        name = 'tmdb'
+        update_streams = ('titles',)
+
+        def get_updates(
+            self,
+            *,
+            since: int,
+            stream: str,
+            page: int = 0,
+            max_pages: int = 100,
+        ) -> ImportProviderUpdateBatch:
+            _ = since, stream, page, max_pages
+            return ImportProviderUpdateBatch()
+
+    provider = IncrementalProvider()
+    affected = _affected_anime_ids(
+        db_session,
+        provider,
+        [
+            ImportProviderUpdate(
+                entity_type='titles',
+                record_id='title:1',
+                timestamp=123,
+                method=ProviderUpdateMethod.UPDATE,
+                affected_external_ids=('series:1',),
+            ),
+        ],
+        stream='titles',
+    )
+
+    assert provider.supports_updates is True
+    assert affected == [anime.id]
+
+
+def test_tvdb_status_air_time_backfill_only_selects_incomplete_tvdb_anime(db_session: Session) -> None:
+    now = datetime.now(UTC)
+    tvdb_anime = add_library_anime(
+        db_session,
+        provider_type='tvdb',
+        external_id='321:1',
+        original_name='TVDB Backfill',
+        names=[],
+    )
+    bangumi_anime = add_library_anime(
+        db_session,
+        provider_type='bangumi',
+        external_id='123',
+        original_name='Bangumi Backfill',
+        names=[],
+    )
+    add_episode(db_session, tvdb_anime, number=1, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    add_episode(db_session, bangumi_anime, number=1, status=EpisodeStatus.UPCOMING, air_at=now + timedelta(days=1))
+    db_session.commit()
+
+    assert _missing_status_air_time_anime_ids(db_session, limit=10) == [tvdb_anime.id]
 
 
 def test_celery_beat_schedule_adds_bangumi_related_anime_discovery() -> None:
@@ -3380,7 +3733,8 @@ def test_celery_beat_schedule_can_disable_delete_untracked_anime() -> None:
         },
     )
 
-    assert 'sync-airing-anime' in celery_app.conf.beat_schedule
+    assert 'sync-incremental-provider-airing-anime' in celery_app.conf.beat_schedule
+    assert 'sync-non-incremental-provider-airing-anime' in celery_app.conf.beat_schedule
     assert 'delete-untracked-anime' not in celery_app.conf.beat_schedule
 
 

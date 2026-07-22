@@ -40,14 +40,31 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await withTimeout(
-      fetch(getApiUrl(path), {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeoutId = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(getApiUrl(path), {
       ...fetchOptions,
       credentials: "include",
       headers,
-    }),
-    timeoutMs,
-  );
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (timedOut) throw new Error("Request timed out");
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
@@ -70,21 +87,4 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   }
 
   return (await response.json()) as T;
-}
-
-function withTimeout(request: Promise<Response>, timeoutMs: number): Promise<Response> {
-  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
-
-  return Promise.race([
-    request,
-    new Promise<Response>((_, reject) => {
-      timeoutId = globalThis.setTimeout(() => {
-        reject(new Error("Request timed out"));
-      }, timeoutMs);
-    }),
-  ]).finally(() => {
-    if (timeoutId !== undefined) {
-      globalThis.clearTimeout(timeoutId);
-    }
-  });
 }

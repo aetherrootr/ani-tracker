@@ -118,9 +118,14 @@ def _build_app_config(app: Flask, config: dict[str, object] | None = None) -> di
         "CELERY_TASK_ALWAYS_EAGER": env_bool("CELERY_TASK_ALWAYS_EAGER"),
 
         # Scheduled maintenance and synchronization settings.
-        "ANIME_SYNC_CRON_HOUR": os.environ.get('ANIME_SYNC_CRON_HOUR', '4,12,20'),
+        "ANIME_SYNC_CRON_HOUR": os.environ.get('ANIME_SYNC_CRON_HOUR', '4'),
         "ANIME_SYNC_CRON_MINUTE": env_int('ANIME_SYNC_CRON_MINUTE', default=0, minimum=0, maximum=59),
+        "NON_INCREMENTAL_ANIME_SYNC_CRON_HOUR": os.environ.get('NON_INCREMENTAL_ANIME_SYNC_CRON_HOUR', '0,4,8,12,16,20'),
+        "NON_INCREMENTAL_ANIME_SYNC_CRON_MINUTE": env_int('NON_INCREMENTAL_ANIME_SYNC_CRON_MINUTE', default=0, minimum=0, maximum=59),
         "ANIME_SYNC_TIMEZONE": os.environ.get('ANIME_SYNC_TIMEZONE') or os.environ.get('TZ'),
+        "EPISODE_STATUS_REFRESH_INTERVAL_SECONDS": env_int('EPISODE_STATUS_REFRESH_INTERVAL_SECONDS', default=60, minimum=10),
+        "PROVIDER_UPDATES_ENABLED": env_bool('PROVIDER_UPDATES_ENABLED', default=True),
+        "PROVIDER_UPDATES_INTERVAL_SECONDS": env_int('PROVIDER_UPDATES_INTERVAL_SECONDS', default=900, minimum=60),
         "UNTRACKED_ANIME_CLEANUP_DISABLED": env_bool('UNTRACKED_ANIME_CLEANUP_DISABLED', default=True),
         "UNTRACKED_ANIME_CLEANUP_CRON_MONTHS": os.environ.get('UNTRACKED_ANIME_CLEANUP_CRON_MONTHS'),
         "UNTRACKED_ANIME_CLEANUP_CRON_DAY": env_int('UNTRACKED_ANIME_CLEANUP_CRON_DAY', default=0, minimum=1, maximum=28),

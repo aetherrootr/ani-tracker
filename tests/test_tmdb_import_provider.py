@@ -237,6 +237,7 @@ def test_tv_detail_imports_only_requested_season_and_related_seasons() -> None:
     assert detail.episodes[0].episode_number == 1
     assert detail.episodes[0].duration == '00:55:00'
     assert detail.episodes[1].status == 'upcoming'
+    assert all(episode.status_air_at is None for episode in detail.episodes)
     assert [item.external_id for item in detail.related_anime] == ['tv:1399:season:1']
     assert detail.related_anime[0].poster_source_url == 'https://image.tmdb.org/t/p/w500/series.jpg'
     assert [title.language for title in detail.related_anime[0].titles] == ['en-US', 'zh-CN', 'zh-TW', 'ja-JP']

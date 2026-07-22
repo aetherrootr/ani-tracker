@@ -24,6 +24,7 @@ from app.models.anime_utils import (
     get_progresses_by_ids_with_anime,
     get_recently_watched_rows,
     get_tracking_list_rows,
+    is_episode_effectively_aired,
 )
 from app.models.progress import UserAnimeProgress, UserAnimeStatus
 from app.models.user import User
@@ -242,6 +243,7 @@ def serialize_tracking_list_item(
         sorted(episode.names, key=lambda item: item.id),
         user,
     )
+    effective_status = EpisodeStatus.AIRED if is_episode_effectively_aired(episode) else episode.status
     return {
         'anime': serialize_anime(anime, progress, user),
         'progress': serialize_progress(progress),
@@ -253,7 +255,7 @@ def serialize_tracking_list_item(
                 'air_at': episode.air_at,
                 'air_at_has_time': episode.air_at_has_time,
                 'duration': episode.duration,
-                'status': episode.status,
+                'status': effective_status,
                 'watched': watched,
                 'watched_at': watched_at,
             },
@@ -357,12 +359,12 @@ def as_aware_utc(value: datetime | None) -> datetime | None:
 
 
 def is_tracking_anime(anime: AnimeMetaInfo, *, now: datetime) -> bool:
-    has_future_episode = any(episode.status != EpisodeStatus.AIRED for episode in anime.episodes)
+    has_future_episode = any(not is_episode_effectively_aired(episode, now=now) for episode in anime.episodes)
     has_missing_imported_episodes = anime.total_episodes is not None and anime.total_episodes > len(anime.episodes)
     aired_times = [
         air_at
         for episode in anime.episodes
-        if episode.status == EpisodeStatus.AIRED and (air_at := as_aware_utc(episode.air_at)) is not None
+        if is_episode_effectively_aired(episode, now=now) and (air_at := as_aware_utc(episode.air_at)) is not None
     ]
     last_aired_at = max(aired_times, default=None)
     is_recently_finished = last_aired_at is not None and last_aired_at >= now - timedelta(days=TRACKING_LIST_RECENT_DAYS)

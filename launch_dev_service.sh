@@ -200,13 +200,33 @@ ensure_process_alive() {
 
 source_env_file() {
   local env_file="$1"
+  local line
+  local key
+  local value
   if [[ -z "${env_file}" ]]; then
     return 0
   fi
-  set -a
-  # shellcheck source=/dev/null
-  source "${env_file}"
-  set +a
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "${line}" || "${line}" == \#* ]] && continue
+    [[ "${line}" == export\ * ]] && line="${line#export }"
+    if [[ "${line}" != *=* ]]; then
+      echo "Invalid env file line in ${env_file}" >&2
+      return 1
+    fi
+    key="${line%%=*}"
+    value="${line#*=}"
+    if [[ ! "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echo "Invalid environment variable name in ${env_file}: ${key}" >&2
+      return 1
+    fi
+    if [[ "${value}" == \"*\" && "${value}" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "${value}" == \'*\' && "${value}" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "${key}=${value}"
+  done < "${env_file}"
 }
 
 load_env_files() {

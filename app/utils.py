@@ -60,7 +60,7 @@ def safe_cron_months(value: object, *, default: str = '2,5,8,11') -> str:
     return months
 
 
-def safe_cron_hours(value: object, *, default: str = '4,12,20') -> str:
+def safe_cron_hours(value: object, *, default: str = '4') -> str:
     hours = str(value or default)
     try:
         crontab_parser(24).parse(hours)

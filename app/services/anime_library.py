@@ -11,7 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from flask import current_app, has_app_context
-from sqlalchemy import String, and_, cast, delete, exists, false, func, or_, select, update
+from sqlalchemy import String, and_, case, cast, delete, exists, false, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.import_provider.base import ImportProvider
@@ -35,6 +35,7 @@ from app.models.anime import (
     EpisodeName,
     EpisodeStatus,
 )
+from app.models.anime_utils import episode_effectively_aired_condition
 from app.models.progress import (
     UserAnimeMetadataEpisodeSnapshot,
     UserAnimeMetadataSnapshot,
@@ -848,6 +849,7 @@ def get_episode_rows_for_progress(
     locate_episode_id: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, bool, int, dict[str, int] | None, list[dict[str, int]]]:
     if progress.metadata_source != UserAnimeMetadataSource.LOCAL_SNAPSHOT.value:
+        now = datetime.now(UTC)
         watch_join = and_(
             UserEpisodeProgress.episode_id == Episode.id,
             UserEpisodeProgress.user_id == progress.user_id,
@@ -898,7 +900,10 @@ def get_episode_rows_for_progress(
                 Episode.air_at,
                 Episode.air_at_has_time,
                 Episode.duration,
-                Episode.status,
+                case(
+                    (episode_effectively_aired_condition(Episode, now=now), EpisodeStatus.AIRED.value),
+                    else_=cast(Episode.status, String),
+                ).label('status'),
                 watched.label('watched'),
                 UserEpisodeProgress.watched_at,
                 UserEpisodeProgress.preferred_name_id,
@@ -1055,7 +1060,7 @@ def set_episode_watch_state_bulk(
     else:
         episode_statement = select(Episode).where(Episode.anime_id == progress.anime_id)
         if scope == 'aired':
-            episode_statement = episode_statement.where(Episode.status == EpisodeStatus.AIRED)
+            episode_statement = episode_statement.where(episode_effectively_aired_condition(Episode, now=now))
         elif scope == 'through':
             episode_statement = episode_statement.where(Episode.episode_number <= through_episode_number)
         upstream_episodes = session.scalars(episode_statement).all()
@@ -1292,10 +1297,27 @@ def recalculate_user_anime_progress(
         progress.status = UserAnimeStatus.COMPLETED
         return
     if anime is not None and anime.total_episodes is None:
+        now = datetime.now(UTC)
+        has_future_episode = session.scalar(
+            select(
+                exists().where(
+                    Episode.anime_id == progress.anime_id,
+                    or_(
+                        Episode.status == EpisodeStatus.DELAYED,
+                        and_(
+                            Episode.status == EpisodeStatus.UPCOMING,
+                            ~episode_effectively_aired_condition(Episode, now=now),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        if has_future_episode:
+            return
         aired_count = session.scalar(
             select(func.count(Episode.id)).where(
                 Episode.anime_id == progress.anime_id,
-                Episode.status == EpisodeStatus.AIRED,
+                episode_effectively_aired_condition(Episode, now=now),
             ),
         ) or 0
         watched_aired_count = session.scalar(
@@ -1303,7 +1325,7 @@ def recalculate_user_anime_progress(
             .join(Episode, Episode.id == UserEpisodeProgress.episode_id)
             .where(
                 Episode.anime_id == progress.anime_id,
-                Episode.status == EpisodeStatus.AIRED,
+                episode_effectively_aired_condition(Episode, now=now),
                 UserEpisodeProgress.user_id == progress.user_id,
                 UserEpisodeProgress.watched.is_(True),
             ),
@@ -1439,9 +1461,15 @@ def _upsert_episodes(session: Session, anime: AnimeMetaInfo, episodes: Sequence[
             existing[item.episode_number] = episode
         resolved_air_at = item.air_at or fallback_air_at
         resolved_title = item.title or fallback_title
+        episode.provider_external_id = item.external_id
         episode.original_title = resolved_title
         episode.air_at = resolved_air_at
         episode.air_at_has_time = item.air_at_has_time if item.air_at is not None else False
+        episode.status_air_at = _episode_status_air_at(
+            resolved_air_at,
+            air_at_has_time=episode.air_at_has_time,
+            status_air_at=item.status_air_at,
+        )
         episode.duration = item.duration
         episode.status = _resolved_episode_status(
             item.status,
@@ -1602,6 +1630,22 @@ def _resolved_episode_status(
         today = current_time.astimezone(_anime_sync_timezone()).date()
         return EpisodeStatus.AIRED if air_at.date() <= today else EpisodeStatus.UPCOMING
     return _episode_status(value)
+
+
+def _episode_status_air_at(
+    air_at: datetime | None,
+    *,
+    air_at_has_time: bool,
+    status_air_at: datetime | None,
+) -> datetime | None:
+    if air_at is None:
+        return None
+    if air_at_has_time:
+        return air_at
+    if status_air_at is not None:
+        return status_air_at
+    timezone = _anime_sync_timezone()
+    return datetime.combine(air_at.date(), datetime.min.time(), tzinfo=timezone).astimezone(UTC)
 
 
 def _anime_sync_timezone() -> ZoneInfo:
