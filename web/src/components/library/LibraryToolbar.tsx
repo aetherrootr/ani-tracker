@@ -105,7 +105,7 @@ export function LibraryToolbar(props: Props) {
     }
 
     function onPointerDown(event: PointerEvent) {
-      if (!desktop || panelRef.current?.contains(event.target as Node) || triggerRef.current?.contains(event.target as Node)) return;
+      if (!desktop || isFilterPanelTarget(event.target, panelRef.current) || triggerRef.current?.contains(event.target as Node)) return;
       closeFiltersEvent();
     }
 
@@ -286,4 +286,14 @@ function currentOptions(value: Options): Options {
 
 function countActiveOptions(value: Options) {
   return Number(value.status !== DEFAULT_OPTIONS.status) + Number(value.provider !== DEFAULT_OPTIONS.provider) + Number(value.unwatched !== DEFAULT_OPTIONS.unwatched) + Number(value.airStatus !== DEFAULT_OPTIONS.airStatus) + Number(value.seasonZero !== DEFAULT_OPTIONS.seasonZero) + Number(value.sort !== DEFAULT_OPTIONS.sort || value.order !== DEFAULT_OPTIONS.order);
+}
+
+function isFilterPanelTarget(target: EventTarget | null, panel: HTMLDivElement | null) {
+  if (!(target instanceof Node) || !panel) return false;
+  if (panel.contains(target)) return true;
+  if (!(target instanceof Element)) return false;
+
+  const listboxId = target.closest<HTMLElement>("[data-select-listbox]")?.id;
+  if (!listboxId) return false;
+  return Array.from(panel.querySelectorAll<HTMLElement>("[aria-controls]")).some((control) => control.getAttribute("aria-controls") === listboxId);
 }

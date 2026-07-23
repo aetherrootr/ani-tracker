@@ -1666,6 +1666,7 @@ input[type="search"]::-webkit-search-decoration {
   right: 0;
   z-index: var(--z-popover);
   width: min(30rem, calc(100vw - 2rem));
+  height: min(42rem, calc(100vh - 8rem));
   max-height: min(42rem, calc(100vh - 8rem));
   display: flex;
   flex-direction: column;
@@ -1853,11 +1854,13 @@ input[type="search"]::-webkit-search-decoration {
   scroll-padding-bottom: 1rem;
 }
 
+.library-filter-popover .library-filter-content,
 .library-filter-sheet .library-filter-content {
   flex: 1 1 0;
   overflow: hidden;
 }
 
+.library-filter-popover .library-filter-content-viewport,
 .library-filter-sheet .library-filter-content-viewport {
   position: absolute;
   inset: 0;
