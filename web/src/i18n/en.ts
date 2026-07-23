@@ -746,6 +746,8 @@ export const en = {
     droppedBanner: "This anime is dropped and hidden from the library list.",
     heroSettings: "Open anime info settings",
     heroMenu: {
+      title: "Page settings",
+      close: "Close page settings",
       content: "Content display",
       maintenance: "Data maintenance",
     },

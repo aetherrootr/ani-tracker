@@ -8,7 +8,6 @@ import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { assetUrl, updateAnimeNamePreference, updatePosterPreference, updateSummaryPreference } from "@/features/library/api";
 import type { Anime } from "@/features/library/types";
 import { cn } from "@/lib/utils";
@@ -53,7 +52,7 @@ export function AnimeHeroSettingsMenu({
       if (!trigger) return;
       const rect = trigger.getBoundingClientRect();
       if (window.innerWidth < 768) {
-        setMenuRect({ left: 12, width: window.innerWidth - 24 });
+        setMenuRect({ left: 0, width: window.innerWidth });
       } else {
         const width = 288;
         setMenuRect({ left: Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16)), top: rect.bottom + 8, width });
@@ -63,7 +62,17 @@ export function AnimeHeroSettingsMenu({
       const target = event.target as Node;
       if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) setMenuOpen(false);
     }
+    const mobile = window.innerWidth < 768;
     function handleKeyDown(event: KeyboardEvent) {
+      if (mobile && event.key === "Tab") {
+        const focusable = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (!first || !last) event.preventDefault();
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        return;
+      }
       const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not([disabled])") ?? []);
       const current = items.indexOf(document.activeElement as HTMLButtonElement);
       let next = current;
@@ -80,6 +89,16 @@ export function AnimeHeroSettingsMenu({
       event.preventDefault();
       items[next]?.focus();
     }
+    const appShell = document.getElementById("app-shell");
+    const scrollContainer = document.getElementById("app-mobile-scroll-container");
+    const previousInert = appShell?.inert ?? false;
+    const previousOverflow = scrollContainer?.style.overflow ?? "";
+    if (mobile) {
+      appShell?.setAttribute("inert", "");
+      if (scrollContainer) scrollContainer.style.overflow = "hidden";
+      document.documentElement.classList.add("dialog-scroll-lock");
+      document.body.classList.add("dialog-scroll-lock");
+    }
     positionMenu();
     const frame = requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not([disabled])")?.focus());
     window.addEventListener("pointerdown", closeFromOutside);
@@ -92,6 +111,12 @@ export function AnimeHeroSettingsMenu({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("resize", positionMenu);
       window.removeEventListener("scroll", positionMenu, true);
+      if (mobile) {
+        if (appShell && !previousInert) appShell.removeAttribute("inert");
+        if (scrollContainer) scrollContainer.style.overflow = previousOverflow;
+        document.documentElement.classList.remove("dialog-scroll-lock");
+        document.body.classList.remove("dialog-scroll-lock");
+      }
     };
   }, [menuOpen]);
 
@@ -152,36 +177,45 @@ export function AnimeHeroSettingsMenu({
           <Settings className="h-4 w-4" />
         </Button>
         {menuOpen && menuRect && typeof document !== "undefined" ? createPortal(
-          <div ref={menuRef} id="anime-hero-settings-menu" className="glass-dialog fixed bottom-3 z-[100] max-h-[calc(100svh-1.5rem)] overflow-y-auto rounded-2xl border p-2 text-sm text-foreground md:bottom-auto" style={menuRect} role="menu">
-            <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("library.heroMenu.content")}</div>
-            <MenuButton onClick={() => { setDialog("name"); setMenuOpen(false); }}>{t("library.changeTitle")}</MenuButton>
-            <MenuButton onClick={() => { setDialog("poster"); setMenuOpen(false); }}>{t("library.changePoster")}</MenuButton>
-            <MenuButton onClick={() => { setDialog("summary"); setMenuOpen(false); }}>{t("library.summaryPreference")}</MenuButton>
-            <div className="my-2 h-px bg-[var(--divider)]" />
-            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("library.heroMenu.maintenance")}</div>
-            {onSyncAnime ? (
-              <MenuButton disabled={isSyncing || isLocalSnapshot} onClick={() => { onSyncAnime(); setMenuOpen(false); }}>
-                <span className="inline-flex items-center gap-2">
-                  <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
-                  {isSyncing ? t("library.syncing") : t("library.syncAnime")}
-                </span>
-              </MenuButton>
-            ) : null}
-            {canDiscoverRelatedAnime && onDiscoverRelatedAnime ? (
-              <MenuButton disabled={isDiscoveringSeasons} onClick={() => { onDiscoverRelatedAnime(); setMenuOpen(false); }}>
-                <span className="inline-flex items-center gap-2">
-                  {isDiscoveringSeasons ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  {isDiscoveringSeasons ? t("library.tvdbSeasonDiscovering") : t("library.tvdbSeasonDiscovery")}
-                </span>
-              </MenuButton>
-            ) : null}
-            {onManageManualRelated ? (
-              <MenuButton onClick={() => { onManageManualRelated(); setMenuOpen(false); }}>
-                <span className="block">{t("library.manageManualRelatedAnime")}</span>
-                <span className="mt-0.5 block text-xs font-normal leading-5 text-muted-foreground">{t("library.manageManualRelatedAnimeHint")}</span>
-              </MenuButton>
-            ) : null}
-          </div>,
+          <>
+            <div className="fixed inset-x-0 top-0 z-[calc(var(--z-popover)-1)] h-[var(--app-viewport-height)] bg-background/88 backdrop-blur-md md:hidden" aria-hidden="true" />
+            <div ref={menuRef} id="anime-hero-settings-menu" className="glass-dialog fixed bottom-0 z-[var(--z-select)] flex max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] flex-col overflow-hidden rounded-t-[var(--radius-modal)] border text-sm text-foreground md:bottom-auto md:max-h-[calc(var(--app-viewport-height)-2rem)] md:rounded-2xl" style={menuRect} role="menu">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b p-4 md:hidden">
+                <h2 className="text-lg font-semibold">{t("library.heroMenu.title")}</h2>
+                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0" aria-label={t("library.heroMenu.close")} onClick={() => setMenuOpen(false)}><X className="h-4 w-4" /></Button>
+              </div>
+              <div className="min-h-0 overflow-y-auto overscroll-contain p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("library.heroMenu.content")}</div>
+                <MenuButton onClick={() => { setDialog("name"); setMenuOpen(false); }}>{t("library.changeTitle")}</MenuButton>
+                <MenuButton onClick={() => { setDialog("poster"); setMenuOpen(false); }}>{t("library.changePoster")}</MenuButton>
+                <MenuButton onClick={() => { setDialog("summary"); setMenuOpen(false); }}>{t("library.summaryPreference")}</MenuButton>
+                <div className="my-2 h-px bg-[var(--divider)]" />
+                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("library.heroMenu.maintenance")}</div>
+                {onSyncAnime ? (
+                  <MenuButton disabled={isSyncing || isLocalSnapshot} onClick={() => { onSyncAnime(); setMenuOpen(false); }}>
+                    <span className="inline-flex items-center gap-2">
+                      <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
+                      {isSyncing ? t("library.syncing") : t("library.syncAnime")}
+                    </span>
+                  </MenuButton>
+                ) : null}
+                {canDiscoverRelatedAnime && onDiscoverRelatedAnime ? (
+                  <MenuButton disabled={isDiscoveringSeasons} onClick={() => { onDiscoverRelatedAnime(); setMenuOpen(false); }}>
+                    <span className="inline-flex items-center gap-2">
+                      {isDiscoveringSeasons ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      {isDiscoveringSeasons ? t("library.tvdbSeasonDiscovering") : t("library.tvdbSeasonDiscovery")}
+                    </span>
+                  </MenuButton>
+                ) : null}
+                {onManageManualRelated ? (
+                  <MenuButton onClick={() => { onManageManualRelated(); setMenuOpen(false); }}>
+                    <span className="block">{t("library.manageManualRelatedAnime")}</span>
+                    <span className="mt-0.5 block text-xs font-normal leading-5 text-muted-foreground">{t("library.manageManualRelatedAnimeHint")}</span>
+                  </MenuButton>
+                ) : null}
+              </div>
+            </div>
+          </>,
           document.body,
         ) : null}
       </div>
@@ -277,19 +311,19 @@ function ChoiceDialog({ open, title, description, error, children, restoreFocusR
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-background/88 p-3 backdrop-blur-md sm:items-center sm:p-4" role="presentation" onClick={onClose}>
-      <div ref={dialogRef} className="glass-dialog max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-hidden rounded-[var(--radius-modal)] border text-foreground" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onClick={(event) => event.stopPropagation()}>
-        <ScrollArea ariaLabel={t("app.scrollableContent")} className="max-h-[calc(100dvh-1.5rem)]" viewportClassName="max-h-[calc(100dvh-1.5rem)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
-              {description ? <p id={descriptionId} className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p> : null}
-            </div>
-            <Button type="button" variant="ghost" size="icon" className="min-h-11 min-w-11" data-dialog-close aria-label={t("library.closeChoiceDialog")} onClick={onClose}><X className="h-4 w-4" /></Button>
+    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-end justify-center bg-background/88 p-0 backdrop-blur-md sm:items-center sm:p-4" role="presentation" onClick={onClose}>
+      <div ref={dialogRef} className="glass-dialog flex max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] w-full max-w-lg flex-col overflow-hidden rounded-t-[var(--radius-modal)] border text-foreground sm:max-h-[calc(var(--app-viewport-height)-2rem)] sm:rounded-[var(--radius-modal)]" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onClick={(event) => event.stopPropagation()}>
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b p-4 sm:p-5">
+          <div className="min-w-0">
+            <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
+            {description ? <p id={descriptionId} className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p> : null}
           </div>
+          <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0 sm:h-[38px] sm:w-[38px]" data-dialog-close aria-label={t("library.closeChoiceDialog")} onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">
           <div className="space-y-2" role="radiogroup">{children}</div>
-          {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
-        </ScrollArea>
+          {error ? <p className="mt-3 text-sm text-destructive" role="alert">{error}</p> : null}
+        </div>
       </div>
     </div>,
     document.body,

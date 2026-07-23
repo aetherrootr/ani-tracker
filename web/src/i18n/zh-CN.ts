@@ -743,6 +743,8 @@ export const zhCN = {
     droppedBanner: "该动画已设为 dropped，并会从资料库列表中隐藏。",
     heroSettings: "打开动画信息设置菜单",
     heroMenu: {
+      title: "页面设置",
+      close: "关闭页面设置",
       content: "内容显示",
       maintenance: "数据维护",
     },
