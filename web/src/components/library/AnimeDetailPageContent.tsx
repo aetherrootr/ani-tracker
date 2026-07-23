@@ -409,10 +409,10 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
             ) : <NoPoster />}
           </div>
 
-          <div className="anime-detail-identity min-w-0 space-y-3">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+          <div className="anime-detail-identity min-w-0" data-has-original={showOriginal || undefined}>
+            <div className="anime-detail-identity-header min-w-0">
               <div className="min-w-0">
-                <h1 className="line-clamp-2 min-w-0 [overflow-wrap:anywhere] text-[clamp(24px,7cqw,52px)] font-semibold leading-[1.06] tracking-tight">{data.anime.displayName}</h1>
+                <h1 className="anime-detail-title min-w-0 [overflow-wrap:anywhere] text-[clamp(24px,7cqw,52px)] font-semibold leading-[1.06] tracking-tight">{data.anime.displayName}</h1>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent-solid)]">
                     {t(`library.status.${data.progress.status}`)}
@@ -429,22 +429,22 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                   {isPosterRefreshing ? <span className="text-xs text-[var(--text-tertiary)]">{t("library.posterRefreshing")}</span> : null}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <CopyAnimeTitleButton title={data.anime.displayName} />
-                <AnimeHeroSettingsMenu
-                  anime={data.anime}
-                  isSyncing={isSyncing}
-                  isDiscoveringSeasons={isDiscoveringSeasons}
-                  canDiscoverRelatedAnime={canDiscoverRelatedAnime}
-                  isLocalSnapshot={isLocalSnapshot}
-                  onAnimeChange={updateAnime}
-                  onSyncAnime={() => void syncCurrentAnime()}
-                  onDiscoverRelatedAnime={() => void discoverSeasons()}
-                  onManageManualRelated={() => setManualRelatedOpen(true)}
-                />
-              </div>
             </div>
-            {showOriginal ? <p className="text-muted-foreground">{data.anime.originalName}</p> : null}
+            {showOriginal ? <p className="anime-detail-original-title min-w-0 [overflow-wrap:anywhere] text-muted-foreground">{data.anime.originalName}</p> : null}
+            <div className="anime-detail-hero-actions flex items-center gap-1">
+              <CopyAnimeTitleButton title={data.anime.displayName} />
+              <AnimeHeroSettingsMenu
+                anime={data.anime}
+                isSyncing={isSyncing}
+                isDiscoveringSeasons={isDiscoveringSeasons}
+                canDiscoverRelatedAnime={canDiscoverRelatedAnime}
+                isLocalSnapshot={isLocalSnapshot}
+                onAnimeChange={updateAnime}
+                onSyncAnime={() => void syncCurrentAnime()}
+                onDiscoverRelatedAnime={() => void discoverSeasons()}
+                onManageManualRelated={() => setManualRelatedOpen(true)}
+              />
+            </div>
           </div>
 
           <div className="anime-detail-summary max-w-[72ch] min-w-0">
@@ -1251,12 +1251,12 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
   }
 
   return (
-    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[90] flex items-end justify-center bg-background/85 p-0 backdrop-blur-md sm:items-center sm:p-4" role="dialog" aria-modal="true">
-      <div className="glass-dialog flex max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] w-full max-w-2xl flex-col rounded-t-[var(--radius-modal)] border text-foreground sm:max-h-[85svh] sm:rounded-2xl">
-        <div className="border-b p-4 sm:p-5">
+    <div className="anime-detail-sheet-layer mobile-fixed-below-top-nav fixed inset-0 z-[90] flex items-end justify-center bg-background/85 p-0 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div className="anime-detail-sheet-panel library-picker-sheet-panel glass-dialog flex max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] w-full max-w-2xl flex-col rounded-t-[var(--radius-modal)] border text-foreground">
+        <div className="anime-detail-sheet-header anime-detail-sheet-diffuse-bottom p-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">{title}</h2>
-            <Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-[38px] sm:w-[38px]" aria-label={t("library.cancel")} onClick={onClose}><X className="h-4 w-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" className="anime-detail-sheet-close h-11 w-11" aria-label={t("library.cancel")} onClick={onClose}><X className="h-4 w-4" /></Button>
           </div>
           <label className="mt-4 flex items-center gap-2 rounded-[var(--radius-pill)] border bg-background/50 px-3 py-2">
             <Search className="h-4 w-4 text-muted-foreground" />
@@ -1293,6 +1293,7 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
 
 function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedItems, existingRelatedAnimeIds, onClose, onChanged }: { open: boolean; animeId: number; currentAnimeTitle: string; relatedItems: RelatedAnime[]; existingRelatedAnimeIds: number[]; onClose: () => void; onChanged: () => void }) {
   const t = useTranslations();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState<ManualRelatedAnime[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1330,6 +1331,12 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
       });
     return () => controller.abort();
   }, [animeId, open, t]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLButtonElement>("[data-dialog-close]")?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   async function addManualRelation(anime: Anime) {
     setIsSaving(true);
@@ -1431,15 +1438,15 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
   }
 
   return createPortal(
-    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-end justify-center bg-background/85 p-0 backdrop-blur-md sm:items-center sm:p-4" role="dialog" aria-modal="true">
-      <div className={cn("glass-dialog flex w-full max-w-2xl flex-col overflow-hidden rounded-t-[var(--radius-modal)] border text-foreground sm:rounded-2xl", configurableRelatedItems.length > 0 ? "h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] max-h-[48rem] sm:h-[88svh]" : "max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] sm:max-h-[88svh]")}>
-        <div className="border-b p-4 sm:p-5">
+    <div className="anime-detail-sheet-layer mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-end justify-center bg-background/85 p-0 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div ref={dialogRef} className={cn("anime-detail-sheet-panel manual-related-sheet-panel glass-dialog flex w-full max-w-2xl flex-col overflow-hidden rounded-t-[var(--radius-modal)] border text-foreground", configurableRelatedItems.length > 0 ? "manual-related-sheet-panel-split h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] max-h-[48rem]" : "max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))]")}>
+        <div className="anime-detail-sheet-header anime-detail-sheet-diffuse-bottom p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-lg font-semibold">{t("library.manualRelatedTitle")}</h2>
               <p className="mt-1 break-words text-sm text-muted-foreground">{currentAnimeTitle} · {t("library.manualRelatedDescription")}</p>
             </div>
-            <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0 sm:h-[38px] sm:w-[38px]" aria-label={t("library.cancel")} onClick={onClose}><X className="h-4 w-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" className="anime-detail-sheet-close h-11 w-11 shrink-0" data-dialog-close aria-label={t("library.cancel")} onClick={onClose}><X className="h-4 w-4" /></Button>
           </div>
           <Button type="button" className="mt-4" disabled={isSaving} onClick={() => setPickerOpen(true)}><Plus className="h-4 w-4" />{t("library.manualRelatedAdd")}</Button>
         </div>
@@ -1469,8 +1476,8 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
             ))}
           </div>
           {configurableRelatedItems.length > 0 ? (
-            <div className="flex min-h-0 flex-1 flex-col border-t">
-              <div className="shrink-0 px-4 pt-4">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="anime-detail-sheet-section-header anime-detail-sheet-diffuse-both shrink-0 px-4 pt-4">
                 <h3 className="font-semibold">{t("library.relatedAnimeMappingTitle")}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeMappingDescription")}</p>
               </div>
