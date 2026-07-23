@@ -16,6 +16,13 @@ export const zhCN = {
     logout: "退出登录",
     loggingOut: "正在退出",
     scrollableContent: "可滚动内容",
+    pullToRefresh: {
+      pull: "下拉刷新",
+      release: "松开即可刷新",
+      refreshing: "正在刷新",
+      complete: "刷新完成",
+      failed: "刷新失败，请重试",
+    },
     install: {
       title: "安装 Ani Tracker",
       description: "添加到主屏幕，获得无浏览器工具栏的全屏体验。",

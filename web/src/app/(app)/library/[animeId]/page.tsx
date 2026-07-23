@@ -10,5 +10,5 @@ export default async function AnimeDetailPage({ params }: { params: Promise<{ an
     notFound();
   }
 
-  return <AnimeDetailPageContent animeId={parsed} />;
+  return <AnimeDetailPageContent key={parsed} animeId={parsed} />;
 }

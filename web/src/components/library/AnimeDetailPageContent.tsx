@@ -10,6 +10,7 @@ import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from 
 import { createPortal } from "react-dom";
 
 import { Badge } from "@/components/ui/badge";
+import { MobilePullToRefresh } from "@/components/layout/MobilePullToRefresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -47,7 +48,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   const t = useTranslations();
   const locale = useLocale();
   const router = useRouter();
-  const { data, setData, isLoading, error, retry } = useAnimeDetail(animeId);
+  const { data, setData, isLoading, error, retry, refresh } = useAnimeDetail(animeId);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [statusMenuRect, setStatusMenuRect] = useState<{ left: number; top: number; width: number } | null>(null);
   const statusTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -229,8 +230,8 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }
 
   async function refreshDetail() {
-    const refreshed = await getAnimeDetail(animeId);
-    setData(refreshed);
+    const applied = await refresh();
+    if (applied) setEpisodeRefreshKey((current) => current + 1);
   }
 
   async function syncCurrentAnime() {
@@ -298,16 +299,16 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }
 
   if (isLoading) {
-    return <div className="space-y-6"><SkeletonBlock className="h-[420px]" /><SkeletonBlock className="h-48" /></div>;
+    return <MobilePullToRefresh onRefresh={refreshDetail} disabled><div className="space-y-6"><SkeletonBlock className="h-[420px]" /><SkeletonBlock className="h-48" /></div></MobilePullToRefresh>;
   }
 
   if (error || !data) {
     return (
-      <div className="rounded-2xl border bg-card p-8 text-center">
+      <MobilePullToRefresh onRefresh={refreshDetail}><div className="rounded-2xl border bg-card p-8 text-center">
         <p className="font-medium">{t("library.loadFailed")}</p>
         <p className="mt-2 text-sm text-muted-foreground">{error}</p>
         <Button type="button" className="mt-4" onClick={retry}>{t("search.retry")}</Button>
-      </div>
+      </div></MobilePullToRefresh>
     );
   }
 
@@ -339,6 +340,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
   }
 
   return (
+    <MobilePullToRefresh onRefresh={refreshDetail} disabled={isSyncing || isPosterRefreshing || statusPending}>
     <div className="mx-auto max-w-[1440px] space-y-8">
       {data.progress.status === "dropped" ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-destructive/30 bg-[color-mix(in_srgb,var(--destructive)_8%,var(--surface-card))] p-4 shadow-[var(--shadow-low)] sm:flex-row sm:items-center sm:justify-between">
@@ -588,6 +590,7 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
         onClose={() => setSummaryDialogOpen(false)}
       />
     </div>
+    </MobilePullToRefresh>
   );
 }
 

@@ -19,6 +19,13 @@ export const en = {
     logout: "Log out",
     loggingOut: "Logging out",
     scrollableContent: "Scrollable content",
+    pullToRefresh: {
+      pull: "Pull to refresh",
+      release: "Release to refresh",
+      refreshing: "Refreshing",
+      complete: "Refresh complete",
+      failed: "Refresh failed. Try again",
+    },
     install: {
       title: "Install Ani Tracker",
       description: "Add it to your Home Screen for a full-screen experience without browser controls.",

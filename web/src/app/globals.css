@@ -3184,6 +3184,75 @@ body.episode-ticket-drag-lock {
 }
 
 @media not all and (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .mobile-pull-refresh {
+    position: relative;
+    min-height: 100%;
+  }
+
+  .mobile-pull-refresh-content {
+    transform: none;
+    transition: transform 200ms var(--ease-standard);
+  }
+
+  .mobile-pull-refresh[data-state="pulling"] .mobile-pull-refresh-content,
+  .mobile-pull-refresh[data-state="armed"] .mobile-pull-refresh-content {
+    transform: translate3d(0, var(--pull-distance, 0), 0);
+    transition: none;
+    will-change: transform;
+  }
+
+  .mobile-pull-refresh-indicator {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 2;
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 0.45rem;
+    transform: translate3d(-50%, calc(var(--pull-distance, 0px) - 48px), 0);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0;
+    transition: transform 200ms var(--ease-standard), opacity 140ms ease-out;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .mobile-pull-refresh[data-state="pulling"] .mobile-pull-refresh-indicator,
+  .mobile-pull-refresh[data-state="armed"] .mobile-pull-refresh-indicator {
+    transition: opacity 140ms ease-out;
+  }
+
+  .mobile-pull-refresh[data-state]:not([data-state="idle"]) .mobile-pull-refresh-indicator {
+    opacity: 1;
+  }
+
+  .mobile-pull-refresh-indicator-icon {
+    width: 1rem;
+    height: 1rem;
+    transition: transform 180ms var(--ease-standard), color 140ms ease-out;
+  }
+
+  .mobile-pull-refresh[data-state="armed"] .mobile-pull-refresh-indicator-icon {
+    color: var(--accent-solid);
+    transform: rotate(135deg) scale(1.08);
+  }
+
+  .mobile-pull-refresh[data-state="refreshing"] .mobile-pull-refresh-indicator-icon {
+    color: var(--accent-solid);
+    animation: spin 850ms linear infinite;
+  }
+
+  .mobile-pull-refresh[data-state="complete"] .mobile-pull-refresh-indicator-icon {
+    color: var(--watched);
+  }
+
+  .mobile-pull-refresh[data-state="error"] .mobile-pull-refresh-indicator-icon {
+    color: var(--destructive);
+  }
+
   html,
   body {
     touch-action: pan-x pan-y;
@@ -3194,6 +3263,24 @@ body.episode-ticket-drag-lock {
     overflow: hidden;
   }
 
+}
+
+@media (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .mobile-pull-refresh-indicator {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-pull-refresh-content,
+  .mobile-pull-refresh-indicator,
+  .mobile-pull-refresh-indicator-icon {
+    transition: none !important;
+  }
+
+  .mobile-pull-refresh[data-state="refreshing"] .mobile-pull-refresh-indicator-icon {
+    animation: none;
+  }
 }
 
 .library-confetti-piece {
