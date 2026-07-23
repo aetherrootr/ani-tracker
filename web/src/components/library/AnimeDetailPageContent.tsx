@@ -409,10 +409,10 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
             ) : <NoPoster />}
           </div>
 
-          <div className="anime-detail-identity min-w-0 space-y-3">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+          <div className="anime-detail-identity min-w-0" data-has-original={showOriginal || undefined}>
+            <div className="anime-detail-identity-header min-w-0">
               <div className="min-w-0">
-                <h1 className="line-clamp-2 min-w-0 [overflow-wrap:anywhere] text-[clamp(24px,7cqw,52px)] font-semibold leading-[1.06] tracking-tight">{data.anime.displayName}</h1>
+                <h1 className="anime-detail-title min-w-0 [overflow-wrap:anywhere] text-[clamp(24px,7cqw,52px)] font-semibold leading-[1.06] tracking-tight">{data.anime.displayName}</h1>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-medium text-[var(--accent-solid)]">
                     {t(`library.status.${data.progress.status}`)}
@@ -429,22 +429,22 @@ export function AnimeDetailPageContent({ animeId }: { animeId: number }) {
                   {isPosterRefreshing ? <span className="text-xs text-[var(--text-tertiary)]">{t("library.posterRefreshing")}</span> : null}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <CopyAnimeTitleButton title={data.anime.displayName} />
-                <AnimeHeroSettingsMenu
-                  anime={data.anime}
-                  isSyncing={isSyncing}
-                  isDiscoveringSeasons={isDiscoveringSeasons}
-                  canDiscoverRelatedAnime={canDiscoverRelatedAnime}
-                  isLocalSnapshot={isLocalSnapshot}
-                  onAnimeChange={updateAnime}
-                  onSyncAnime={() => void syncCurrentAnime()}
-                  onDiscoverRelatedAnime={() => void discoverSeasons()}
-                  onManageManualRelated={() => setManualRelatedOpen(true)}
-                />
-              </div>
             </div>
-            {showOriginal ? <p className="text-muted-foreground">{data.anime.originalName}</p> : null}
+            {showOriginal ? <p className="anime-detail-original-title min-w-0 [overflow-wrap:anywhere] text-muted-foreground">{data.anime.originalName}</p> : null}
+            <div className="anime-detail-hero-actions flex items-center gap-1">
+              <CopyAnimeTitleButton title={data.anime.displayName} />
+              <AnimeHeroSettingsMenu
+                anime={data.anime}
+                isSyncing={isSyncing}
+                isDiscoveringSeasons={isDiscoveringSeasons}
+                canDiscoverRelatedAnime={canDiscoverRelatedAnime}
+                isLocalSnapshot={isLocalSnapshot}
+                onAnimeChange={updateAnime}
+                onSyncAnime={() => void syncCurrentAnime()}
+                onDiscoverRelatedAnime={() => void discoverSeasons()}
+                onManageManualRelated={() => setManualRelatedOpen(true)}
+              />
+            </div>
           </div>
 
           <div className="anime-detail-summary max-w-[72ch] min-w-0">
@@ -1251,19 +1251,19 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
   }
 
   return (
-    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[90] flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
-      <div className="glass-dialog flex max-h-[85svh] w-full max-w-2xl flex-col rounded-2xl border text-foreground">
-        <div className="border-b p-5">
+    <div className="anime-detail-sheet-layer mobile-fixed-below-top-nav fixed inset-0 z-[90] flex items-end justify-center bg-background/85 p-0 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div className="anime-detail-sheet-panel library-picker-sheet-panel glass-dialog flex max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] w-full max-w-2xl flex-col rounded-t-[var(--radius-modal)] border text-foreground">
+        <div className="anime-detail-sheet-header anime-detail-sheet-diffuse-bottom p-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">{title}</h2>
-            <Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" className="anime-detail-sheet-close h-11 w-11" aria-label={t("library.cancel")} onClick={onClose}><X className="h-4 w-4" /></Button>
           </div>
           <label className="mt-4 flex items-center gap-2 rounded-[var(--radius-pill)] border bg-background/50 px-3 py-2">
             <Search className="h-4 w-4 text-muted-foreground" />
             <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("library.libraryPickerSearch")} className="border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" />
           </label>
         </div>
-        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1" viewportClassName="h-full space-y-2 p-4">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.libraryPickerEmpty")}</p> : null}
           {items.map((item) => {
@@ -1285,7 +1285,7 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
               </button>
             );
           })}
-        </ScrollArea>
+        </div>
       </div>
     </div>
   );
@@ -1293,6 +1293,7 @@ function LibraryAnimePickerDialog({ open, title, initialQuery, excludeAnimeIds, 
 
 function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedItems, existingRelatedAnimeIds, onClose, onChanged }: { open: boolean; animeId: number; currentAnimeTitle: string; relatedItems: RelatedAnime[]; existingRelatedAnimeIds: number[]; onClose: () => void; onChanged: () => void }) {
   const t = useTranslations();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState<ManualRelatedAnime[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1330,6 +1331,12 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
       });
     return () => controller.abort();
   }, [animeId, open, t]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLButtonElement>("[data-dialog-close]")?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   async function addManualRelation(anime: Anime) {
     setIsSaving(true);
@@ -1431,76 +1438,80 @@ function ManualRelatedAnimeDialog({ open, animeId, currentAnimeTitle, relatedIte
   }
 
   return createPortal(
-    <div className="mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
-      <div className="glass-dialog flex max-h-[88svh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border text-foreground">
-        <div className="border-b p-5">
+    <div className="anime-detail-sheet-layer mobile-fixed-below-top-nav fixed inset-0 z-[80] flex items-end justify-center bg-background/85 p-0 backdrop-blur-md" role="dialog" aria-modal="true">
+      <div ref={dialogRef} className={cn("anime-detail-sheet-panel manual-related-sheet-panel glass-dialog flex w-full max-w-2xl flex-col overflow-hidden rounded-t-[var(--radius-modal)] border text-foreground", configurableRelatedItems.length > 0 ? "manual-related-sheet-panel-split h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))] max-h-[48rem]" : "max-h-[calc(var(--app-viewport-height)-max(1rem,env(safe-area-inset-top)))]")}>
+        <div className="anime-detail-sheet-header anime-detail-sheet-diffuse-bottom p-4">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-lg font-semibold">{t("library.manualRelatedTitle")}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{currentAnimeTitle} · {t("library.manualRelatedDescription")}</p>
+              <p className="mt-1 break-words text-sm text-muted-foreground">{currentAnimeTitle} · {t("library.manualRelatedDescription")}</p>
             </div>
-            <Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" className="anime-detail-sheet-close h-11 w-11 shrink-0" data-dialog-close aria-label={t("library.cancel")} onClick={onClose}><X className="h-4 w-4" /></Button>
           </div>
           <Button type="button" className="mt-4" disabled={isSaving} onClick={() => setPickerOpen(true)}><Plus className="h-4 w-4" />{t("library.manualRelatedAdd")}</Button>
         </div>
-        <ScrollArea ariaLabel={t("app.scrollableContent")} className="min-h-0 flex-1 overflow-hidden" viewportClassName="h-full space-y-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-          {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.manualRelatedEmpty")}</p> : null}
-          {items.map((item) => (
-            <div key={item.id} className="rounded-2xl border bg-card p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <Link className="font-medium hover:underline" href={`/library/${item.relatedAnimeId}`}>{item.relatedAnimeTitle}</Link>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.relationType}</p>
-                  {editingId === item.id ? (
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("library.manualRelatedNotePlaceholder")} />
-                      <Button type="button" disabled={isSaving} onClick={() => void saveNote(item)}>{t("library.manualRelatedSaveNote")}</Button>
-                    </div>
-                  ) : item.note ? <p className="mt-2 text-sm text-muted-foreground">{item.note}</p> : null}
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button type="button" variant="outline" disabled={isSaving} onClick={() => { setEditingId(item.id); setNote(item.note ?? ""); }}>{t("library.manualRelatedEditNote")}</Button>
-                  <Button type="button" variant="outline" disabled={isSaving} onClick={() => void deleteManualRelation(item)}>{t("library.manualRelatedDelete")}</Button>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className={cn("space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain p-4", configurableRelatedItems.length > 0 ? "max-h-[40%] shrink-0" : "min-h-0 flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]")}>
+            {error ? <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+            {items.length === 0 ? <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{t("library.manualRelatedEmpty")}</p> : null}
+            {items.map((item) => (
+              <div key={item.id} className="rounded-2xl border bg-card p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <Link className="block break-words font-medium hover:underline" href={`/library/${item.relatedAnimeId}`}>{item.relatedAnimeTitle}</Link>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.relationType}</p>
+                    {editingId === item.id ? (
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("library.manualRelatedNotePlaceholder")} />
+                        <Button type="button" disabled={isSaving} onClick={() => void saveNote(item)}>{t("library.manualRelatedSaveNote")}</Button>
+                      </div>
+                    ) : item.note ? <p className="mt-2 break-words text-sm text-muted-foreground">{item.note}</p> : null}
+                  </div>
+                  <div className="flex max-w-full shrink-0 flex-wrap gap-2 sm:max-w-[55%] sm:justify-end">
+                    <Button type="button" variant="outline" disabled={isSaving} onClick={() => { setEditingId(item.id); setNote(item.note ?? ""); }}>{t("library.manualRelatedEditNote")}</Button>
+                    <Button type="button" variant="outline" disabled={isSaving} onClick={() => void deleteManualRelation(item)}>{t("library.manualRelatedDelete")}</Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
           {configurableRelatedItems.length > 0 ? (
-            <div className="space-y-3 border-t pt-4">
-              <div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="anime-detail-sheet-section-header anime-detail-sheet-diffuse-both shrink-0 px-4 pt-4">
                 <h3 className="font-semibold">{t("library.relatedAnimeMappingTitle")}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{t("library.relatedAnimeMappingDescription")}</p>
               </div>
-              {configurableRelatedItems.map((item) => (
-                <div key={`${item.externalId}-${item.relationId ?? item.deletionPromptId ?? "prompt"}`} className="rounded-2xl border bg-background/50 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">{item.provider}</Badge>
-                        {item.mappedByOverride ? <Badge variant="secondary">{t("library.relatedAnimeBadgeMapped")}</Badge> : null}
-                        {item.pendingUpstreamDeletion ? <Badge variant="secondary">{t("library.relatedAnimeBadgeRemoved")}</Badge> : null}
-                        {item.needsManualMapping ? <Badge variant="secondary">{t("library.relatedAnimeBadgeNeedsMapping")}</Badge> : null}
+              <div className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                {configurableRelatedItems.map((item) => (
+                  <div key={`${item.externalId}-${item.relationId ?? item.deletionPromptId ?? "prompt"}`} className="rounded-2xl border bg-background/50 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">{item.provider}</Badge>
+                          {item.mappedByOverride ? <Badge variant="secondary">{t("library.relatedAnimeBadgeMapped")}</Badge> : null}
+                          {item.pendingUpstreamDeletion ? <Badge variant="secondary">{t("library.relatedAnimeBadgeRemoved")}</Badge> : null}
+                          {item.needsManualMapping ? <Badge variant="secondary">{t("library.relatedAnimeBadgeNeedsMapping")}</Badge> : null}
+                        </div>
+                        <p className="mt-2 break-words font-medium">{item.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.airDate ?? t("library.relatedAnimeTba")}{item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}</p>
                       </div>
-                      <p className="mt-2 font-medium">{item.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{item.airDate ?? t("library.relatedAnimeTba")}{item.episodeCount !== null ? ` · ${t("library.relatedAnimeEpisodeCount", { count: item.episodeCount })}` : ""}</p>
+                      <div className="flex max-w-full shrink-0 flex-wrap gap-2 sm:max-w-[55%] sm:justify-end">
+                        {item.relationId !== undefined && item.relationId !== null ? <Button type="button" variant="outline" disabled={isSaving} onClick={() => setMappingItem(item)}>{t("library.relatedAnimeMapToLibrary")}</Button> : null}
+                        {item.mappedByOverride && item.relationId !== undefined && item.relationId !== null ? <Button type="button" variant="outline" disabled={isSaving} onClick={() => void clearRelatedMapping(item)}>{t("library.relatedAnimeClearMapping")}</Button> : null}
+                      </div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      {item.relationId !== undefined && item.relationId !== null ? <Button type="button" variant="outline" disabled={isSaving} onClick={() => setMappingItem(item)}>{t("library.relatedAnimeMapToLibrary")}</Button> : null}
-                      {item.mappedByOverride && item.relationId !== undefined && item.relationId !== null ? <Button type="button" variant="outline" disabled={isSaving} onClick={() => void clearRelatedMapping(item)}>{t("library.relatedAnimeClearMapping")}</Button> : null}
-                    </div>
+                    {item.mappedByOverride && item.relationId !== undefined && item.relationId !== null ? (
+                      <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
+                        <span className="text-sm text-muted-foreground">{t("library.relatedAnimeAllowProviderImport")}</span>
+                        <DangerSwitch checked={item.allowProviderImport === true} disabled={isSaving} onChange={(checked) => void toggleProviderImport(item, checked)} />
+                      </div>
+                    ) : null}
                   </div>
-                  {item.mappedByOverride && item.relationId !== undefined && item.relationId !== null ? (
-                    <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
-                      <span className="text-sm text-muted-foreground">{t("library.relatedAnimeAllowProviderImport")}</span>
-                      <DangerSwitch checked={item.allowProviderImport === true} disabled={isSaving} onChange={(checked) => void toggleProviderImport(item, checked)} />
-                    </div>
-                  ) : null}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : null}
-        </ScrollArea>
+        </div>
       </div>
       <LibraryAnimePickerDialog open={pickerOpen} title={t("library.libraryPickerTitle")} excludeAnimeIds={[animeId, ...existingRelatedAnimeIds, ...items.map((item) => item.relatedAnimeId)]} onClose={() => setPickerOpen(false)} onSelect={(anime) => void addManualRelation(anime)} />
       <LibraryAnimePickerDialog open={mappingItem !== null} title={t("library.libraryPickerTitle")} excludeAnimeIds={[animeId]} initialQuery={mappingItem?.title ?? ""} onClose={() => setMappingItem(null)} onSelect={(anime) => { if (mappingItem) void mapRelatedToLibrary(mappingItem, anime.id); }} />

@@ -1666,7 +1666,8 @@ input[type="search"]::-webkit-search-decoration {
   right: 0;
   z-index: var(--z-popover);
   width: min(30rem, calc(100vw - 2rem));
-  max-height: min(42rem, calc(100vh - 8rem));
+  height: min(42rem, calc(var(--app-viewport-height) - 8rem));
+  max-height: min(42rem, calc(var(--app-viewport-height) - 8rem));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1853,11 +1854,13 @@ input[type="search"]::-webkit-search-decoration {
   scroll-padding-bottom: 1rem;
 }
 
+.library-filter-popover .library-filter-content,
 .library-filter-sheet .library-filter-content {
   flex: 1 1 0;
   overflow: hidden;
 }
 
+.library-filter-popover .library-filter-content-viewport,
 .library-filter-sheet .library-filter-content-viewport {
   position: absolute;
   inset: 0;
@@ -2797,6 +2800,116 @@ body.episode-ticket-drag-lock {
 .anime-detail-progress { grid-area: progress; }
 .anime-detail-metadata { grid-area: metadata; }
 
+.anime-detail-identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity-header identity-header"
+    "original-title hero-actions";
+  align-items: start;
+  gap: 0.75rem 0.5rem;
+}
+
+.anime-detail-identity-header { grid-area: identity-header; }
+.anime-detail-original-title { grid-area: original-title; }
+
+.anime-detail-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.anime-detail-hero-actions {
+  grid-area: hero-actions;
+  justify-self: end;
+}
+
+.anime-detail-sheet-header,
+.anime-detail-sheet-section-header {
+  position: relative;
+  z-index: 2;
+  background: color-mix(in srgb, var(--surface-glass-strong) 90%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+
+.anime-detail-sheet-diffuse-bottom::after,
+.anime-detail-sheet-diffuse-both::before,
+.anime-detail-sheet-diffuse-both::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 1rem;
+  pointer-events: none;
+  content: "";
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.anime-detail-sheet-diffuse-bottom::after,
+.anime-detail-sheet-diffuse-both::after {
+  bottom: -1rem;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--surface-glass-strong) 82%, transparent), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+
+.anime-detail-sheet-diffuse-both::before {
+  top: -1rem;
+  background: linear-gradient(to top, color-mix(in srgb, var(--surface-glass-strong) 82%, transparent), transparent);
+  -webkit-mask-image: linear-gradient(to top, black, transparent);
+  mask-image: linear-gradient(to top, black, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .anime-detail-sheet-header,
+  .anime-detail-sheet-section-header {
+    background: var(--surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .anime-detail-sheet-diffuse-bottom::after,
+  .anime-detail-sheet-diffuse-both::before,
+  .anime-detail-sheet-diffuse-both::after {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .anime-detail-sheet-layer {
+    align-items: center;
+    padding: 1rem;
+  }
+
+  .anime-detail-sheet-panel {
+    border-radius: 1rem;
+  }
+
+  .library-picker-sheet-panel {
+    max-height: 85svh;
+  }
+
+  .manual-related-sheet-panel {
+    max-height: 88svh;
+  }
+
+  .manual-related-sheet-panel-split {
+    height: min(88svh, 48rem);
+    max-height: 48rem;
+  }
+
+  .anime-detail-sheet-header {
+    padding: 1.25rem;
+  }
+
+  .anime-detail-sheet-close {
+    width: 38px;
+    height: 38px;
+  }
+}
+
 @container anime-detail-hero (min-width: 520px) {
   .anime-detail-hero-grid {
     grid-template-columns: clamp(140px, 25cqw, 170px) minmax(0, 1fr);
@@ -2811,6 +2924,21 @@ body.episode-ticket-drag-lock {
 
   .anime-detail-metadata {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .anime-detail-identity {
+    grid-template-areas:
+      "identity-header hero-actions"
+      "original-title original-title";
+    gap: 0.75rem 1rem;
+  }
+
+  .anime-detail-title {
+    -webkit-line-clamp: 2;
+  }
+
+  .anime-detail-hero-actions {
+    justify-self: auto;
   }
 }
 
@@ -2829,6 +2957,19 @@ body.episode-ticket-drag-lock {
 @container anime-detail-hero (max-width: 360px) {
   .hero-description[data-expanded="false"] {
     -webkit-line-clamp: 3;
+  }
+
+  .anime-detail-identity {
+    grid-template-areas:
+      "identity-header identity-header"
+      ". hero-actions";
+  }
+
+  .anime-detail-identity[data-has-original] {
+    grid-template-areas:
+      "identity-header identity-header"
+      "original-title original-title"
+      ". hero-actions";
   }
 }
 

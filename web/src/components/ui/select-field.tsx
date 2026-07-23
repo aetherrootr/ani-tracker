@@ -137,6 +137,7 @@ export function SelectField<T extends string>({ label, hideLabel = false, disabl
           ref={listboxRef}
           id={listboxId}
           role="listbox"
+          data-select-listbox
           aria-labelledby={labelId}
           className="select-listbox select-content"
           style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight }}
