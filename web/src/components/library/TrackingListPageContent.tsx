@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -26,11 +27,22 @@ const DESKTOP_PREVIEW_ITEMS = 3;
 
 export function TrackingListPageContent() {
   const t = useTranslations();
-  const { data, setData, isLoading, error, retry } = useTrackingList();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const requestedTab = parseTrackingTab(searchParams.get("view"));
+  const trackingLimit = parseLoadedLimit(searchParams.get("trackingLimit"));
+  const backlogLimit = parseLoadedLimit(searchParams.get("backlogLimit"));
+  const { data, setData, isLoading, error, retry } = useTrackingList({
+    tracking: trackingLimit ?? undefined,
+    backlog: backlogLimit ?? undefined,
+  });
   const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
   const [loadingMoreKey, setLoadingMoreKey] = useState<TrackingListKey | null>(null);
-  const [activeMobileTab, setActiveMobileTab] = useState<TrackingListKey>("tracking");
-  const [activeDesktopQueue, setActiveDesktopQueue] = useState<(typeof DESKTOP_QUEUE_TABS)[number]>("tracking");
+  const mountedRef = useRef(true);
+  const readControllersRef = useRef(new Set<AbortController>());
+  const activeMobileTab = requestedTab;
+  const activeDesktopQueue = requestedTab === "backlog" ? "backlog" : "tracking";
   const [successNotice, setSuccessNotice] = useState<number | null>(null);
   const isDesktop = useDesktopPlatform();
   const tracking = data?.tracking.items ?? [];
@@ -51,11 +63,45 @@ export function TrackingListPageContent() {
     return () => window.clearTimeout(timeoutId);
   }, [successNotice]);
 
+  useEffect(() => {
+    const readControllers = readControllersRef.current;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      for (const controller of readControllers) controller.abort();
+      readControllers.clear();
+    };
+  }, []);
+
   function handleMobileTabChange(tab: TrackingListKey) {
     if (tab === activeMobileTab) return;
-    setActiveMobileTab(tab);
+    updateTrackingUrl({ view: tab });
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     scrollPageTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+  }
+
+  function handleDesktopQueueChange(tab: (typeof DESKTOP_QUEUE_TABS)[number]) {
+    if (tab !== requestedTab) updateTrackingUrl({ view: tab });
+  }
+
+  function updateTrackingUrl(next: { view?: TrackingListKey; listKey?: "tracking" | "backlog"; loadedCount?: number }) {
+    const params = new URLSearchParams(window.location.search);
+    const view = next.view ?? parseTrackingTab(params.get("view"));
+    if (view === "tracking") params.delete("view");
+    else params.set("view", view);
+    if (next.listKey && next.loadedCount) params.set(`${next.listKey}Limit`, String(next.loadedCount));
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+  }
+
+  async function runTrackedRead<T>(request: (signal: AbortSignal) => Promise<T>) {
+    const controller = new AbortController();
+    readControllersRef.current.add(controller);
+    try {
+      return await request(controller.signal);
+    } finally {
+      readControllersRef.current.delete(controller);
+    }
   }
 
   async function handleWatchChange(listKey: TrackingListKey, item: TrackingListItem, watched: boolean) {
@@ -70,11 +116,14 @@ export function TrackingListPageContent() {
 
     try {
       await updateEpisodeWatchState(item.anime.id, item.episode.id, watched);
-      const refreshed = await getTrackingListLoaded(data);
+      if (!mountedRef.current) return;
+      const refreshed = await runTrackedRead((signal) => getTrackingListLoaded(data, undefined, signal));
+      if (!mountedRef.current) return;
       const next = { ...data, ...refreshed };
       setData(watched && listKey !== "recentlyWatched" ? keepAnimeAtPosition(next, listKey, item.anime.id, previousIndex) : next);
       setSuccessNotice(Date.now());
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       throw error;
     } finally {
       setSavingKeys((current) => {
@@ -94,18 +143,24 @@ export function TrackingListPageContent() {
     setData((current) => current);
     try {
       const current = data[listKey];
-      const next = await getTrackingListPage({
+      const next = await runTrackedRead((signal) => getTrackingListPage({
         list: listKey,
         limit: current.limit,
-        offset: current.offset + current.items.length,
-      });
+        offset: current.items.length,
+        signal,
+      }));
+      if (!mountedRef.current) return;
       setData((latest) => latest ? {
         ...latest,
         [listKey]: {
           ...next,
+          offset: 0,
           items: mergeTrackingItems(latest[listKey].items, next.items),
         },
       } : latest);
+      updateTrackingUrl({ listKey, loadedCount: next.offset + next.items.length });
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
     } finally {
       setLoadingMoreKey(null);
     }
@@ -173,7 +228,7 @@ export function TrackingListPageContent() {
                         options={DESKTOP_QUEUE_TABS}
                         value={activeDesktopQueue}
                         className="w-full"
-                        onChange={setActiveDesktopQueue}
+                        onChange={handleDesktopQueueChange}
                         render={(tab) => tab === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection")}
                       />
                     </div>
@@ -220,7 +275,7 @@ export function TrackingListPageContent() {
                           {secondaryDesktopQueue === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection")}
                         </h3>
                       </div>
-                      <Button type="button" variant="outline" size="sm" onClick={() => setActiveDesktopQueue(secondaryDesktopQueue)}>
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleDesktopQueueChange(secondaryDesktopQueue)}>
                         {t("tracking.viewQueue", { queue: secondaryDesktopQueue === "tracking" ? t("tracking.trackingSection") : t("tracking.backlogSection") })}
                       </Button>
                     </div>
@@ -621,4 +676,13 @@ function mergeTrackingItems(currentItems: TrackingListItem[], nextItems: Trackin
     merged.push(item);
   }
   return merged;
+}
+
+function parseTrackingTab(value: string | null): TrackingListKey {
+  return value === "backlog" || value === "recentlyWatched" ? value : "tracking";
+}
+
+function parseLoadedLimit(value: string | null) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }

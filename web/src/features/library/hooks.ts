@@ -462,13 +462,14 @@ export function useEpisodes(input: {
   );
 }
 
-export function useTrackingList() {
+export function useTrackingList(initialLimits?: { tracking?: number; backlog?: number }) {
   const [data, setData] = useState<TrackingListResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const dataRef = useRef(data);
   const dataGenerationRef = useRef(0);
+  const initialLimitsRef = useRef(initialLimits);
 
   function updateData(update: SetStateAction<TrackingListResponse | null>) {
     dataGenerationRef.current += 1;
@@ -493,7 +494,7 @@ export function useTrackingList() {
     setIsLoading(true);
     setError(null);
 
-    getTrackingList(controller.signal)
+    getTrackingList(controller.signal, initialLimitsRef.current)
       .then((next) => {
         if (!active || initialGeneration !== dataGenerationRef.current) return;
         dataRef.current = next;
