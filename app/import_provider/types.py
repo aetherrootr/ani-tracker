@@ -78,6 +78,13 @@ class ImportAnimeSummary:
 
 
 @dataclass(frozen=True)
+class ImportAnimePoster:
+    source_url: str
+    role: str = 'primary'
+    priority: int = 0
+
+
+@dataclass(frozen=True)
 class ImportEpisodeInfo:
     provider: str
     external_id: str | None
@@ -124,3 +131,4 @@ class ImportAnimeDetail:
     raw_data: dict[str, Any]
     air_date: date | None = None
     related_anime: list[ImportRelatedAnime] = field(default_factory=list)
+    posters: list[ImportAnimePoster] = field(default_factory=list)

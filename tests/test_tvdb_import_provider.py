@@ -398,6 +398,11 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
                         'name': 'Season 1',
                         'overview': 'season overview',
                         'image': 'https://artworks.thetvdb.com/current-season.jpg',
+                        'artwork': [
+                            {'type': 7, 'image': 'https://artworks.thetvdb.com/current-season.jpg'},
+                            {'type': 7, 'image': '/additional-season.jpg'},
+                            {'type': 8, 'image': 'https://artworks.thetvdb.com/season-background.jpg'},
+                        ],
                         'episodes': [
                             {'id': 101, 'seasonNumber': 1, 'number': 1, 'name': 'Episode 1', 'aired': '2020-01-01', 'runtime': 24},
                             {'id': 102, 'seasonNumber': 1, 'number': 2, 'name': 'Episode 2', 'aired': '2999-01-08', 'nameTranslations': ['eng', 'jpn']},
@@ -440,6 +445,13 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert detail.external_id == '321:1'
     assert detail.title == '示例动画 Season 1'
     assert detail.poster_source_url == 'https://artworks.thetvdb.com/current-season.jpg'
+    assert [(poster.role, poster.source_url) for poster in detail.posters] == [
+        ('season', 'https://artworks.thetvdb.com/current-season.jpg'),
+        ('season', 'https://artworks.thetvdb.com/additional-season.jpg'),
+        ('season', 'https://artworks.thetvdb.com/s1.jpg'),
+        ('series', 'https://artworks.thetvdb.com/series.jpg'),
+    ]
+    assert [poster.priority for poster in detail.posters] == [0, 1, 2, 3]
     assert [item.name for item in detail.names].count(detail.title) == 1
     assert [(item.language, item.name) for item in detail.names[:4]] == [
         ('zho', '示例动画 Season 1'),

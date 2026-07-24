@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,9 @@ import requests
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import AnimeMetaInfo, AnimePoster, Base
+from app.api.utils.serializers import select_poster_for_user
+from app.models import AnimeMetaInfo, AnimePoster, AnimePosterResource, Base
+from app.models.progress import UserAnimeProgress
 from app.services.anime_poster import (
     build_poster_storage_path,
     download_poster_to_storage,
@@ -51,13 +54,17 @@ class FakeResponse:
 def create_poster(session: Session, *, status: str = 'pending') -> AnimePoster:
     anime = AnimeMetaInfo(provider_type='bangumi', external_id='1', original_name='Anime')
     source_url = 'https://example.test/poster.jpg'
-    poster = AnimePoster(
-        anime=anime,
-        storage_path=build_poster_storage_path('bangumi', '1', source_url),
+    resource = AnimePosterResource(
+        source_key=hashlib.sha256(source_url.encode()).hexdigest(),
+        storage_path=build_poster_storage_path(source_url),
         source_url=source_url,
         status=status,
         mime_type='image/jpeg' if status == 'ready' else '',
         size_bytes=10 if status == 'ready' else 0,
+    )
+    poster = AnimePoster(
+        anime=anime,
+        resource=resource,
     )
     session.add(poster)
     session.commit()
@@ -80,8 +87,6 @@ def test_ready_poster_remains_available_while_refresh_is_queued(db_session: Sess
     updated = upsert_poster_record(
         db_session,
         anime_id=poster.anime_id,
-        provider='bangumi',
-        external_id='1',
         source_url=poster.source_url or '',
     )
     ids = _poster_ids_to_enqueue(db_session, anime_id=poster.anime_id, poster=updated)
@@ -176,3 +181,60 @@ def test_invalid_initial_download_is_marked_failed(
     assert poster.status == 'failed'
     assert poster.last_error == 'Poster is empty'
     assert not (tmp_path / poster.storage_path).exists()
+
+
+def test_same_source_url_is_shared_across_seasons(db_session: Session) -> None:
+    first = AnimeMetaInfo(provider_type='tvdb', external_id='321:1', original_name='Season 1')
+    second = AnimeMetaInfo(provider_type='tvdb', external_id='321:2', original_name='Season 2')
+    db_session.add_all([first, second])
+    db_session.flush()
+
+    first_poster = upsert_poster_record(
+        db_session,
+        anime_id=first.id,
+        source_url='https://artworks.thetvdb.com/series.jpg',
+        role='series',
+        priority=1,
+    )
+    second_poster = upsert_poster_record(
+        db_session,
+        anime_id=second.id,
+        source_url='https://artworks.thetvdb.com/series.jpg',
+        role='series',
+        priority=1,
+    )
+
+    assert first_poster.id != second_poster.id
+    assert first_poster.resource_id == second_poster.resource_id
+    assert db_session.query(AnimePosterResource).count() == 1
+
+
+def test_season_poster_is_default_and_series_poster_is_ready_fallback() -> None:
+    season = AnimePoster(
+        id=1,
+        priority=0,
+        role='season',
+        resource=AnimePosterResource(
+            source_key='season',
+            source_url='https://example.test/season.jpg',
+            storage_path='season.jpg',
+            status='ready',
+        ),
+    )
+    series = AnimePoster(
+        id=2,
+        priority=1,
+        role='series',
+        resource=AnimePosterResource(
+            source_key='series',
+            source_url='https://example.test/series.jpg',
+            storage_path='series.jpg',
+            status='ready',
+        ),
+    )
+    progress = UserAnimeProgress()
+
+    assert select_poster_for_user([series, season], progress) is season
+
+    season.status = 'failed'
+    assert select_poster_for_user([season, series], progress) is series

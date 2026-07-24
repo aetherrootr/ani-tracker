@@ -104,7 +104,7 @@ def select_poster_for_user(
         for poster in posters:
             if progress.preferred_poster_id == poster.id:
                 return poster
-    return min(posters, key=lambda item: (item.status != 'ready', item.id))
+    return min(posters, key=lambda item: (item.status != 'ready', item.priority, item.id))
 
 
 def serialize_poster(
@@ -329,10 +329,17 @@ def serialize_related_anime(
     pending_upstream_deletion: bool = False,
 ) -> dict[str, Any]:
     related_anime_id = relation.related_anime_id
-    poster_url = relation.poster_source_url
     if override_anime is not None:
         related_anime_id = override_anime.id
-        poster = min(override_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+    related_progress = (related_anime_progresses or {}).get(related_anime_id) if related_anime_id is not None else None
+    poster_url = relation.poster_source_url
+    if related_progress is not None:
+        poster = select_poster_for_user(related_progress.anime.posters, related_progress)
+        if poster is not None:
+            version = f'?v={poster.id}-{poster.status}'
+            poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}{version}'
+    elif override_anime is not None:
+        poster = min(override_anime.posters, key=lambda item: (item.status != 'ready', item.priority, item.id), default=None)
         if poster is not None:
             version = f'?v={poster.id}-{poster.status}'
             poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}{version}'
@@ -343,7 +350,6 @@ def serialize_related_anime(
     if library_anime_ids is not None:
         in_library = related_anime_id in library_anime_ids
     title = select_anime_relation_title_for_user(relation.titles, user) or relation.title
-    related_progress = (related_anime_progresses or {}).get(related_anime_id) if related_anime_id is not None else None
     mapped_anime = related_progress.anime if related_progress is not None else override_anime or relation.related_anime
     if related_progress is not None:
         selected_name = select_anime_name_for_user(sorted(related_progress.anime.names, key=lambda item: item.id), related_progress, user)

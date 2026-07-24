@@ -160,23 +160,68 @@ class AnimeSummary(TimestampedBase):
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="summaries")
 
 
+class AnimePosterResource(TimestampedBase):
+    __tablename__ = "anime_poster_resource"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    mime_type: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", server_default="pending", nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(1024))
+
+    posters: Mapped[list[AnimePoster]] = relationship(back_populates="resource")
+
+
 class AnimePoster(TimestampedBase):
     __tablename__ = "anime_poster"
-    __table_args__ = (UniqueConstraint("anime_id", "storage_path", name="uq_anime_poster_anime_id_storage_path"),)
+    __table_args__ = (UniqueConstraint("anime_id", "resource_id", name="uq_anime_poster_anime_id_resource_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     anime_id: Mapped[int] = mapped_column(
         ForeignKey("anime_meta_info.id", ondelete="CASCADE"),
         nullable=False,
     )
-    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
-    mime_type: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
-    size_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
-    source_url: Mapped[str | None] = mapped_column(String(2048))
-    status: Mapped[str] = mapped_column(String(32), default="pending", server_default="pending", nullable=False)
-    last_error: Mapped[str | None] = mapped_column(String(1024))
+    resource_id: Mapped[int] = mapped_column(ForeignKey("anime_poster_resource.id", ondelete="RESTRICT"), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="primary", server_default="primary", nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     anime: Mapped[AnimeMetaInfo] = relationship(back_populates="posters")
+    resource: Mapped[AnimePosterResource] = relationship(back_populates="posters")
+
+    @property
+    def source_url(self) -> str | None:
+        return self.resource.source_url
+
+    @property
+    def storage_path(self) -> str:
+        return self.resource.storage_path
+
+    @property
+    def mime_type(self) -> str:
+        return self.resource.mime_type
+
+    @property
+    def size_bytes(self) -> int:
+        return self.resource.size_bytes
+
+    @property
+    def status(self) -> str:
+        return self.resource.status
+
+    @status.setter
+    def status(self, value: str) -> None:
+        self.resource.status = value
+
+    @property
+    def last_error(self) -> str | None:
+        return self.resource.last_error
+
+    @last_error.setter
+    def last_error(self, value: str | None) -> None:
+        self.resource.last_error = value
 
 
 class AnimeRelation(TimestampedBase):

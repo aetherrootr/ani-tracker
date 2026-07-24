@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import Integer, create_engine, inspect, text
 
 from app import create_app
+from app.db import alembic_config_path
 
 
 def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -> None:  # type: ignore[no-untyped-def]
@@ -22,7 +25,10 @@ def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -
         assert "alembic_version" in inspector.get_table_names()
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "202607230001"
+        assert version == "202607250001"
+        assert "anime_poster_resource" in inspector.get_table_names()
+        poster_columns = {column["name"] for column in inspector.get_columns("anime_poster")}
+        assert {"resource_id", "role", "priority"} <= poster_columns
         assert "user_wallpapers" in inspector.get_table_names()
         assert "anime_relation_title" in inspector.get_table_names()
         assert "provider_sync_cursor" in inspector.get_table_names()
@@ -63,5 +69,42 @@ def test_init_db_does_not_create_schema_when_migrations_are_disabled(test_instan
     engine = create_engine(database_url)
     try:
         assert inspect(engine).get_table_names() == []
+    finally:
+        engine.dispose()
+
+
+def test_poster_resource_migration_deduplicates_existing_urls(test_instance_path) -> None:  # type: ignore[no-untyped-def]
+    database_url = f"sqlite:///{test_instance_path / 'poster-migration.db'}"
+    create_app({'DATABASE_URL': database_url, 'SECRET_KEY': 'test-secret', 'TESTING': True})
+    engine = create_engine(database_url)
+    config = Config(str(alembic_config_path()))
+    try:
+        with engine.begin() as connection:
+            config.attributes['connection'] = connection
+            command.downgrade(config, '202607230001')
+            connection.execute(
+                text(
+                    "INSERT INTO anime_meta_info (id, provider_type, external_id, original_name) VALUES "
+                    "(1, 'tvdb', '321:1', 'Season 1'), (2, 'tvdb', '321:2', 'Season 2')",
+                ),
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO anime_poster "
+                    "(id, anime_id, storage_path, source_url, status) VALUES "
+                    "(1, 1, 'season-1-series.jpg', 'https://example.test/series.jpg', 'ready'), "
+                    "(2, 2, 'season-2-series.jpg', 'https://example.test/series.jpg', 'pending')",
+                ),
+            )
+            command.upgrade(config, 'head')
+
+        with engine.connect() as connection:
+            assert connection.execute(text('SELECT count(*) FROM anime_poster_resource')).scalar_one() == 1
+            rows = connection.execute(text('SELECT anime_id, resource_id FROM anime_poster ORDER BY anime_id')).all()
+            assert rows == [(1, 1), (2, 1)]
+            resource = connection.execute(
+                text('SELECT storage_path, status FROM anime_poster_resource'),
+            ).one()
+            assert resource == ('season-1-series.jpg', 'ready')
     finally:
         engine.dispose()

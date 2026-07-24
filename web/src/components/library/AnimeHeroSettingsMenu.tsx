@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 
 import { useDesktopPlatform } from "@/components/layout/platform-layout";
 import { Button } from "@/components/ui/button";
-import { assetUrl, updateAnimeNamePreference, updatePosterPreference, updateSummaryPreference } from "@/features/library/api";
+import { assetUrl, getAnimeDetail, updateAnimeNamePreference, updatePosterPreference, updateSummaryPreference } from "@/features/library/api";
 import type { Anime } from "@/features/library/types";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +42,7 @@ export function AnimeHeroSettingsMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isCheckingPosters, setIsCheckingPosters] = useState(false);
   const desktop = useDesktopPlatform();
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -175,6 +176,23 @@ export function AnimeHeroSettingsMenu({
     }
   }
 
+  async function checkPosters() {
+    setError(null);
+    setIsCheckingPosters(true);
+    try {
+      const result = await getAnimeDetail(anime.id);
+      onAnimeChange(result.anime);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("library.loadFailed"));
+    } finally {
+      setIsCheckingPosters(false);
+    }
+  }
+
+  const availablePosters = anime.availablePosters ?? [];
+  const readyPosters = availablePosters.filter((poster) => poster.status === "ready");
+  const pendingPosterCount = availablePosters.filter((poster) => poster.status === "pending").length;
+
   return (
     <>
       <div ref={triggerRef} className="relative z-20 shrink-0">
@@ -244,19 +262,37 @@ export function AnimeHeroSettingsMenu({
       </ChoiceDialog>
 
       <ChoiceDialog open={dialog === "poster"} desktop={desktop} title={t("library.changePoster")} error={error} restoreFocusRef={triggerRef} onClose={() => setDialog(null)}>
-        <div className="grid grid-cols-3 gap-3">
-          {(anime.availablePosters ?? []).map((poster) => {
+        {readyPosters.length > 0 ? <div className="grid grid-cols-3 gap-3">
+          {readyPosters.map((poster) => {
             const url = assetUrl(poster.url);
             return (
-              <button key={poster.id} type="button" role="radio" aria-checked={anime.preferredPosterId === poster.id || poster.isPreferred} aria-label={t("library.posterChoiceLabel", { index: poster.id, status: poster.status === "ready" ? t("library.posterReady") : t("library.posterPending") })} className={cn("overflow-hidden rounded-xl border p-1 text-left", (anime.preferredPosterId === poster.id || poster.isPreferred) && "ring-2 ring-primary", poster.status !== "ready" && "opacity-45")} onClick={() => choosePoster(poster.id)}>
+              <button key={poster.id} type="button" role="radio" aria-checked={anime.preferredPosterId === poster.id || poster.isPreferred} aria-label={t("library.posterChoiceLabel", { index: poster.id, status: t("library.posterReady") })} className={cn("overflow-hidden rounded-xl border p-1 text-left", (anime.preferredPosterId === poster.id || poster.isPreferred) && "ring-2 ring-primary")} onClick={() => choosePoster(poster.id)}>
                 <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted">
                   {url ? <Image src={url} alt="" fill unoptimized sizes="120px" className="object-cover" /> : <NoPoster />}
                 </div>
-                <div className="mt-1 text-center text-[11px] text-muted-foreground">{poster.status === "ready" ? t("library.posterReady") : t("library.posterPending")}</div>
+                <div className="mt-1 text-center text-[11px] text-muted-foreground">{t("library.posterReady")}</div>
               </button>
             );
           })}
-        </div>
+        </div> : (
+          <div className="flex min-h-52 flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/35 px-6 py-8 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-background/80 shadow-sm">
+              <RefreshCw className={cn("h-5 w-5 text-muted-foreground", (isCheckingPosters || pendingPosterCount > 0 || availablePosters.length === 0) && "animate-spin")} />
+            </div>
+            <h3 className="font-semibold">{t("library.posterChoicesUnavailableTitle")}</h3>
+            <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{t("library.posterChoicesUnavailableDescription")}</p>
+            <Button type="button" variant="secondary" className="mt-5" disabled={isCheckingPosters} onClick={checkPosters}>
+              <RefreshCw className={cn("h-4 w-4", isCheckingPosters && "animate-spin")} />
+              {isCheckingPosters ? t("library.posterChoicesChecking") : t("library.posterChoicesCheck")}
+            </Button>
+          </div>
+        )}
+        {readyPosters.length > 0 && pendingPosterCount > 0 ? (
+          <div className="flex items-center gap-2 rounded-xl bg-muted/45 px-3 py-2.5 text-sm text-muted-foreground" role="status">
+            <RefreshCw className="h-4 w-4 shrink-0 animate-spin" />
+            <span>{t("library.posterChoicesLoadingMore", { count: pendingPosterCount })}</span>
+          </div>
+        ) : null}
       </ChoiceDialog>
     </>
   );
