@@ -38,6 +38,7 @@ from app.api.utils.parsing import (
 from app.api.utils.providers import get_import_provider_factory
 from app.api.utils.serializers import (
     select_anime_name_for_user,
+    select_poster_for_user,
     select_summary_for_user,
     serialize_anime,
     serialize_anime_name,
@@ -1207,7 +1208,10 @@ def get_anime_detail(db: Session, user: User, anime_id: int) -> ResponseReturnVa
     if related_anime_ids:
         related_progresses = db.scalars(
             select(UserAnimeProgress)
-            .options(selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names))
+            .options(
+                selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names),
+                selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.posters),
+            )
             .where(
                 UserAnimeProgress.user_id == user.id,
                 UserAnimeProgress.anime_id.in_(related_anime_ids),
@@ -1319,7 +1323,11 @@ def _serialize_manual_related_anime(
     if progress is not None:
         selected_name = select_anime_name_for_user(sorted(related_anime.names, key=lambda item: item.id), progress, user)
         title = selected_name.name if selected_name is not None else related_anime.original_name
-    poster = min(related_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+    poster = select_poster_for_user(related_anime.posters, progress) if progress is not None else min(
+        related_anime.posters,
+        key=lambda item: (item.status != 'ready', item.priority, item.id),
+        default=None,
+    )
     poster_url = None
     if poster is not None:
         poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}?v={poster.id}-{poster.status}'
@@ -1357,7 +1365,11 @@ def _serialize_reverse_override_related_anime(
     if source_progress is not None:
         selected_name = select_anime_name_for_user(sorted(source_anime.names, key=lambda item: item.id), source_progress, user)
         title = selected_name.name if selected_name is not None else source_anime.original_name
-    poster = min(source_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+    poster = select_poster_for_user(source_anime.posters, source_progress) if source_progress is not None else min(
+        source_anime.posters,
+        key=lambda item: (item.status != 'ready', item.priority, item.id),
+        default=None,
+    )
     poster_url = None
     if poster is not None:
         poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}?v={poster.id}-{poster.status}'
@@ -1401,7 +1413,11 @@ def _serialize_deletion_prompt_related_anime(
         title = target_anime.original_name
     poster_url = None
     if target_anime is not None:
-        poster = min(target_anime.posters, key=lambda item: (item.status != 'ready', item.id), default=None)
+        poster = select_poster_for_user(target_anime.posters, related_progress) if related_progress is not None else min(
+            target_anime.posters,
+            key=lambda item: (item.status != 'ready', item.priority, item.id),
+            default=None,
+        )
         if poster is not None:
             poster_url = f'/api/anime/{poster.anime_id}/assets/posters/{poster.id}?v={poster.id}-{poster.status}'
     return {

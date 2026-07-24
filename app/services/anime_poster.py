@@ -11,45 +11,48 @@ import requests
 from flask import current_app
 from sqlalchemy.orm import Session
 
-from app.models.anime import AnimePoster
+from app.models.anime import AnimePoster, AnimePosterResource
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_MIME_TYPES = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
 
 
-def build_poster_storage_path(provider: str, external_id: str, source_url: str) -> str:
-    digest = hashlib.sha256(f'{provider}:{external_id}:{source_url}'.encode()).hexdigest()[:16]
+def build_poster_storage_path(source_url: str) -> str:
+    digest = hashlib.sha256(source_url.encode()).hexdigest()[:16]
     suffix = Path(urlparse(source_url).path).suffix.lower()
     if suffix not in {'.jpg', '.jpeg', '.png', '.webp'}:
         suffix = '.jpg'
     if suffix == '.jpeg':
         suffix = '.jpg'
-    return f'{provider}-{external_id}-{digest}{suffix}'
+    return f'poster-{digest}{suffix}'
 
 
 def upsert_poster_record(
     session: Session,
     *,
     anime_id: int,
-    provider: str,
-    external_id: str,
     source_url: str,
+    role: str = 'primary',
+    priority: int = 0,
 ) -> AnimePoster:
-    storage_path = build_poster_storage_path(provider, external_id, source_url)
-    poster = (
-        session.query(AnimePoster)
-        .filter(AnimePoster.anime_id == anime_id, AnimePoster.storage_path == storage_path)
-        .one_or_none()
-    )
+    storage_path = build_poster_storage_path(source_url)
+    source_key = hashlib.sha256(source_url.encode()).hexdigest()
+    resource = session.query(AnimePosterResource).filter(AnimePosterResource.source_key == source_key).one_or_none()
+    if resource is None:
+        resource = AnimePosterResource(source_key=source_key, source_url=source_url, storage_path=storage_path)
+        session.add(resource)
+        session.flush()
+    poster = session.query(AnimePoster).filter(AnimePoster.anime_id == anime_id, AnimePoster.resource_id == resource.id).one_or_none()
     if poster is None:
-        poster = AnimePoster(anime_id=anime_id, storage_path=storage_path)
+        poster = AnimePoster(anime_id=anime_id, resource=resource)
         session.add(poster)
-    poster.storage_path = storage_path
-    poster.source_url = source_url
+    poster.role = role
+    poster.priority = priority
     if poster.status != 'ready':
         poster.status = 'pending'
         poster.last_error = None
+    session.flush()
     return poster
 
 
@@ -119,8 +122,8 @@ def download_poster_to_storage(
             _mark_failed(session, poster, str(exc)[:1024])
         return
 
-    poster.mime_type = mime_type
-    poster.size_bytes = size
+    poster.resource.mime_type = mime_type
+    poster.resource.size_bytes = size
     poster.status = 'ready'
     poster.last_error = None
     session.commit()

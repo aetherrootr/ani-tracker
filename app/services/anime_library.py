@@ -18,6 +18,7 @@ from app.import_provider.base import ImportProvider
 from app.import_provider.types import (
     ImportAnimeDetail,
     ImportAnimeName,
+    ImportAnimePoster,
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
@@ -27,6 +28,7 @@ from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
     AnimePoster,
+    AnimePosterResource,
     AnimeRelation,
     AnimeRelationTitle,
     AnimeSummary,
@@ -163,7 +165,7 @@ def find_cross_provider_name_conflicts(
     ]
 
 
-def populate_anime_from_detail(session: Session, anime: AnimeMetaInfo, detail: Any) -> AnimePoster | None:
+def populate_anime_from_detail(session: Session, anime: AnimeMetaInfo, detail: Any) -> list[AnimePoster]:
     now = datetime.now(UTC)
     anime.url = detail.url
     anime.original_name = detail.title
@@ -175,15 +177,25 @@ def populate_anime_from_detail(session: Session, anime: AnimeMetaInfo, detail: A
     _upsert_names(session, anime, detail.names, detail.original_title)
     _upsert_episodes(session, anime, detail.episodes, now)
     _upsert_related_anime(session, anime, detail.related_anime)
-    if not detail.poster_source_url:
-        return None
-    return upsert_poster_record(
-        session,
-        anime_id=anime.id,
-        provider=detail.provider,
-        external_id=detail.external_id,
-        source_url=detail.poster_source_url,
-    )
+    poster_items = detail.posters or []
+    if not poster_items and detail.poster_source_url:
+        poster_items = [ImportAnimePoster(detail.poster_source_url)]
+    posters: list[AnimePoster] = []
+    seen_urls: set[str] = set()
+    for item in poster_items:
+        if not item.source_url or item.source_url in seen_urls:
+            continue
+        posters.append(
+            upsert_poster_record(
+                session,
+                anime_id=anime.id,
+                source_url=item.source_url,
+                role=item.role,
+                priority=item.priority,
+            ),
+        )
+        seen_urls.add(item.source_url)
+    return posters
 
 
 def add_anime_to_user_library(
@@ -194,7 +206,7 @@ def add_anime_to_user_library(
     external_id: str,
     duplicate_resolution: dict[str, Any] | None = None,
 ) -> tuple[AnimeMetaInfo, UserAnimeProgress, bool, bool, bool]:
-    poster_to_enqueue: AnimePoster | None = None
+    posters_to_enqueue: list[AnimePoster] = []
     try:
         user = session.get(User, user_id)
         existing_anime = session.scalar(
@@ -214,10 +226,11 @@ def add_anime_to_user_library(
                     anime_id=anime.id,
                 )
                 session.flush()
-                poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == anime.id))
+                posters_to_enqueue = _posters_requiring_download(session, anime.id)
                 session.commit()
-                if anime_created and poster_to_enqueue is not None and poster_to_enqueue.status == 'pending':
-                    enqueue_poster_download(poster_to_enqueue.id)
+                if anime_created:
+                    for poster in posters_to_enqueue:
+                        enqueue_poster_download(poster.id)
                 return anime, progress, anime_created, library_changed, progress_created
 
         detail = provider.get_anime_detail(external_id, language=user.language_preference if user is not None else None)
@@ -244,14 +257,15 @@ def add_anime_to_user_library(
         )
 
         session.flush()
-        poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == anime.id))
+        posters_to_enqueue = _posters_requiring_download(session, anime.id)
         session.commit()
     except Exception:
         session.rollback()
         raise
 
-    if anime_created and poster_to_enqueue is not None and poster_to_enqueue.status == 'pending':
-        enqueue_poster_download(poster_to_enqueue.id)
+    if anime_created:
+        for poster in posters_to_enqueue:
+            enqueue_poster_download(poster.id)
     return anime, progress, anime_created, library_changed, progress_created
 
 
@@ -263,7 +277,7 @@ def switch_user_anime_provider(
     anime_id: int,
     external_id: str,
 ) -> ProviderSwitchResult | None:
-    poster_to_enqueue: AnimePoster | None = None
+    posters_to_enqueue: list[AnimePoster] = []
     try:
         user = session.get(User, user_id)
         source_progress = get_user_progress(session, user_id=user_id, anime_id=anime_id)
@@ -307,14 +321,15 @@ def switch_user_anime_provider(
         session.flush()
         create_or_update_metadata_snapshot(session, progress=target_progress)
         target_progress.metadata_snapshot_id = None
-        poster_to_enqueue = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == target_anime.id))
+        posters_to_enqueue = _posters_requiring_download(session, target_anime.id)
         session.commit()
     except Exception:
         session.rollback()
         raise
 
-    if target_created and poster_to_enqueue is not None and poster_to_enqueue.status == 'pending':
-        enqueue_poster_download(poster_to_enqueue.id)
+    if target_created:
+        for poster in posters_to_enqueue:
+            enqueue_poster_download(poster.id)
     return ProviderSwitchResult(
         anime=target_anime,
         progress=target_progress,
@@ -1594,9 +1609,27 @@ def _relation_poster_id(session: Session, *, related_anime_id: int | None) -> in
         return None
     return session.scalar(
         select(AnimePoster.id)
+        .join(AnimePoster.resource)
         .where(AnimePoster.anime_id == related_anime_id)
-        .order_by(AnimePoster.status != 'ready', AnimePoster.id),
+        .order_by(AnimePosterResource.status != 'ready', AnimePoster.priority, AnimePoster.id),
     )
+
+
+def _posters_requiring_download(session: Session, anime_id: int) -> list[AnimePoster]:
+    posters = session.scalars(
+        select(AnimePoster)
+        .join(AnimePoster.resource)
+        .where(AnimePoster.anime_id == anime_id, AnimePosterResource.status != 'ready')
+        .order_by(AnimePoster.priority, AnimePoster.id),
+    ).all()
+    seen_resources: set[int] = set()
+    unique_posters: list[AnimePoster] = []
+    for poster in posters:
+        if poster.resource_id in seen_resources:
+            continue
+        seen_resources.add(poster.resource_id)
+        unique_posters.append(poster)
+    return unique_posters
 
 
 def _anime_type(value: str) -> AnimeType:

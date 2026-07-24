@@ -117,11 +117,19 @@ def discover_related_anime_for_user_anime(
         session.flush()
         relation.related_anime_id = related_anime.id
         imported_ids.append(related_anime.id)
-        poster = session.scalar(select(AnimePoster).where(AnimePoster.anime_id == related_anime.id))
-        if created and poster is not None and poster.status in {'pending', 'failed'}:
-            poster.status = 'pending'
-            poster.last_error = None
-            poster_ids.append(poster.id)
+        posters = session.scalars(select(AnimePoster).where(AnimePoster.anime_id == related_anime.id)).all()
+        if created:
+            queued_resource_ids = {
+                poster.resource_id
+                for poster in session.scalars(select(AnimePoster).where(AnimePoster.id.in_(poster_ids))).all()
+            }
+            for poster in posters:
+                if poster.status not in {'pending', 'failed'} or poster.resource_id in queued_resource_ids:
+                    continue
+                poster.status = 'pending'
+                poster.last_error = None
+                poster_ids.append(poster.id)
+                queued_resource_ids.add(poster.resource_id)
 
     session.commit()
     _enqueue_posters(poster_ids, enqueue_posters=enqueue_posters)

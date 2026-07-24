@@ -17,6 +17,7 @@ from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
     AnimePoster,
+    AnimePosterResource,
     AnimeRelation,
     AnimeSummary,
     Episode,
@@ -78,13 +79,13 @@ def sync_anime_from_provider(
     detail = provider.get_anime_detail(anime.external_id, language=user.language_preference if user is not None else None)
     if progress is not None and _has_destructive_episode_change(session, anime_id=anime.id, episodes=detail.episodes):
         create_or_update_metadata_snapshot(session, progress=progress)
-    poster = populate_anime_from_detail(session, anime, detail)
+    posters = populate_anime_from_detail(session, anime, detail)
     if user_id is not None:
         _create_related_anime_deletion_prompts(session, user_id=user_id, anime_id=anime.id)
     _prune_summaries(session, anime_id=anime.id, summaries=detail.summaries)
     _prune_names(session, anime_id=anime.id, names=detail.names, original_title=detail.original_title)
     conflicts = _prune_episodes(session, anime=anime, episodes=detail.episodes, user_id=user_id)
-    poster_ids = _poster_ids_to_enqueue(session, anime_id=anime.id, poster=poster)
+    poster_ids = _poster_ids_to_enqueue(session, anime_id=anime.id, posters=posters)
     return AnimeSyncResult(anime=anime, episode_conflicts=conflicts, poster_ids_to_enqueue=poster_ids)
 
 
@@ -226,23 +227,31 @@ def _prune_episode_names(
         session.delete(name)
 
 
-def _poster_ids_to_enqueue(session: Session, *, anime_id: int, poster: AnimePoster | None) -> list[int]:
-    posters: list[AnimePoster] = []
-    if poster is not None:
-        posters.append(poster)
-    posters.extend(
-        session.scalars(select(AnimePoster).where(AnimePoster.anime_id == anime_id, AnimePoster.status == 'failed')).all(),
+def _poster_ids_to_enqueue(
+    session: Session,
+    *,
+    anime_id: int,
+    posters: list[AnimePoster] | None = None,
+    poster: AnimePoster | None = None,
+) -> list[int]:
+    candidates = list(posters or ([] if poster is None else [poster]))
+    candidates.extend(
+        session.scalars(
+            select(AnimePoster)
+            .join(AnimePoster.resource)
+            .where(AnimePoster.anime_id == anime_id, AnimePosterResource.status == 'failed'),
+        ).all(),
     )
     ids: list[int] = []
     seen: set[int] = set()
-    for item in posters:
-        if item.id in seen:
+    for item in candidates:
+        if item.resource_id in seen:
             continue
         if item.status != 'ready':
             item.status = 'pending'
             item.last_error = None
         ids.append(item.id)
-        seen.add(item.id)
+        seen.add(item.resource_id)
     return ids
 
 

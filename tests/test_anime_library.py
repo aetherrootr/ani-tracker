@@ -20,6 +20,7 @@ from app.import_provider.tvdb import TVDBImportProvider
 from app.import_provider.types import (
     ImportAnimeDetail,
     ImportAnimeName,
+    ImportAnimePoster,
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
@@ -33,6 +34,7 @@ from app.models.anime import (
     AnimeMetaInfo,
     AnimeName,
     AnimePoster,
+    AnimePosterResource,
     AnimeRelation,
     AnimeRelationTitle,
     AnimeSummary,
@@ -456,6 +458,39 @@ def test_add_to_library_imports_anime_and_progress(
     assert progress.status == UserAnimeStatus.PLAN_TO_WATCH
 
 
+def test_add_to_library_enqueues_all_imported_posters(
+    app: Flask,
+    client: FlaskClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    detail = replace(
+        anime_detail('multi-poster'),
+        posters=[
+            ImportAnimePoster('https://example.test/season-default.jpg', role='season', priority=0),
+            ImportAnimePoster('https://example.test/season-alternate.jpg', role='season', priority=1),
+            ImportAnimePoster('https://example.test/series.jpg', role='series', priority=2),
+        ],
+    )
+    provider = MutableDetailProvider({'multi-poster': detail})
+    app.extensions['import_provider_factory'] = ImportProviderFactory({'bangumi': provider})
+    enqueued_ids: list[int] = []
+    monkeypatch.setattr('app.services.anime_library.enqueue_poster_download', enqueued_ids.append)
+    assert register_user(client).status_code == 201
+
+    response = client.post('/api/anime/library', json={'provider': 'bangumi', 'externalId': 'multi-poster'})
+
+    assert response.status_code == 201
+    posters = db_session.scalars(select(AnimePoster).order_by(AnimePoster.priority)).all()
+    assert [(poster.role, poster.priority) for poster in posters] == [
+        ('season', 0),
+        ('season', 1),
+        ('series', 2),
+    ]
+    assert len(db_session.scalars(select(AnimePosterResource)).all()) == 3
+    assert enqueued_ids == [poster.id for poster in posters]
+
+
 def test_add_to_library_is_idempotent_for_same_user(
     app: Flask,
     client: FlaskClient,
@@ -624,7 +659,10 @@ def test_provider_switch_retargets_existing_related_anime_links(
     source = AnimeMetaInfo(provider_type='bangumi', external_id='old-related', original_name='Related Anime')
     db_session.add_all([current, source])
     db_session.flush()
-    source_poster = AnimePoster(anime_id=source.id, storage_path='old-related.jpg', status='ready')
+    source_poster = AnimePoster(
+        anime_id=source.id,
+        resource=AnimePosterResource(source_key='old-related', source_url='https://example.test/old-related.jpg', storage_path='old-related.jpg', status='ready'),
+    )
     db_session.add(source_poster)
     db_session.flush()
     relation = AnimeRelation(
@@ -717,6 +755,70 @@ def test_related_anime_uses_library_display_name(
     assert related_item['inLibrary'] is True
     assert related_item['airDate'] == '2026-07-05'
     assert related_item['episodeCount'] == 12
+
+
+def test_related_anime_uses_library_poster_preference(
+    client: FlaskClient,
+    db_session: Session,
+) -> None:
+    assert register_user(client).status_code == 201
+    current = AnimeMetaInfo(provider_type='tvdb', external_id='321:1', original_name='Season 1')
+    related = AnimeMetaInfo(provider_type='tvdb', external_id='321:2', original_name='Season 2')
+    db_session.add_all([current, related])
+    db_session.flush()
+    season_poster = AnimePoster(
+        anime_id=related.id,
+        role='season',
+        priority=0,
+        resource=AnimePosterResource(
+            source_key='related-season',
+            source_url='https://example.test/season.jpg',
+            storage_path='season.jpg',
+            status='ready',
+        ),
+    )
+    series_poster = AnimePoster(
+        anime_id=related.id,
+        role='series',
+        priority=1,
+        resource=AnimePosterResource(
+            source_key='related-series',
+            source_url='https://example.test/series.jpg',
+            storage_path='series.jpg',
+            status='ready',
+        ),
+    )
+    db_session.add_all([season_poster, series_poster])
+    db_session.flush()
+    db_session.add(
+        AnimeRelation(
+            anime_id=current.id,
+            provider_type='tvdb',
+            external_id='321:2',
+            relation_type='same_series_season',
+            title='Season 2',
+            related_anime_id=related.id,
+            poster_id=season_poster.id,
+        ),
+    )
+    db_session.add(UserAnimeProgress(user_id=1, anime_id=current.id, status=UserAnimeStatus.PLAN_TO_WATCH))
+    db_session.add(
+        UserAnimeProgress(
+            user_id=1,
+            anime_id=related.id,
+            status=UserAnimeStatus.PLAN_TO_WATCH,
+            preferred_poster_id=series_poster.id,
+        ),
+    )
+    db_session.commit()
+
+    response = client.get(f'/api/anime/{current.id}')
+
+    assert response.status_code == 200
+    related_item = response.get_json()['anime']['relatedAnime'][0]
+    assert related_item['posterUrl'] == (
+        f'/api/anime/{related.id}/assets/posters/{series_poster.id}?v={series_poster.id}-ready'
+    )
 
 
 def test_related_anime_title_follows_each_user_language(
@@ -2544,8 +2646,14 @@ def test_anime_detail_returns_available_names_air_date_and_posters(
     )
     db_session.add_all(
         [
-            AnimePoster(anime_id=anime.id, storage_path='failed.jpg', status='failed'),
-            AnimePoster(anime_id=anime.id, storage_path='ready.jpg', status='ready'),
+            AnimePoster(
+                anime_id=anime.id,
+                resource=AnimePosterResource(source_key='failed', source_url='https://example.test/failed.jpg', storage_path='failed.jpg', status='failed'),
+            ),
+            AnimePoster(
+                anime_id=anime.id,
+                resource=AnimePosterResource(source_key='ready', source_url='https://example.test/ready.jpg', storage_path='ready.jpg', status='ready'),
+            ),
         ],
     )
     db_session.commit()
@@ -3765,7 +3873,10 @@ def test_delete_untracked_anime_task_removes_database_rows_and_posters(
     untracked_name = AnimeName(anime_id=untracked.id, name='Orphan', language='en')
     untracked_summary = AnimeSummary(anime_id=untracked.id, language='en', summary='summary')
     untracked_episode = Episode(anime_id=untracked.id, episode_number=1, original_title='Episode 1')
-    untracked_poster = AnimePoster(anime_id=untracked.id, storage_path='orphan.jpg', status='ready')
+    untracked_poster = AnimePoster(
+        anime_id=untracked.id,
+        resource=AnimePosterResource(source_key='orphan', source_url='https://example.test/orphan.jpg', storage_path='orphan.jpg', status='ready'),
+    )
     db_session.add_all([untracked_name, untracked_summary, untracked_episode, untracked_poster])
     db_session.flush()
     untracked_episode_name = EpisodeName(episode_id=untracked_episode.id, name='Episode 1', language='en')
@@ -3809,7 +3920,10 @@ def test_delete_untracked_anime_task_keeps_poster_referenced_by_relation(
     untracked = AnimeMetaInfo(provider_type='bangumi', external_id='related', original_name='Related')
     db_session.add(untracked)
     db_session.flush()
-    poster = AnimePoster(anime_id=untracked.id, storage_path='related.jpg', status='ready')
+    poster = AnimePoster(
+        anime_id=untracked.id,
+        resource=AnimePosterResource(source_key='related', source_url='https://example.test/related.jpg', storage_path='related.jpg', status='ready'),
+    )
     db_session.add(poster)
     db_session.flush()
     relation = AnimeRelation(

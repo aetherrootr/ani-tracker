@@ -30,6 +30,7 @@ from app.import_provider.tvdb.utils import (
 from app.import_provider.types import (
     ImportAnimeDetail,
     ImportAnimeName,
+    ImportAnimePoster,
     ImportAnimeSummary,
     ImportEpisodeInfo,
     ImportEpisodeName,
@@ -43,6 +44,8 @@ from app.import_provider.types import (
 from app.languages import SUPPORTED_LANGUAGE_PREFERENCES
 
 logger = logging.getLogger(__name__)
+
+_SEASON_POSTER_ARTWORK_TYPE = 7
 
 _COUNTRY_ORIGINAL_LANGUAGES = {
     'chn': 'zho',
@@ -192,13 +195,25 @@ class TVDBImportProvider(ImportProvider):
             for episode in episode_items
         ]
         title = self._season_title(series, season_summary, language=request_language, translations=series_translations)
+        season_poster_urls = self._poster_urls(season, artwork_type=_SEASON_POSTER_ARTWORK_TYPE)
+        for url in self._poster_urls(season_summary, artwork_type=_SEASON_POSTER_ARTWORK_TYPE):
+            if url not in season_poster_urls:
+                season_poster_urls.append(url)
+        season_poster_url = season_poster_urls[0] if season_poster_urls else None
+        series_poster_url = self._poster_url(series)
+        posters = [
+            ImportAnimePoster(url, role='season', priority=priority)
+            for priority, url in enumerate(season_poster_urls)
+        ]
+        if series_poster_url and series_poster_url not in {poster.source_url for poster in posters}:
+            posters.append(ImportAnimePoster(series_poster_url, role='series', priority=len(posters)))
         return ImportAnimeDetail(
             provider=self.name,
             external_id=build_external_id(series_id, season_number),
             title=title,
             original_title=first_non_empty(series.get('name')),
             summaries=self._summaries(series, season, allowed_languages=detail_languages, series_translations=series_translations, season_translations=season_translations),
-            poster_source_url=self._poster_url(season) or self._poster_url(season_summary) or self._poster_url(series),
+            poster_source_url=season_poster_url or series_poster_url,
             anime_type=self._anime_type(season_number),
             total_episodes=len(episodes),
             url=self._season_url(series, season_number),
@@ -213,6 +228,7 @@ class TVDBImportProvider(ImportProvider):
                 languages=detail_languages,
                 series_translations=series_translations,
             ),
+            posters=posters,
         )
 
     def get_updates(self, *, since: int, stream: str, page: int = 0, max_pages: int = 100) -> ImportProviderUpdateBatch:
@@ -668,17 +684,26 @@ class TVDBImportProvider(ImportProvider):
         return f'{series_name} Season {season_number}'
 
     def _poster_url(self, item: dict[str, Any]) -> str | None:
+        urls = self._poster_urls(item)
+        return urls[0] if urls else None
+
+    def _poster_urls(self, item: dict[str, Any], *, artwork_type: int | None = None) -> list[str]:
+        urls: list[str] = []
         value = first_non_empty(item.get('image'), item.get('image_url'), item.get('poster'), item.get('thumbnail'))
         if value is not None:
-            return normalize_image_url(value)
+            url = normalize_image_url(value)
+            if url is not None:
+                urls.append(url)
         artworks = item.get('artwork') or item.get('artworks') or item.get('posters')
         if isinstance(artworks, list):
             for artwork in artworks:
                 if isinstance(artwork, dict):
+                    if artwork_type is not None and coerce_int(artwork.get('type'), artwork.get('imageType')) != artwork_type:
+                        continue
                     url = normalize_image_url(first_non_empty(artwork.get('image'), artwork.get('thumbnail'), artwork.get('url')))
-                    if url is not None:
-                        return url
-        return None
+                    if url is not None and url not in urls:
+                        urls.append(url)
+        return urls
 
     def _season_url(self, series: dict[str, Any], season_number: int) -> str:
         series_path = first_non_empty(series.get('slug')) or str(series.get('id'))
