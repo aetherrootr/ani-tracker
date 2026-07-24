@@ -31,6 +31,8 @@ import type {
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
+const TRACKING_QUEUE_PAGE_SIZE = 20;
+const TRACKING_RANGE_REQUEST_CONCURRENCY = 4;
 
 export function assetUrl(path: string | null | undefined) {
   if (!path) {
@@ -183,16 +185,32 @@ async function refreshLoadedTrackingPage(
   signal?: AbortSignal,
 ) {
   const requestedCount = Math.max(current.items.length, current.limit);
-  const requests = [];
-  for (let offset = 0; offset < requestedCount; offset += 100) {
-    requests.push(getTrackingListPage({ list, limit: Math.min(100, requestedCount - offset), offset, signal }));
+  return getTrackingListRange(list, requestedCount, current.limit, signal);
+}
+
+async function getTrackingListRange(
+  list: TrackingListKey,
+  requestedCount: number,
+  pageLimit: number,
+  signal?: AbortSignal,
+) {
+  const firstLimit = Math.min(100, requestedCount);
+  const firstPage = await getTrackingListPage({ list, limit: firstLimit, offset: 0, signal });
+  const effectiveCount = Math.min(requestedCount, firstPage.total);
+  const requests: Array<{ limit: number; offset: number }> = [];
+  for (let offset = firstLimit; offset < effectiveCount; offset += 100) {
+    requests.push({ limit: Math.min(100, effectiveCount - offset), offset });
   }
-  const pages = await Promise.all(requests);
+  const pages = [firstPage];
+  for (let index = 0; index < requests.length; index += TRACKING_RANGE_REQUEST_CONCURRENCY) {
+    const batch = requests.slice(index, index + TRACKING_RANGE_REQUEST_CONCURRENCY);
+    pages.push(...await Promise.all(batch.map((request) => getTrackingListPage({ list, ...request, signal }))));
+  }
   const items = pages.flatMap((page) => page.items).filter(
     (item, index, all) => all.findIndex((candidate) => candidate.episode.id === item.episode.id) === index,
   );
   const total = pages[0]?.total ?? 0;
-  return { items, total, limit: current.limit, offset: 0, hasMore: items.length < total };
+  return { items, total, limit: pageLimit, offset: 0, hasMore: items.length < total };
 }
 
 export async function getTrackingListLoaded(
@@ -206,7 +224,18 @@ export async function getTrackingListLoaded(
   return Object.fromEntries(entries) as Partial<TrackingListResponse>;
 }
 
-export async function getTrackingList(signal?: AbortSignal) {
+export async function getTrackingList(signal?: AbortSignal, limits?: { tracking?: number; backlog?: number }) {
+  if (limits?.tracking || limits?.backlog) {
+    const tracking = limits.tracking
+      ? await getTrackingListRange("tracking", limits.tracking, TRACKING_QUEUE_PAGE_SIZE, signal)
+      : await getTrackingListPage({ list: "tracking", signal });
+    const backlog = limits.backlog
+      ? await getTrackingListRange("backlog", limits.backlog, TRACKING_QUEUE_PAGE_SIZE, signal)
+      : await getTrackingListPage({ list: "backlog", signal });
+    const recentlyWatched = await getTrackingListPage({ list: "recentlyWatched", signal });
+    return { tracking, backlog, recentlyWatched } satisfies TrackingListResponse;
+  }
+
   const [tracking, backlog, recentlyWatched] = await Promise.all([
     getTrackingListPage({ list: "tracking", signal }),
     getTrackingListPage({ list: "backlog", signal }),

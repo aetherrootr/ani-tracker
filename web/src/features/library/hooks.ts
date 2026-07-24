@@ -21,6 +21,7 @@ import type {
 } from "./types";
 
 const DEFAULT_LIBRARY_PAGE_SIZE = 24;
+const LIBRARY_SILENT_REFRESH_INTERVAL_MS = 120_000;
 export const EPISODE_PAGE_SIZE = 30;
 
 export function parsePositiveInt(value: string | null, fallback: number) {
@@ -177,25 +178,82 @@ export function useLibraryData(query: {
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
+    let requestInFlight = true;
+    let lastRefreshAt = Date.now();
+    let timeoutId: number | null = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
 
-    getLibrary({ q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, signal: controller.signal })
-      .then(setData)
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Request failed");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      });
+    function scheduleNextRefresh() {
+      if (!active) return;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      const onlineAndVisible = document.visibilityState === "visible" && navigator.onLine;
+      const remaining = LIBRARY_SILENT_REFRESH_INTERVAL_MS - (Date.now() - lastRefreshAt);
+      const delay = onlineAndVisible ? Math.max(remaining, 1000) : LIBRARY_SILENT_REFRESH_INTERVAL_MS;
+      timeoutId = window.setTimeout(() => {
+        void refreshWhenDue().finally(scheduleNextRefresh);
+      }, delay);
+    }
 
-    return () => controller.abort();
+    async function refreshWhenDue() {
+      const now = Date.now();
+      if (
+        !active ||
+        requestInFlight ||
+        document.visibilityState !== "visible" ||
+        !navigator.onLine ||
+        now - lastRefreshAt < LIBRARY_SILENT_REFRESH_INTERVAL_MS
+      ) return;
+
+      requestInFlight = true;
+      lastRefreshAt = now;
+      try {
+        const next = await getLibrary({ q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, signal: controller.signal });
+        if (active) {
+          setData(next);
+          setError(null);
+        }
+      } catch {
+        // Keep the current library visible when a background refresh fails.
+      } finally {
+        requestInFlight = false;
+      }
+    }
+
+    async function loadInitialLibrary() {
+      try {
+        const next = await getLibrary({ q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, signal: controller.signal });
+        if (active) setData(next);
+      } catch (err) {
+        if (active && !(err instanceof DOMException && err.name === "AbortError")) {
+          setError(err instanceof Error ? err.message : "Request failed");
+        }
+      } finally {
+        if (active) {
+          requestInFlight = false;
+          lastRefreshAt = Date.now();
+          setIsLoading(false);
+          scheduleNextRefresh();
+        }
+      }
+    }
+
+    function refreshAfterAvailabilityChange() {
+      void refreshWhenDue().finally(scheduleNextRefresh);
+    }
+
+    document.addEventListener("visibilitychange", refreshAfterAvailabilityChange);
+    window.addEventListener("online", refreshAfterAvailabilityChange);
+    void loadInitialLibrary();
+    return () => {
+      active = false;
+      controller.abort();
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", refreshAfterAvailabilityChange);
+      window.removeEventListener("online", refreshAfterAvailabilityChange);
+    };
   }, [q, status, provider, unwatched, airStatus, seasonZero, sort, order, page, pageSize, retryKey]);
 
   return { data, isLoading, error, retry: () => setRetryKey((current) => current + 1) };
@@ -219,6 +277,7 @@ export function useAnimeDetail(animeId: number) {
   const [retryKey, setRetryKey] = useState(0);
   const dataRef = useRef(data);
   const dataGenerationRef = useRef(0);
+  const requestSequenceRef = useRef(0);
   const backgroundRetryKeyRef = useRef<number | null>(null);
 
   function updateData(update: SetStateAction<AnimeDetailResponse | null>) {
@@ -232,8 +291,10 @@ export function useAnimeDetail(animeId: number) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const background = backgroundRetryKeyRef.current === retryKey;
-    if (background) backgroundRetryKeyRef.current = null;
+    const requestId = ++requestSequenceRef.current;
+    const backgroundRequested = backgroundRetryKeyRef.current === retryKey;
+    if (backgroundRequested) backgroundRetryKeyRef.current = null;
+    const background = backgroundRequested && dataRef.current !== null;
     const requestGeneration = dataGenerationRef.current;
     if (!background) {
       setIsLoading(true);
@@ -242,7 +303,7 @@ export function useAnimeDetail(animeId: number) {
 
     getAnimeDetail(animeId, controller.signal)
       .then((next) => {
-        if (requestGeneration !== dataGenerationRef.current) return;
+        if (requestId !== requestSequenceRef.current || requestGeneration !== dataGenerationRef.current) return;
         dataRef.current = next;
         setData(next);
       })
@@ -250,7 +311,9 @@ export function useAnimeDetail(animeId: number) {
         if (err instanceof DOMException && err.name === "AbortError") {
           return;
         }
-        if (!background || !dataRef.current) setError(err instanceof Error ? err.message : "Request failed");
+        if (requestId === requestSequenceRef.current && (!background || !dataRef.current)) {
+          setError(err instanceof Error ? err.message : "Request failed");
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted && !background) {
@@ -281,6 +344,17 @@ export function useAnimeDetail(animeId: number) {
     };
   }, [animeId]);
 
+  async function refresh() {
+    const requestId = ++requestSequenceRef.current;
+    const requestedAnimeId = animeId;
+    const requestGeneration = dataGenerationRef.current;
+    const next = await getAnimeDetail(requestedAnimeId);
+    if (requestId !== requestSequenceRef.current || requestGeneration !== dataGenerationRef.current) return false;
+    updateData(next);
+    setError(null);
+    return true;
+  }
+
   return {
     data,
     setData: updateData,
@@ -290,6 +364,7 @@ export function useAnimeDetail(animeId: number) {
       backgroundRetryKeyRef.current = null;
       setRetryKey((current) => current + 1);
     },
+    refresh,
   };
 }
 
@@ -387,13 +462,14 @@ export function useEpisodes(input: {
   );
 }
 
-export function useTrackingList() {
+export function useTrackingList(initialLimits?: { tracking?: number; backlog?: number }) {
   const [data, setData] = useState<TrackingListResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const dataRef = useRef(data);
   const dataGenerationRef = useRef(0);
+  const initialLimitsRef = useRef(initialLimits);
 
   function updateData(update: SetStateAction<TrackingListResponse | null>) {
     dataGenerationRef.current += 1;
@@ -418,7 +494,7 @@ export function useTrackingList() {
     setIsLoading(true);
     setError(null);
 
-    getTrackingList(controller.signal)
+    getTrackingList(controller.signal, initialLimitsRef.current)
       .then((next) => {
         if (!active || initialGeneration !== dataGenerationRef.current) return;
         dataRef.current = next;
@@ -487,7 +563,13 @@ export function useTrackingList() {
   }, [retryKey]);
 
   return useMemo(
-    () => ({ data, setData: updateData, isLoading, error, retry: () => setRetryKey((current) => current + 1) }),
+    () => ({
+      data,
+      setData: updateData,
+      isLoading,
+      error,
+      retry: () => setRetryKey((current) => current + 1),
+    }),
     [data, error, isLoading],
   );
 }
