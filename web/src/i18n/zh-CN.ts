@@ -16,6 +16,7 @@ export const zhCN = {
     logout: "退出登录",
     loggingOut: "正在退出",
     scrollableContent: "可滚动内容",
+    back: "返回",
     pullToRefresh: {
       pull: "下拉刷新",
       release: "松开即可刷新",

@@ -65,7 +65,7 @@ export function MobilePullToRefresh({
       cancelGesture();
       return;
     }
-    if (disabled || busy || matchesDesktopPlatform() || !isEligibleGestureTarget(event.target)) return;
+    if (disabled || state !== "idle" || matchesDesktopPlatform() || !isEligibleGestureTarget(event.target)) return;
     const scrollContainer = getMobileScrollContainer();
     if ((scrollContainer?.scrollTop ?? window.scrollY) > 0) return;
 
@@ -119,6 +119,7 @@ export function MobilePullToRefresh({
   }
 
   function cancelGesture() {
+    if (!gestureRef.current) return;
     gestureRef.current = null;
     distanceRef.current = 0;
     setDistance(0);
@@ -158,7 +159,11 @@ export function MobilePullToRefresh({
         : state === "error"
           ? t("app.pullToRefresh.failed")
           : t("app.pullToRefresh.pull");
-  const style = { "--pull-distance": `${distance}px` } as CSSProperties;
+  const pullOpacity = Math.min(Math.max((distance - 12) / (REFRESH_THRESHOLD - 12), 0), 1);
+  const style = {
+    "--pull-distance": `${distance}px`,
+    "--pull-opacity": pullOpacity,
+  } as CSSProperties;
 
   return (
     <div
@@ -171,10 +176,12 @@ export function MobilePullToRefresh({
       onTouchEnd={finishGesture}
       onTouchCancel={cancelGesture}
     >
-      <div className="mobile-pull-refresh-indicator" role="status" aria-live="polite" aria-atomic="true">
-        <RefreshCw className="mobile-pull-refresh-indicator-icon" aria-hidden="true" />
-        <span>{statusLabel}</span>
-      </div>
+      {state !== "idle" ? (
+        <div className="mobile-pull-refresh-indicator" role="status" aria-live="polite" aria-atomic="true">
+          <RefreshCw className="mobile-pull-refresh-indicator-icon" aria-hidden="true" />
+          <span>{statusLabel}</span>
+        </div>
+      ) : null}
       <div className="mobile-pull-refresh-content">{children}</div>
     </div>
   );

@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getMobileScrollContainer, getPageScrollTop } from "./mobile-scroll-container";
 
 const HISTORY_ENTRY_KEY = "__aniTrackerHistoryEntry";
+const PREVIOUS_HISTORY_ENTRY_KEY = "__aniTrackerPreviousHistoryEntry";
 const SCROLL_STORAGE_PREFIX = "ani-tracker-scroll:";
 const SCROLL_STORAGE_INDEX_KEY = "ani-tracker-scroll:index";
 const MAX_STORED_SCROLL_ENTRIES = 100;
@@ -13,7 +14,12 @@ const scrollPositions = new Map<string, number>();
 
 type AppHistoryState = Record<string, unknown> & {
   [HISTORY_ENTRY_KEY]?: string;
+  [PREVIOUS_HISTORY_ENTRY_KEY]?: string;
 };
+
+export function hasPreviousAppHistoryEntry() {
+  return typeof window !== "undefined" && Boolean(getPreviousHistoryEntryId());
+}
 
 export function MobileScrollRestorer() {
   const pathname = usePathname();
@@ -32,7 +38,7 @@ export function MobileScrollRestorer() {
 
     const currentEntryId = currentEntryIdRef.current;
     if (currentEntryId && getHistoryEntryId() !== currentEntryId) {
-      originalReplaceState(withHistoryEntryId(window.history.state, currentEntryId), "");
+      originalReplaceState(withHistoryEntryId(window.history.state, currentEntryId, getPreviousHistoryEntryId()), "");
     }
 
     window.history.pushState = (state, unused, url) => {
@@ -43,13 +49,13 @@ export function MobileScrollRestorer() {
           preSavedEntryIdsRef.current.add(outgoingEntryId);
         }
       }
-      originalPushState(withHistoryEntryId(state, createHistoryEntryId()), unused, url);
+      originalPushState(withHistoryEntryId(state, createHistoryEntryId(), outgoingEntryId), unused, url);
       if (window.location.pathname === currentPathnameRef.current) {
         setHistoryRevision((current) => current + 1);
       }
     };
     window.history.replaceState = (state, unused, url) => {
-      originalReplaceState(withHistoryEntryId(state, getHistoryEntryId() ?? createHistoryEntryId()), unused, url);
+      originalReplaceState(withHistoryEntryId(state, getHistoryEntryId() ?? createHistoryEntryId(), getPreviousHistoryEntryId()), unused, url);
     };
 
     function handlePopState() {
@@ -122,6 +128,10 @@ function getHistoryEntryId() {
   return ((window.history.state ?? {}) as AppHistoryState)[HISTORY_ENTRY_KEY] ?? null;
 }
 
+function getPreviousHistoryEntryId() {
+  return ((window.history.state ?? {}) as AppHistoryState)[PREVIOUS_HISTORY_ENTRY_KEY] ?? null;
+}
+
 function createHistoryEntryId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
@@ -132,9 +142,13 @@ function isBackForwardPageLoad() {
   return navigation?.type === "back_forward";
 }
 
-function withHistoryEntryId(state: unknown, entryId: string): AppHistoryState {
+function withHistoryEntryId(state: unknown, entryId: string, previousEntryId?: string | null): AppHistoryState {
   const nextState = state && typeof state === "object" ? state as Record<string, unknown> : {};
-  return { ...nextState, [HISTORY_ENTRY_KEY]: entryId };
+  return {
+    ...nextState,
+    [HISTORY_ENTRY_KEY]: entryId,
+    [PREVIOUS_HISTORY_ENTRY_KEY]: previousEntryId ?? undefined,
+  };
 }
 
 function storeScrollPosition(entryId: string, top: number) {

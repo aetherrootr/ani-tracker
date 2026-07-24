@@ -2785,6 +2785,73 @@ body.episode-ticket-drag-lock {
   container: anime-detail-hero / inline-size;
 }
 
+.anime-detail-back-navigation {
+  display: none;
+}
+
+@media (min-width: 768px) and (any-hover: hover) and (any-pointer: fine) {
+  .anime-detail-back-navigation {
+    display: flex;
+    min-height: 40px;
+    align-items: center;
+    margin-bottom: 1.25rem;
+  }
+
+  .anime-detail-back-button {
+    display: inline-flex;
+    min-width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0 0.875rem 0 0.625rem;
+    border: 1px solid var(--border-highlight);
+    border-radius: var(--radius-pill);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .anime-detail-back-button svg {
+    width: 1.125rem;
+    height: 1.125rem;
+    stroke-width: 2.25;
+  }
+
+  .anime-detail-back-button:hover {
+    transform: translateX(-2px);
+    background: var(--surface-glass-strong);
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.5) inset,
+      var(--shadow-medium);
+  }
+
+  .anime-detail-back-button:active {
+    transform: translateX(-1px) scale(0.98);
+    background: var(--surface-pressed);
+  }
+
+  .anime-detail-back-button:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent-solid) 52%, var(--border-highlight));
+    box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-low);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anime-detail-back-button {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .anime-detail-back-button:hover,
+  .anime-detail-back-button:active {
+    background: var(--surface-card-hover);
+  }
+}
+
 .anime-detail-hero-grid {
   grid-template-columns: minmax(104px, 124px) minmax(0, 1fr);
   grid-template-areas:
@@ -3187,35 +3254,39 @@ body.episode-ticket-drag-lock {
   .mobile-pull-refresh {
     position: relative;
     min-height: 100%;
+    padding-top: 0;
+    transition: padding-top 200ms var(--ease-standard);
   }
 
-  .mobile-pull-refresh-content {
-    transform: none;
-    transition: transform 200ms var(--ease-standard);
-  }
-
-  .mobile-pull-refresh[data-state="pulling"] .mobile-pull-refresh-content,
-  .mobile-pull-refresh[data-state="armed"] .mobile-pull-refresh-content {
-    transform: translate3d(0, var(--pull-distance, 0), 0);
+  .mobile-pull-refresh[data-state="pulling"],
+  .mobile-pull-refresh[data-state="armed"] {
+    padding-top: var(--pull-distance, 0);
     transition: none;
-    will-change: transform;
+  }
+
+  .mobile-pull-refresh[data-state="refreshing"],
+  .mobile-pull-refresh[data-state="complete"],
+  .mobile-pull-refresh[data-state="error"] {
+    padding-top: var(--pull-distance, 0);
   }
 
   .mobile-pull-refresh-indicator {
     position: absolute;
-    top: 0;
-    left: 50%;
+    top: calc(var(--pull-distance, 0px) - 48px);
+    right: 0;
+    left: 0;
     z-index: 2;
     display: flex;
     min-height: 44px;
     align-items: center;
+    justify-content: center;
     gap: 0.45rem;
-    transform: translate3d(-50%, calc(var(--pull-distance, 0px) - 48px), 0);
     color: var(--text-secondary);
     font-size: 0.75rem;
     font-weight: 600;
     opacity: 0;
-    transition: transform 200ms var(--ease-standard), opacity 140ms ease-out;
+    transition: top 200ms var(--ease-standard), opacity 140ms ease-out;
+    contain: paint;
     white-space: nowrap;
     pointer-events: none;
   }
@@ -3225,7 +3296,14 @@ body.episode-ticket-drag-lock {
     transition: opacity 140ms ease-out;
   }
 
-  .mobile-pull-refresh[data-state]:not([data-state="idle"]) .mobile-pull-refresh-indicator {
+  .mobile-pull-refresh[data-state="pulling"] .mobile-pull-refresh-indicator {
+    opacity: var(--pull-opacity, 0);
+  }
+
+  .mobile-pull-refresh[data-state="armed"] .mobile-pull-refresh-indicator,
+  .mobile-pull-refresh[data-state="refreshing"] .mobile-pull-refresh-indicator,
+  .mobile-pull-refresh[data-state="complete"] .mobile-pull-refresh-indicator,
+  .mobile-pull-refresh[data-state="error"] .mobile-pull-refresh-indicator {
     opacity: 1;
   }
 
@@ -3272,7 +3350,7 @@ body.episode-ticket-drag-lock {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mobile-pull-refresh-content,
+  .mobile-pull-refresh,
   .mobile-pull-refresh-indicator,
   .mobile-pull-refresh-indicator-icon {
     transition: none !important;

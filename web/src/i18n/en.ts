@@ -19,6 +19,7 @@ export const en = {
     logout: "Log out",
     loggingOut: "Logging out",
     scrollableContent: "Scrollable content",
+    back: "Back",
     pullToRefresh: {
       pull: "Pull to refresh",
       release: "Release to refresh",
