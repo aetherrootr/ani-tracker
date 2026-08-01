@@ -3124,6 +3124,11 @@ body.episode-ticket-drag-lock {
   .interactive-surface:active {
     transform: scale(0.985);
   }
+
+  input.interactive-surface:active,
+  textarea.interactive-surface:active {
+    transform: none;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -3499,4 +3504,5 @@ body {
 :where(input, textarea, [contenteditable="true"], pre, code, .text-selection-enabled) {
   -webkit-user-select: text;
   user-select: text;
+  -webkit-touch-callout: default;
 }
