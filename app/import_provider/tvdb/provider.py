@@ -21,6 +21,7 @@ from app.import_provider.tvdb.utils import (
     map_status,
     normalize_image_url,
     parse_air_at,
+    parse_air_at_with_time,
     parse_date,
     parse_external_id,
     parse_status_air_at,
@@ -578,7 +579,9 @@ class TVDBImportProvider(ImportProvider):
         original_language = _COUNTRY_ORIGINAL_LANGUAGES.get(str(country).strip().lower()) if country is not None else None
         original_title = first_non_empty(translations.get(original_language, {}).get('name')) if original_language is not None else None
         title = original_title or first_non_empty(episode.get('name')) or self._localized_translation_value(translations, 'name', language)
-        air_at = parse_air_at(episode.get('aired'))
+        source_date_air_at = parse_air_at(episode.get('aired'))
+        exact_air_at = parse_air_at_with_time(episode.get('aired'), airs_time, country)
+        air_at = exact_air_at or source_date_air_at
         return ImportEpisodeInfo(
             provider=self.name,
             external_id=str(episode_id) if isinstance(episode_id, int | str) else None,
@@ -586,11 +589,12 @@ class TVDBImportProvider(ImportProvider):
             title=title,
             names=self._episode_names(episode, translations, title, allowed_languages=self._preferred_languages(language)),
             air_at=air_at,
+            air_at_has_time=exact_air_at is not None,
             duration=runtime_to_duration(episode.get('runtime')),
-            status=map_status(air_at),
+            status=map_status(source_date_air_at),
             url=f'{self._web_base_url}/series/{series_id}/episodes/{episode_id}' if isinstance(episode_id, int | str) else None,
             raw_data={**episode, 'translations': translations},
-            status_air_at=parse_status_air_at(episode.get('aired'), airs_time, country),
+            status_air_at=exact_air_at or parse_status_air_at(episode.get('aired'), airs_time, country),
         )
 
     @staticmethod
@@ -905,7 +909,11 @@ class TVDBImportProvider(ImportProvider):
         return self._preferred_languages(tvdb_language(language))
 
     def _season_air_date(self, season: dict[str, Any], episodes: list[ImportEpisodeInfo]) -> Any:
-        dates = [episode.air_at.date() for episode in episodes if episode.air_at is not None]
+        dates = [
+            aired_date
+            for episode in episodes
+            if (aired_date := parse_date(episode.raw_data.get('aired'))) is not None
+        ]
         season_year = coerce_int(season.get('year'))
         year_date = parse_date(f'{season_year:04d}-01-01') if season_year is not None and season_year > 0 else None
         return min(dates) if dates else year_date

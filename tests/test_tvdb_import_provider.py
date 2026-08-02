@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ import requests
 from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.tvdb import TVDBImportProvider
+from app.import_provider.tvdb.utils import parse_air_at_with_time
 from app.import_provider.types import ProviderType, ProviderUpdateMethod
 from app.tasks.anime_sync import _provider_config
 
@@ -192,6 +194,27 @@ def series() -> dict[str, Any]:
 
 def test_provider_type_accepts_tvdb() -> None:
     assert ProviderType('tvdb') == ProviderType.TVDB
+
+
+def test_tvdb_exact_air_time_requires_time_and_known_country() -> None:
+    assert parse_air_at_with_time('2026-08-03', '23:30', 'jpn') == datetime(2026, 8, 3, 14, 30, tzinfo=UTC)
+    assert parse_air_at_with_time('2026-08-03', None, 'jpn') is None
+    assert parse_air_at_with_time('2026-08-03', '23:30', 'unknown') is None
+
+
+def test_tvdb_season_air_date_uses_source_date_before_timezone_conversion() -> None:
+    tvdb = provider(FakeSession())
+    episode = tvdb._map_episode(
+        321,
+        {'id': 101, 'number': 1, 'name': 'Episode 1', 'aired': '2026-08-03'},
+        translations={},
+        language=None,
+        airs_time='23:30',
+        country='us',
+    )
+
+    assert episode.air_at == datetime(2026, 8, 4, 3, 30, tzinfo=UTC)
+    assert tvdb._season_air_date({}, [episode]).isoformat() == '2026-08-03'
 
 
 def test_factory_registers_tvdb_only_when_api_key_is_configured() -> None:
@@ -480,6 +503,9 @@ def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zho' not in [call['url'] for call in session.calls]
     assert 'https://api4.thetvdb.com/v4/episodes/102/translations/zhtw' not in [call['url'] for call in session.calls]
     assert detail.episodes[0].duration == '00:24:00'
+    assert detail.episodes[0].air_at is not None
+    assert detail.episodes[0].air_at.isoformat() == '2020-01-01T14:30:00+00:00'
+    assert detail.episodes[0].air_at_has_time is True
     assert detail.episodes[0].status_air_at is not None
     assert detail.episodes[0].status_air_at.isoformat() == '2020-01-01T14:30:00+00:00'
     assert detail.episodes[1].status == 'upcoming'

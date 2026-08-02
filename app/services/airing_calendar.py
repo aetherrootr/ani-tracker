@@ -1,0 +1,412 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.api.utils.serializers import (
+    select_anime_name_for_user,
+    select_episode_name_for_user,
+    select_poster_for_user,
+    serialize_poster,
+)
+from app.models.anime import AnimeMetaInfo, AnimePoster, Episode, EpisodeStatus
+from app.models.anime_utils import infer_anime_air_status
+from app.models.progress import (
+    UserAnimeMetadataSnapshot,
+    UserAnimeMetadataSource,
+    UserAnimeProgress,
+    UserAnimeStatus,
+    UserEpisodeProgress,
+)
+from app.models.user import User
+
+CALENDAR_DAY_COUNT = 7
+MAX_CALENDAR_EPISODE_DETAILS_PER_ANIME = 50
+
+
+def get_user_airing_calendar(
+    session: Session,
+    user: User,
+    *,
+    start_date: date | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    time_zone = ZoneInfo(user.time_zone)
+    generated_at = _aware_utc(now or datetime.now(UTC))
+    local_today = generated_at.astimezone(time_zone).date()
+    window_start = start_date or local_today
+    window_end = window_start + timedelta(days=CALENDAR_DAY_COUNT - 1)
+
+    progresses = session.scalars(
+        select(UserAnimeProgress)
+        .options(
+            selectinload(UserAnimeProgress.anime).selectinload(AnimeMetaInfo.names),
+            selectinload(UserAnimeProgress.anime)
+            .selectinload(AnimeMetaInfo.posters)
+            .selectinload(AnimePoster.resource),
+            selectinload(UserAnimeProgress.anime)
+            .selectinload(AnimeMetaInfo.episodes)
+            .selectinload(Episode.names),
+            selectinload(UserAnimeProgress.metadata_snapshot).selectinload(
+                UserAnimeMetadataSnapshot.episodes,
+            ),
+        )
+        .where(
+            UserAnimeProgress.user_id == user.id,
+            UserAnimeProgress.status.in_([UserAnimeStatus.WATCHING, UserAnimeStatus.PLAN_TO_WATCH]),
+        ),
+    ).all()
+
+    upstream_episode_ids = {
+        episode.id
+        for progress in progresses
+        if not _uses_local_snapshot(progress)
+        for episode in progress.anime.episodes
+    }
+    watched_by_episode_id: dict[int, tuple[bool, int | None]] = {}
+    if upstream_episode_ids:
+        watch_rows = session.scalars(
+            select(UserEpisodeProgress).where(
+                UserEpisodeProgress.user_id == user.id,
+                UserEpisodeProgress.episode_id.in_(upstream_episode_ids),
+            ),
+        ).all()
+        watched_by_episode_id = {
+            row.episode_id: (row.watched, row.preferred_name_id)
+            for row in watch_rows
+        }
+
+    buckets: dict[date, list[dict[str, Any]]] = {
+        window_start + timedelta(days=offset): []
+        for offset in range(CALENDAR_DAY_COUNT)
+    }
+    seen_anime_ids: set[int] = set()
+
+    for progress in progresses:
+        if _uses_local_snapshot(progress):
+            snapshot = progress.metadata_snapshot
+            if snapshot is None:
+                continue
+            snapshot_episodes = list(snapshot.episodes)
+            if not _snapshot_is_airing(snapshot_episodes, snapshot.episode_count, generated_at, local_today):
+                continue
+            display_name = snapshot.source_title
+            candidates = [
+                _candidate_from_snapshot(episode, time_zone, local_today, window_start, window_end, generated_at)
+                for episode in snapshot_episodes
+            ]
+        else:
+            upstream_episodes = list(progress.anime.episodes)
+            if not _upstream_is_airing(progress.anime, generated_at, local_today):
+                continue
+            selected_name = select_anime_name_for_user(
+                sorted(progress.anime.names, key=lambda item: item.id),
+                progress,
+                user,
+            )
+            display_name = selected_name.name if selected_name is not None else progress.anime.original_name
+            candidates = [
+                _candidate_from_upstream(
+                    episode,
+                    user,
+                    watched_by_episode_id,
+                    time_zone,
+                    local_today,
+                    window_start,
+                    window_end,
+                    generated_at,
+                )
+                for episode in upstream_episodes
+            ]
+
+        valid_candidates = [candidate for candidate in candidates if candidate is not None]
+        if not valid_candidates:
+            continue
+        earliest_date = min(candidate['semantic_date'] for candidate in valid_candidates)
+        selected_candidates = [
+            candidate for candidate in valid_candidates
+            if candidate['semantic_date'] == earliest_date
+        ]
+        selected_candidates.sort(key=_episode_sort_key)
+
+        unique_candidates: list[dict[str, Any]] = []
+        seen_episode_ids: set[int] = set()
+        for candidate in selected_candidates:
+            episode_id = candidate['episode']['id']
+            if episode_id in seen_episode_ids:
+                continue
+            seen_episode_ids.add(episode_id)
+            unique_candidates.append(candidate)
+
+        exact_times = {
+            candidate['air_at']
+            for candidate in unique_candidates
+            if candidate['precision'] == 'datetime'
+        }
+        poster = select_poster_for_user(
+            sorted(progress.anime.posters, key=lambda item: item.id),
+            progress,
+        )
+        serialized_poster = serialize_poster(poster, progress)
+        minimum_episode = min(unique_candidates, key=lambda candidate: candidate['episode']['id'])
+        item = {
+            'anime': {
+                'id': progress.anime_id,
+                'displayName': display_name,
+                'originalName': progress.anime.original_name,
+                'posterUrl': serialized_poster['url'] if serialized_poster is not None else None,
+            },
+            'episodeCount': len(unique_candidates),
+            'watchedEpisodeCount': sum(candidate['episode']['watched'] for candidate in unique_candidates),
+            'minimumEpisodeTitle': minimum_episode['episode']['displayName'],
+            'episodesTruncated': len(unique_candidates) > MAX_CALENDAR_EPISODE_DETAILS_PER_ANIME,
+            'scheduleSummary': {
+                'earliestExactAirAt': _iso_utc(min(exact_times)) if exact_times else None,
+                'exactTimeSlotCount': len(exact_times),
+                'hasDatePrecision': any(candidate['precision'] == 'date' for candidate in unique_candidates),
+            },
+            'episodes': [
+                candidate['episode']
+                for candidate in unique_candidates[:MAX_CALENDAR_EPISODE_DETAILS_PER_ANIME]
+            ],
+        }
+        _require_calendar_invariant(
+            condition=progress.anime_id not in seen_anime_ids and earliest_date in buckets,
+            message='Invalid airing calendar anime grouping',
+        )
+        _require_calendar_invariant(
+            condition=len(item['episodes']) <= MAX_CALENDAR_EPISODE_DETAILS_PER_ANIME,
+            message='Airing calendar episode detail limit exceeded',
+        )
+        _require_calendar_invariant(
+            condition=len({episode['id'] for episode in item['episodes']}) == len(item['episodes']),
+            message='Duplicate episode in airing calendar item',
+        )
+        seen_anime_ids.add(progress.anime_id)
+        buckets[earliest_date].append(item)
+
+    days = []
+    for day, items in buckets.items():
+        items.sort(key=_item_sort_key)
+        days.append({'date': day.isoformat(), 'items': items})
+
+    _require_calendar_invariant(
+        condition=len(days) == CALENDAR_DAY_COUNT,
+        message='Invalid airing calendar window',
+    )
+    _require_calendar_invariant(
+        condition=len(seen_anime_ids) == sum(len(day['items']) for day in days),
+        message='Duplicate anime in airing calendar response',
+    )
+    return {
+        'startDate': window_start.isoformat(),
+        'endDate': window_end.isoformat(),
+        'timeZone': user.time_zone,
+        'generatedAt': _iso_utc(generated_at),
+        'totalAnimeCount': len(seen_anime_ids),
+        'days': days,
+    }
+
+
+def _uses_local_snapshot(progress: UserAnimeProgress) -> bool:
+    return (
+        progress.metadata_source == UserAnimeMetadataSource.LOCAL_SNAPSHOT.value
+        and progress.metadata_snapshot_id is not None
+        and progress.metadata_snapshot is not None
+    )
+
+
+def _upstream_is_airing(anime: AnimeMetaInfo, now: datetime, local_today: date) -> bool:
+    if infer_anime_air_status(anime, now=now) == 'airing':
+        return True
+    return any(
+        episode.air_at is not None
+        and not episode.air_at_has_time
+        and episode.status == EpisodeStatus.AIRED
+        and episode.air_at.date() == local_today
+        for episode in anime.episodes
+    )
+
+
+def _snapshot_is_airing(
+    episodes: list[Any],
+    total_episodes: int,
+    now: datetime,
+    local_today: date,
+) -> bool:
+    aired = [episode for episode in episodes if episode.status == EpisodeStatus.AIRED.value]
+    if not aired:
+        return False
+    has_active = any(
+        episode.status == EpisodeStatus.DELAYED.value
+        or (
+            episode.status == EpisodeStatus.UPCOMING.value
+            and episode.air_at is not None
+            and (not episode.air_at_has_time or _aware_utc(episode.air_at) >= now)
+        )
+        for episode in episodes
+    )
+    has_date_only_today = any(
+        episode.air_at is not None
+        and not episode.air_at_has_time
+        and episode.status == EpisodeStatus.AIRED.value
+        and episode.air_at.date() == local_today
+        for episode in episodes
+    )
+    return has_active or has_date_only_today or total_episodes > len(episodes)
+
+
+def _candidate_from_upstream(
+    episode: Episode,
+    user: User,
+    watched_by_episode_id: dict[int, tuple[bool, int | None]],
+    time_zone: ZoneInfo,
+    local_today: date,
+    window_start: date,
+    window_end: date,
+    now: datetime,
+) -> dict[str, Any] | None:
+    watched, preferred_name_id = watched_by_episode_id.get(episode.id, (False, None))
+    selected_name = select_episode_name_for_user(
+        sorted(episode.names, key=lambda item: item.id),
+        user,
+        preferred_name_id=preferred_name_id,
+    )
+    air_at = episode.air_at
+    has_time = episode.air_at_has_time
+    return _candidate(
+        episode_id=episode.id,
+        episode_number=episode.episode_number,
+        display_name=selected_name.name if selected_name is not None else episode.original_title,
+        air_at=air_at,
+        has_time=has_time,
+        status=episode.status.value,
+        watched=watched,
+        time_zone=time_zone,
+        local_today=local_today,
+        window_start=window_start,
+        window_end=window_end,
+        now=now,
+    )
+
+
+def _candidate_from_snapshot(
+    episode: Any,
+    time_zone: ZoneInfo,
+    local_today: date,
+    window_start: date,
+    window_end: date,
+    now: datetime,
+) -> dict[str, Any] | None:
+    return _candidate(
+        episode_id=episode.id,
+        episode_number=episode.episode_number,
+        display_name=episode.title,
+        air_at=episode.air_at,
+        has_time=episode.air_at_has_time,
+        status=episode.status,
+        watched=episode.watched,
+        time_zone=time_zone,
+        local_today=local_today,
+        window_start=window_start,
+        window_end=window_end,
+        now=now,
+    )
+
+
+def _candidate(
+    *,
+    episode_id: int,
+    episode_number: int,
+    display_name: str | None,
+    air_at: datetime | None,
+    has_time: bool,
+    status: str,
+    watched: bool,
+    time_zone: ZoneInfo,
+    local_today: date,
+    window_start: date,
+    window_end: date,
+    now: datetime,
+) -> dict[str, Any] | None:
+    if air_at is None or status in {
+        EpisodeStatus.CANCELLED.value,
+        EpisodeStatus.DELAYED.value,
+        EpisodeStatus.UNKNOWN.value,
+    }:
+        return None
+    normalized_air_at = _aware_utc(air_at)
+    if has_time:
+        if status != EpisodeStatus.UPCOMING.value or normalized_air_at < now:
+            return None
+        semantic_date = normalized_air_at.astimezone(time_zone).date()
+        precision = 'datetime'
+    else:
+        semantic_date = air_at.date()
+        if semantic_date < local_today:
+            return None
+        if status != EpisodeStatus.UPCOMING.value and not (
+            status == EpisodeStatus.AIRED.value and semantic_date == local_today
+        ):
+            return None
+        precision = 'date'
+    if semantic_date < window_start or semantic_date > window_end:
+        return None
+    return {
+        'semantic_date': semantic_date,
+        'precision': precision,
+        'air_at': normalized_air_at,
+        'episode': {
+            'id': episode_id,
+            'episodeNumber': episode_number,
+            'displayName': display_name,
+            'airAt': _iso_utc(normalized_air_at),
+            'airAtPrecision': precision,
+            'status': status,
+            'watched': watched,
+        },
+    }
+
+
+def _episode_sort_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        candidate['episode']['episodeNumber'],
+        0 if candidate['precision'] == 'date' else 1,
+        candidate['air_at'] if candidate['precision'] == 'datetime' else datetime.min.replace(tzinfo=UTC),
+        candidate['episode']['id'],
+    )
+
+
+def _first_episode_number(item: dict[str, Any]) -> int:
+    episodes = item['episodes']
+    return episodes[0]['episodeNumber'] if episodes else 0
+
+
+def _item_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    schedule = item['scheduleSummary']
+    return (
+        0 if schedule['hasDatePrecision'] else 1,
+        schedule['earliestExactAirAt'] or '',
+        item['anime']['displayName'].casefold(),
+        _first_episode_number(item),
+        item['anime']['id'],
+    )
+
+
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _iso_utc(value: datetime) -> str:
+    return _aware_utc(value).isoformat().replace('+00:00', 'Z')
+
+
+def _require_calendar_invariant(*, condition: bool, message: str) -> None:
+    if not condition:
+        raise RuntimeError(message)

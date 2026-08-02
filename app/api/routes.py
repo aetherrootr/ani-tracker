@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Flask
 
+from app.api.airing_calendar import airing_calendar_bp
 from app.api.anime_assets import anime_assets_bp
 from app.api.anime_episodes import anime_episodes_bp
 from app.api.anime_info import anime_info_bp
@@ -18,6 +19,7 @@ def register_api(app: Flask) -> None:
     app.register_blueprint(user_bp, url_prefix="/api/user")
     app.register_blueprint(oidc_bp, url_prefix="/api/oidc")
     app.register_blueprint(anime_info_bp, url_prefix="/api/anime")
+    app.register_blueprint(airing_calendar_bp, url_prefix="/api/anime")
     app.register_blueprint(anime_episodes_bp, url_prefix="/api/anime")
     app.register_blueprint(watch_state_bp, url_prefix="/api/watch-state")
     app.register_blueprint(statistics_bp, url_prefix="/api/statistics")
