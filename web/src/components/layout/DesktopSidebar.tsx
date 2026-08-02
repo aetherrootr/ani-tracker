@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCurrentUser } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
 
-import { isNavigationItemActive, navigationItems, settingsNavigationItem } from "./navigation";
+import { desktopNavigationItems, isNavigationItemActive, settingsNavigationItem } from "./navigation";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function DesktopSidebar() {
@@ -32,7 +32,7 @@ export function DesktopSidebar() {
       </Link>
 
       <nav className="space-y-1" aria-label={t("nav.mainNavigation")}>
-        {navigationItems.map((item) => {
+        {desktopNavigationItems.map((item) => {
           const Icon = item.icon;
           const active = isNavigationItemActive(pathname, item.href);
 
@@ -46,6 +46,7 @@ export function DesktopSidebar() {
                 active && "bg-[var(--accent-soft)] text-[var(--accent-solid)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-solid)]",
               )}
               aria-current={active ? "page" : undefined}
+              aria-label={"ariaLabelKey" in item ? t(item.ariaLabelKey) : undefined}
             >
               <Icon className="h-4 w-4" />
               {t(item.labelKey)}

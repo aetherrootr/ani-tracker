@@ -7,17 +7,15 @@ import { usePathname } from "next/navigation";
 import { AppLogoMark } from "@/components/ui/app-logo-mark";
 import { cn } from "@/lib/utils";
 
-import { isNavigationItemActive, navigationItems, settingsNavigationItem } from "./navigation";
+import { isNavigationItemActive, mobileNavigationItems, mobileSecondaryNavigationItems } from "./navigation";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function MobileTopNav() {
   const pathname = usePathname();
   const t = useTranslations();
-  const SettingsIcon = settingsNavigationItem.icon;
-  const activeNavigationIndex = navigationItems.findIndex((item) =>
+  const activeNavigationIndex = mobileNavigationItems.findIndex((item) =>
     isNavigationItemActive(pathname, item.href),
   );
-  const settingsActive = isNavigationItemActive(pathname, settingsNavigationItem.href);
 
   return (
     <header className="mobile-top-nav mobile-navigation-shell layer-navigation fixed inset-x-0 top-0 h-[var(--mobile-top-nav-height)] border-b">
@@ -29,18 +27,28 @@ export function MobileTopNav() {
           </Link>
           <div className="mobile-navigation-tools">
             <ThemeToggle />
-            <Link
-              href={settingsNavigationItem.href}
-              draggable={false}
-              className={cn(
-                "mobile-navigation-tool mobile-navigation-focus select-none",
-                settingsActive && "mobile-navigation-tool-current",
-              )}
-              aria-label={t(settingsNavigationItem.labelKey)}
-              aria-current={settingsActive ? "page" : undefined}
-            >
-              <SettingsIcon className="h-5 w-5" />
-            </Link>
+            <span className="mobile-navigation-tool-divider" aria-hidden="true" />
+            <nav className="mobile-navigation-secondary" aria-label={t("nav.secondaryNavigation")}>
+              {mobileSecondaryNavigationItems.map((item) => {
+                const Icon = item.icon;
+                const active = isNavigationItemActive(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    draggable={false}
+                    className={cn(
+                      "mobile-navigation-tool mobile-navigation-focus select-none",
+                      active && "mobile-navigation-tool-current",
+                    )}
+                    aria-label={t(item.labelKey)}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
         </div>
         <nav className="mobile-navigation-track" aria-label={t("nav.mainNavigation")}>
@@ -53,7 +61,7 @@ export function MobileTopNav() {
               aria-hidden="true"
             />
           ) : null}
-          {navigationItems.map((item) => {
+          {mobileNavigationItems.map((item) => {
             const Icon = item.icon;
             const active = isNavigationItemActive(pathname, item.href);
 
@@ -64,6 +72,7 @@ export function MobileTopNav() {
                 draggable={false}
                 className="mobile-navigation-destination mobile-navigation-focus select-none"
                 aria-current={active ? "page" : undefined}
+                aria-label={"ariaLabelKey" in item ? t(item.ariaLabelKey) : undefined}
               >
                 <Icon className="h-4 w-4" />
                 {t(item.labelKey)}

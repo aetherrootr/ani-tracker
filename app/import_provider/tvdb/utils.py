@@ -93,7 +93,19 @@ def parse_status_air_at(aired: object, airs_time: object, country: object) -> da
     timezone = tvdb_air_timezone(country)
     if aired_date is None or timezone is None:
         return None
-    local_air_time = _parse_time(airs_time) or time.min
+    exact_air_at = parse_air_at_with_time(aired, airs_time, country)
+    if exact_air_at is not None:
+        return exact_air_at
+    local_air_time = time.min
+    return datetime.combine(aired_date, local_air_time, tzinfo=ZoneInfo(timezone)).astimezone(UTC)
+
+
+def parse_air_at_with_time(aired: object, airs_time: object, country: object) -> datetime | None:
+    aired_date = parse_date(aired)
+    local_air_time = _parse_time(airs_time)
+    timezone = tvdb_air_timezone(country)
+    if aired_date is None or local_air_time is None or timezone is None:
+        return None
     return datetime.combine(aired_date, local_air_time, tzinfo=ZoneInfo(timezone)).astimezone(UTC)
 
 
