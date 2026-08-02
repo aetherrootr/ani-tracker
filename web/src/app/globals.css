@@ -1754,7 +1754,8 @@ input[type="search"]::-webkit-search-decoration {
   display: grid;
   min-width: 0;
   min-height: 7rem;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 0.875rem;
   overflow: hidden;
   border: 1px solid var(--border-neutral);
@@ -1808,18 +1809,15 @@ input[type="search"]::-webkit-search-decoration {
   overflow-wrap: anywhere;
 }
 
-.mobile-airing-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 0.75rem;
-  margin-top: 0.55rem;
-  color: var(--text-secondary);
+.mobile-airing-card-watched {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--watched);
   font-size: 0.75rem;
+  white-space: nowrap;
 }
-
-.mobile-airing-card-meta span { display: inline-flex; align-items: center; gap: 0.25rem; }
-.mobile-airing-card-meta svg { width: 0.8rem; height: 0.8rem; flex: none; }
-.mobile-airing-card-watched { color: var(--watched); }
+.mobile-airing-card-watched svg { width: 0.8rem; height: 0.8rem; flex: none; }
 
 .mobile-airing-skeleton {
   display: grid;
@@ -2059,6 +2057,28 @@ input[type="search"]::-webkit-search-decoration {
 }
 .daily-airing-card-episode span:first-child { flex: none; font-weight: 600; }
 .daily-airing-card-episode span:last-child { overflow-wrap: anywhere; }
+.daily-airing-card-body > .airing-card-update-time,
+.mobile-airing-card-body > .airing-card-update-time {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-pressed);
+  padding: 0.25rem 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  line-height: 1.2;
+}
+.daily-airing-card-body > .airing-card-update-time svg,
+.mobile-airing-card-body > .airing-card-update-time svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: none;
+}
 .daily-airing-card-trailing {
   display: flex;
   max-width: 15rem;
@@ -2071,7 +2091,6 @@ input[type="search"]::-webkit-search-decoration {
 }
 .daily-airing-card-trailing span { display: inline-flex; align-items: center; gap: 0.3rem; }
 .daily-airing-card-trailing svg { width: 0.9rem; height: 0.9rem; flex: none; }
-.daily-airing-card-time { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 650; }
 .daily-airing-card-watched { color: var(--watched); }
 
 @media (hover: hover) {

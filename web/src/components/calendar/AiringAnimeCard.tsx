@@ -34,13 +34,21 @@ export function AiringAnimeCard({
       fallback: (count) => t("calendar.episodeFallback", { count }),
     },
   );
-  const timeSummary = formatTimeSummary(item, locale, timeZone, t);
-  const watchedSummary = item.watchedEpisodeCount === item.episodeCount
+  const episodeTime = formatEpisodeTime(item, locale, timeZone);
+  const watchedEpisodeCount = getWatchedEpisodeCount(item);
+  const watchedSummary = watchedEpisodeCount === item.episodeCount
     ? t("calendar.watched")
-    : item.watchedEpisodeCount > 0
-      ? t("calendar.watchedPartial", { watched: item.watchedEpisodeCount, total: item.episodeCount })
+    : watchedEpisodeCount > 0
+      ? t("calendar.watchedPartial", { watched: watchedEpisodeCount, total: item.episodeCount })
       : null;
-  const accessibleName = [item.anime.displayName, summary, item.minimumEpisodeTitle, dateLabel, timeSummary]
+  const accessibleName = [
+    item.anime.displayName,
+    summary,
+    item.minimumEpisodeTitle,
+    dateLabel,
+    episodeTime?.label,
+    watchedSummary,
+  ]
     .filter(Boolean)
     .join(", ");
   const posterUrl = assetUrl(item.anime.posterUrl);
@@ -70,15 +78,16 @@ export function AiringAnimeCard({
           <span>{summary}</span>
           {item.minimumEpisodeTitle ? <span>{item.minimumEpisodeTitle}</span> : null}
         </p>
+        {episodeTime ? (
+          <span className="airing-card-update-time">
+            <Clock3 aria-hidden="true" />
+            <time dateTime={episodeTime.airAt}>{episodeTime.label}</time>
+          </span>
+        ) : null}
       </div>
-      {timeSummary || watchedSummary ? (
+      {watchedSummary ? (
         <div className="daily-airing-card-trailing">
-          {timeSummary ? (
-            <span className="daily-airing-card-time"><Clock3 aria-hidden="true" />{timeSummary}</span>
-          ) : null}
-          {watchedSummary ? (
-            <span className="daily-airing-card-watched"><Check aria-hidden="true" />{watchedSummary}</span>
-          ) : null}
+          <span className="daily-airing-card-watched"><Check aria-hidden="true" />{watchedSummary}</span>
         </div>
       ) : null}
     </article>
@@ -102,13 +111,21 @@ export function MobileAiringAnimeCard({
       fallback: (count) => t("calendar.episodeFallback", { count }),
     },
   );
-  const timeSummary = formatTimeSummary(item, locale, timeZone, t);
-  const watchedSummary = item.watchedEpisodeCount === item.episodeCount
+  const episodeTime = formatEpisodeTime(item, locale, timeZone);
+  const watchedEpisodeCount = getWatchedEpisodeCount(item);
+  const watchedSummary = watchedEpisodeCount === item.episodeCount
     ? t("calendar.watched")
-    : item.watchedEpisodeCount > 0
-      ? t("calendar.watchedPartial", { watched: item.watchedEpisodeCount, total: item.episodeCount })
+    : watchedEpisodeCount > 0
+      ? t("calendar.watchedPartial", { watched: watchedEpisodeCount, total: item.episodeCount })
       : null;
-  const accessibleName = [item.anime.displayName, summary, item.minimumEpisodeTitle, dateLabel, timeSummary]
+  const accessibleName = [
+    item.anime.displayName,
+    summary,
+    item.minimumEpisodeTitle,
+    dateLabel,
+    episodeTime?.label,
+    watchedSummary,
+  ]
     .filter(Boolean)
     .join(", ");
   const posterUrl = assetUrl(item.anime.posterUrl);
@@ -125,30 +142,38 @@ export function MobileAiringAnimeCard({
         <h3>{item.anime.displayName}</h3>
         <p className="mobile-airing-card-episode">{summary}</p>
         {item.minimumEpisodeTitle ? <p className="mobile-airing-card-episode-title">{item.minimumEpisodeTitle}</p> : null}
-        {timeSummary || watchedSummary ? (
-          <div className="mobile-airing-card-meta">
-            {timeSummary ? <span><Clock3 aria-hidden="true" />{timeSummary}</span> : null}
-            {watchedSummary ? <span className="mobile-airing-card-watched"><Check aria-hidden="true" />{watchedSummary}</span> : null}
-          </div>
+        {episodeTime ? (
+          <span className="airing-card-update-time">
+            <Clock3 aria-hidden="true" />
+            <time dateTime={episodeTime.airAt}>{episodeTime.label}</time>
+          </span>
         ) : null}
       </div>
+      {watchedSummary ? (
+        <span className="mobile-airing-card-watched"><Check aria-hidden="true" />{watchedSummary}</span>
+      ) : null}
     </article>
   );
 }
 
-function formatTimeSummary(
+function formatEpisodeTime(
   item: AiringCalendarItem,
   locale: string,
   timeZone: string,
-  t: ReturnType<typeof useTranslations>,
 ) {
-  const { earliestExactAirAt, exactTimeSlotCount, hasDatePrecision } = item.scheduleSummary;
-  if (!earliestExactAirAt) return hasDatePrecision ? null : null;
-  const time = formatExactTime(earliestExactAirAt, locale, timeZone);
-  const exact = exactTimeSlotCount > 1
-    ? t("calendar.multipleTimes", { time, count: exactTimeSlotCount })
-    : t("calendar.exactTime", { time });
-  return hasDatePrecision ? `${exact} · ${t("calendar.someTimesUnknown")}` : exact;
+  const episode = item.episodes.reduce((earliest, candidate) => (
+    candidate.id < earliest.id ? candidate : earliest
+  ));
+  if (episode.airAtPrecision !== "datetime") return null;
+  return {
+    airAt: episode.airAt,
+    label: formatExactTime(episode.airAt, locale, timeZone),
+  };
+}
+
+function getWatchedEpisodeCount(item: AiringCalendarItem) {
+  const visibleWatchedCount = item.episodes.filter((episode) => episode.watched).length;
+  return Math.max(item.watchedEpisodeCount, visibleWatchedCount);
 }
 
 function formatExactTime(value: string, locale: string, timeZone: string) {

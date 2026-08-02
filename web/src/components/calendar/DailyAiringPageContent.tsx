@@ -141,13 +141,16 @@ export function DailyAiringPageContent() {
         void loadCalendar(true);
       }
     };
+    const refreshVisibleCalendar = () => {
+      if (document.visibilityState !== "hidden") void loadCalendar(true);
+    };
     const midnightCheck = window.setInterval(verifyWindow, 60_000);
-    document.addEventListener("visibilitychange", verifyWindow);
-    window.addEventListener("focus", verifyWindow);
+    document.addEventListener("visibilitychange", refreshVisibleCalendar);
+    window.addEventListener("focus", refreshVisibleCalendar);
     return () => {
       window.clearInterval(midnightCheck);
-      document.removeEventListener("visibilitychange", verifyWindow);
-      window.removeEventListener("focus", verifyWindow);
+      document.removeEventListener("visibilitychange", refreshVisibleCalendar);
+      window.removeEventListener("focus", refreshVisibleCalendar);
     };
   }, [calendarStartDate, calendarTimeZone, loadCalendar]);
 
