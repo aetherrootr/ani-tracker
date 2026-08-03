@@ -23,7 +23,7 @@ from app.models.progress import (
 )
 from app.models.user import User
 
-CALENDAR_DAY_COUNT = 7
+CALENDAR_DAY_COUNT = 21
 MAX_CALENDAR_EPISODE_DETAILS_PER_ANIME = 50
 
 
@@ -37,7 +37,9 @@ def get_user_airing_calendar(
     time_zone = ZoneInfo(user.time_zone)
     generated_at = _aware_utc(now or datetime.now(UTC))
     local_today = generated_at.astimezone(time_zone).date()
-    window_start = start_date or local_today
+    week_start = _start_of_week(local_today, user.week_start_day)
+    week_end = week_start + timedelta(days=6)
+    window_start = start_date or week_start - timedelta(days=7)
     window_end = window_start + timedelta(days=CALENDAR_DAY_COUNT - 1)
 
     progresses = session.scalars(
@@ -87,8 +89,6 @@ def get_user_airing_calendar(
         window_start + timedelta(days=offset): []
         for offset in range(CALENDAR_DAY_COUNT)
     }
-    seen_anime_ids: set[int] = set()
-
     for progress in progresses:
         if _uses_local_snapshot(progress):
             snapshot = progress.metadata_snapshot
@@ -186,13 +186,15 @@ def get_user_airing_calendar(
                 condition=len({episode['id'] for episode in item['episodes']}) == len(item['episodes']),
                 message='Duplicate episode in airing calendar item',
             )
-            seen_anime_ids.add(progress.anime_id)
             buckets[semantic_date].append(item)
 
     days = []
+    week_anime_ids: set[int] = set()
     for day, items in buckets.items():
         items.sort(key=_item_sort_key)
         days.append({'date': day.isoformat(), 'items': items})
+        if week_start <= day <= week_end:
+            week_anime_ids.update(item['anime']['id'] for item in items)
 
     _require_calendar_invariant(
         condition=len(days) == CALENDAR_DAY_COUNT,
@@ -201,9 +203,12 @@ def get_user_airing_calendar(
     return {
         'startDate': window_start.isoformat(),
         'endDate': window_end.isoformat(),
+        'todayDate': local_today.isoformat(),
+        'weekStartDate': week_start.isoformat(),
+        'weekEndDate': week_end.isoformat(),
         'timeZone': user.time_zone,
         'generatedAt': _iso_utc(generated_at),
-        'totalAnimeCount': len(seen_anime_ids),
+        'totalAnimeCount': len(week_anime_ids),
         'days': days,
     }
 
@@ -343,6 +348,10 @@ def _aware_utc(value: datetime) -> datetime:
 
 def _iso_utc(value: datetime) -> str:
     return _aware_utc(value).isoformat().replace('+00:00', 'Z')
+
+
+def _start_of_week(value: date, week_start_day: int) -> date:
+    return value - timedelta(days=(value.weekday() - week_start_day) % 7)
 
 
 def _require_calendar_invariant(*, condition: bool, message: str) -> None:
