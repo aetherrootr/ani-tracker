@@ -4,10 +4,10 @@ import { AlertCircle, CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, KeyR
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import type { FormEvent, MouseEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
-import { getMobileScrollContainer } from "@/components/layout/mobile-scroll-container";
+import { addPageScrollListener, getMobileScrollContainer } from "@/components/layout/mobile-scroll-container";
 import { TvtimeImportCard } from "@/components/settings/TvtimeImportCard";
 import { WallpaperSettingsCard } from "@/components/settings/WallpaperSettingsCard";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,9 @@ import { getApiUrl } from "@/lib/api-client";
 
 const WEEK_START_OPTIONS = ["0", "1", "2", "3", "4", "5", "6"] as const;
 const TIME_ZONE_MODE_OPTIONS = ["auto", "manual"] as const;
+const SETTINGS_SECTION_IDS = ["settings-general", "settings-data", "settings-tracking", "settings-maintenance", "settings-account", "settings-about"] as const;
 type BooleanOption = "true" | "false";
+type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 export default function SettingsPage() {
   const t = useTranslations();
@@ -71,6 +73,89 @@ export default function SettingsPage() {
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [aboutCardOpen, setAboutCardOpen] = useState(false);
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("settings-general");
+  const settingsNavigationRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const updateActiveSection = () => {
+      const sectionId = window.location.hash.slice(1);
+      setActiveSettingsSection(SETTINGS_SECTION_IDS.includes(sectionId as SettingsSectionId) ? sectionId as SettingsSectionId : "settings-general");
+    };
+
+    updateActiveSection();
+    window.addEventListener("hashchange", updateActiveSection);
+    window.addEventListener("popstate", updateActiveSection);
+    return () => {
+      window.removeEventListener("hashchange", updateActiveSection);
+      window.removeEventListener("popstate", updateActiveSection);
+    };
+  }, []);
+
+  useEffect(() => {
+    let animationFrame = 0;
+
+    const updateActiveSection = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const navigation = settingsNavigationRef.current;
+        const sections = Array.from(document.querySelectorAll<HTMLElement>(".settings-content-pane > .settings-section"));
+        if (!navigation || sections.length === 0) return;
+
+        const viewport = getMobileScrollContainer();
+        const isAtPageBottom = viewport
+          ? viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 2
+          : window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+        let currentSection = sections[0];
+
+        if (isAtPageBottom) {
+          currentSection = sections[sections.length - 1];
+        } else {
+          const activationTop = window.matchMedia("(min-width: 960px)").matches ? 16 : navigation.getBoundingClientRect().bottom + 16;
+          const viewportBottom = viewport?.getBoundingClientRect().bottom ?? window.innerHeight;
+          const availableViewportHeight = Math.max(viewportBottom - activationTop, 1);
+          let largestVisibleRatio = 0;
+
+          for (const section of sections) {
+            const sectionRect = section.getBoundingClientRect();
+            const visibleArea = Math.max(0, Math.min(sectionRect.bottom, viewportBottom) - Math.max(sectionRect.top, activationTop));
+            const visibleRatio = visibleArea / Math.min(sectionRect.height, availableViewportHeight);
+            if (visibleRatio > largestVisibleRatio) {
+              largestVisibleRatio = visibleRatio;
+              currentSection = section;
+            }
+          }
+        }
+
+        if (SETTINGS_SECTION_IDS.includes(currentSection.id as SettingsSectionId)) {
+          setActiveSettingsSection(currentSection.id as SettingsSectionId);
+        }
+      });
+    };
+
+    const removeScrollListener = addPageScrollListener(updateActiveSection);
+    window.addEventListener("resize", updateActiveSection);
+    updateActiveSection();
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      removeScrollListener();
+      window.removeEventListener("resize", updateActiveSection);
+    };
+  }, []);
+
+  useEffect(() => {
+    const navigation = settingsNavigationRef.current;
+    const activeLink = navigation?.querySelector<HTMLAnchorElement>(`a[href="#${activeSettingsSection}"]`);
+    if (!navigation || !activeLink || navigation.scrollWidth <= navigation.clientWidth) return;
+
+    const navigationRect = navigation.getBoundingClientRect();
+    const activeLinkRect = activeLink.getBoundingClientRect();
+    if (activeLinkRect.left >= navigationRect.left && activeLinkRect.right <= navigationRect.right) return;
+
+    navigation.scrollTo({
+      left: navigation.scrollLeft + activeLinkRect.left - navigationRect.left - (navigation.clientWidth - activeLink.offsetWidth) / 2,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [activeSettingsSection]);
 
   useEffect(() => {
     let isMounted = true;
@@ -355,13 +440,13 @@ export default function SettingsPage() {
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{t("settings.description")}</p>
       </header>
       <div className="settings-layout">
-        <nav className="settings-navigation mobile-sticky-below-top-nav sticky" aria-label={t("settings.categories.label") } onClick={handleSettingsNavigation}>
-          <a href="#settings-general">{t("settings.categories.general")}</a>
-          <a href="#settings-tracking">{t("settings.categories.tracking")}</a>
-          <a href="#settings-data">{t("settings.categories.data")}</a>
-          <a href="#settings-maintenance">{t("settings.categories.maintenance")}</a>
-          <a href="#settings-account">{t("settings.categories.account")}</a>
-          <a href="#settings-about">{t("settings.categories.about")}</a>
+        <nav ref={settingsNavigationRef} className="settings-navigation mobile-sticky-below-top-nav sticky" aria-label={t("settings.categories.label") } onClick={(event) => handleSettingsNavigation(event, setActiveSettingsSection)}>
+          <a href="#settings-general" aria-current={activeSettingsSection === "settings-general" ? "location" : undefined}>{t("settings.categories.general")}</a>
+          <a href="#settings-data" aria-current={activeSettingsSection === "settings-data" ? "location" : undefined}>{t("settings.categories.data")}</a>
+          <a href="#settings-tracking" aria-current={activeSettingsSection === "settings-tracking" ? "location" : undefined}>{t("settings.categories.tracking")}</a>
+          <a href="#settings-maintenance" aria-current={activeSettingsSection === "settings-maintenance" ? "location" : undefined}>{t("settings.categories.maintenance")}</a>
+          <a href="#settings-account" aria-current={activeSettingsSection === "settings-account" ? "location" : undefined}>{t("settings.categories.account")}</a>
+          <a href="#settings-about" aria-current={activeSettingsSection === "settings-about" ? "location" : undefined}>{t("settings.categories.about")}</a>
         </nav>
         <div className="settings-content-pane">
       <section id="settings-general" className="settings-section" aria-labelledby="settings-general-heading">
@@ -749,19 +834,21 @@ export default function SettingsPage() {
   );
 }
 
-function handleSettingsNavigation(event: MouseEvent<HTMLElement>) {
+function handleSettingsNavigation(event: MouseEvent<HTMLElement>, setActiveSection: (sectionId: SettingsSectionId) => void) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
   const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href^='#settings-']");
   if (!anchor) return;
 
-  const target = document.getElementById(decodeURIComponent(anchor.hash.slice(1)));
+  const sectionId = decodeURIComponent(anchor.hash.slice(1)) as SettingsSectionId;
+  const target = document.getElementById(sectionId);
   const viewport = getMobileScrollContainer();
   const contentPane = target?.closest<HTMLElement>(".settings-content-pane");
   if (!target || !viewport || !contentPane) return;
 
   event.preventDefault();
   window.history.pushState(null, "", anchor.hash);
+  setActiveSection(sectionId);
 
   const viewportRect = viewport.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();

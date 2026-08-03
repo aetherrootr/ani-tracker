@@ -581,16 +581,23 @@ html.dark[data-wallpaper-tone] .user-wallpaper-protection {
   flex: none;
   align-items: center;
   padding: 0.625rem 0.875rem;
-  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
   font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
   scroll-snap-align: start;
   scroll-snap-stop: normal;
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
 .settings-navigation a:hover { background: var(--surface-hover); color: var(--text-primary); }
+.settings-navigation a[aria-current="location"] {
+  border-color: color-mix(in srgb, var(--accent-solid) 30%, var(--border-neutral));
+  background: var(--accent-soft);
+  color: var(--accent-solid);
+}
 .settings-navigation a:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); color: var(--accent-solid); }
 .settings-content-pane { min-width: 0; display: grid; gap: 1.25rem; }
 .settings-section {
@@ -686,13 +693,13 @@ html.dark[data-wallpaper-tone] .user-wallpaper-protection {
 @media (min-width: 960px) {
   .settings-layout { grid-template-columns: 14rem minmax(0, 1fr); align-items: start; gap: 1.5rem; }
   .settings-navigation { top: 1rem; flex-direction: column; overflow: visible; padding: 0.5rem; border-radius: var(--radius-card); background: var(--surface-navigation); backdrop-filter: blur(var(--glass-blur-medium)) saturate(145%); }
-  .settings-navigation a { width: 100%; }
+  .settings-navigation a { width: 100%; border-radius: var(--radius-control); }
   .settings-content-pane { padding: 1.25rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-panel); background: var(--surface-panel); }
   .settings-section { scroll-margin-top: 1rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-switch, .settings-switch > span, .library-refresh-progress { transition: none; }
+  .settings-navigation a, .settings-switch, .settings-switch > span, .library-refresh-progress { transition: none; }
 }
 
 @media (max-height: 680px) {
