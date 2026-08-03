@@ -9,14 +9,16 @@ export async function getAiringCalendar(signal?: AbortSignal) {
   });
 
   if (process.env.NODE_ENV !== "production") {
-    const animeIds = response.days.flatMap((day) => day.items.map((item) => item.anime.id));
-    if (new Set(animeIds).size !== animeIds.length) {
-      throw new Error("Duplicate anime in airing calendar response");
-    }
-    for (const item of response.days.flatMap((day) => day.items)) {
-      const episodeIds = item.episodes.map((episode) => episode.id);
-      if (new Set(episodeIds).size !== episodeIds.length) {
-        throw new Error("Duplicate episode in airing calendar response");
+    for (const day of response.days) {
+      const animeIds = day.items.map((item) => item.anime.id);
+      if (new Set(animeIds).size !== animeIds.length) {
+        throw new Error("Duplicate anime in airing calendar day");
+      }
+      for (const item of day.items) {
+        const episodeIds = item.episodes.map((episode) => episode.id);
+        if (new Set(episodeIds).size !== episodeIds.length) {
+          throw new Error("Duplicate episode in airing calendar response");
+        }
       }
     }
   }

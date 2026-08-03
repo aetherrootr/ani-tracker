@@ -192,7 +192,9 @@ def test_airing_calendar_preserves_date_precision_and_groups_datetime_in_user_zo
     assert second_day_items[0]['episodes'][0]['airAtPrecision'] == 'date'
 
 
-def test_airing_calendar_filters_scope_and_keeps_only_earliest_anime_day(db_session: Session) -> None:
+def test_airing_calendar_filters_library_statuses_and_groups_anime_on_every_air_date(
+    db_session: Session,
+) -> None:
     now = datetime(2026, 8, 2, 8, tzinfo=UTC)
     user = User(username='scope-user', email='scope@example.com', password_hash='test', time_zone='UTC')
     db_session.add(user)
@@ -222,7 +224,7 @@ def test_airing_calendar_filters_scope_and_keeps_only_earliest_anime_day(db_sess
         status=EpisodeStatus.UPCOMING,
         has_time=True,
     )
-    add_episode(
+    next_day = add_episode(
         db_session,
         anime,
         number=4,
@@ -230,36 +232,62 @@ def test_airing_calendar_filters_scope_and_keeps_only_earliest_anime_day(db_sess
         status=EpisodeStatus.UPCOMING,
         has_time=True,
     )
-    excluded = add_anime(
+    on_hold = add_anime(
         db_session,
-        external_id='excluded',
-        title='Excluded',
+        external_id='on-hold',
+        title='On hold',
         user_id=user.id,
         user_status=UserAnimeStatus.ON_HOLD,
     )
     add_episode(
         db_session,
-        excluded,
+        on_hold,
         number=1,
-        air_at=now - timedelta(days=1),
-        status=EpisodeStatus.AIRED,
+        air_at=now + timedelta(days=1),
+        status=EpisodeStatus.UPCOMING,
         has_time=True,
+    )
+    dropped = add_anime(
+        db_session,
+        external_id='dropped',
+        title='Dropped',
+        user_id=user.id,
+        user_status=UserAnimeStatus.DROPPED,
     )
     add_episode(
         db_session,
-        excluded,
-        number=2,
+        dropped,
+        number=1,
         air_at=now + timedelta(days=1),
         status=EpisodeStatus.UPCOMING,
+        has_time=True,
+    )
+    completed = add_anime(
+        db_session,
+        external_id='completed',
+        title='Completed',
+        user_id=user.id,
+        user_status=UserAnimeStatus.COMPLETED,
+    )
+    completed_episode = add_episode(
+        db_session,
+        completed,
+        number=1,
+        air_at=now + timedelta(days=1, hours=2),
+        status=EpisodeStatus.AIRED,
         has_time=True,
     )
     db_session.commit()
 
     result = get_user_airing_calendar(db_session, user, start_date=now.date(), now=now)
 
-    assert result['totalAnimeCount'] == 1
-    assert [episode['id'] for episode in result['days'][1]['items'][0]['episodes']] == [first.id, same_day.id]
-    assert all(not day['items'] for day in result['days'][2:])
+    assert result['totalAnimeCount'] == 2
+    second_day_items = {item['anime']['id']: item for item in result['days'][1]['items']}
+    assert [episode['id'] for episode in second_day_items[anime.id]['episodes']] == [first.id, same_day.id]
+    assert second_day_items[completed.id]['episodes'][0]['id'] == completed_episode.id
+    assert result['days'][2]['items'][0]['anime']['id'] == anime.id
+    assert result['days'][2]['items'][0]['episodes'][0]['id'] == next_day.id
+    assert all(not day['items'] for day in result['days'][3:])
 
 
 def test_airing_calendar_keeps_date_only_final_episode_that_turned_aired_today(
@@ -294,6 +322,37 @@ def test_airing_calendar_keeps_date_only_final_episode_that_turned_aired_today(
     assert result['totalAnimeCount'] == 1
     assert result['days'][0]['items'][0]['episodes'][0]['id'] == final_episode.id
     assert result['days'][0]['items'][0]['episodes'][0]['airAtPrecision'] == 'date'
+
+
+def test_airing_calendar_keeps_timed_final_episode_after_it_airs_today(
+    db_session: Session,
+) -> None:
+    now = datetime(2026, 8, 3, 15, tzinfo=UTC)
+    user = User(
+        username='timed-final-user',
+        email='timed-final@example.com',
+        password_hash='test',
+        time_zone='Asia/Shanghai',
+    )
+    db_session.add(user)
+    db_session.flush()
+    anime = add_anime(db_session, external_id='timed-final', title='Timed final', user_id=user.id)
+    anime.total_episodes = 1
+    final_episode = add_episode(
+        db_session,
+        anime,
+        number=1,
+        air_at=datetime(2026, 8, 3, 14, tzinfo=UTC),
+        status=EpisodeStatus.AIRED,
+        has_time=True,
+    )
+    db_session.commit()
+
+    result = get_user_airing_calendar(db_session, user, start_date=now.date(), now=now)
+
+    assert result['totalAnimeCount'] == 1
+    assert result['days'][0]['items'][0]['episodes'][0]['id'] == final_episode.id
+    assert result['days'][0]['items'][0]['episodes'][0]['airAtPrecision'] == 'datetime'
 
 
 def test_airing_calendar_uses_only_the_active_local_snapshot(db_session: Session) -> None:

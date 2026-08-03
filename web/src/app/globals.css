@@ -1626,18 +1626,6 @@ input[type="search"]::-webkit-search-decoration {
   padding: 0.25rem;
 }
 
-.mobile-airing-picker-wrap::after {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.25rem;
-  bottom: 0.5rem;
-  width: 1rem;
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-  background: linear-gradient(to left, color-mix(in srgb, var(--surface-glass-strong) 90%, transparent), transparent);
-  content: "";
-  pointer-events: none;
-}
-
 .mobile-airing-picker {
   display: grid;
   overflow-x: auto;
