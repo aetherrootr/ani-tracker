@@ -581,16 +581,23 @@ html.dark[data-wallpaper-tone] .user-wallpaper-protection {
   flex: none;
   align-items: center;
   padding: 0.625rem 0.875rem;
-  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
   font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
   scroll-snap-align: start;
   scroll-snap-stop: normal;
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
 .settings-navigation a:hover { background: var(--surface-hover); color: var(--text-primary); }
+.settings-navigation a[aria-current="location"] {
+  border-color: color-mix(in srgb, var(--accent-solid) 30%, var(--border-neutral));
+  background: var(--accent-soft);
+  color: var(--accent-solid);
+}
 .settings-navigation a:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); color: var(--accent-solid); }
 .settings-content-pane { min-width: 0; display: grid; gap: 1.25rem; }
 .settings-section {
@@ -686,13 +693,13 @@ html.dark[data-wallpaper-tone] .user-wallpaper-protection {
 @media (min-width: 960px) {
   .settings-layout { grid-template-columns: 14rem minmax(0, 1fr); align-items: start; gap: 1.5rem; }
   .settings-navigation { top: 1rem; flex-direction: column; overflow: visible; padding: 0.5rem; border-radius: var(--radius-card); background: var(--surface-navigation); backdrop-filter: blur(var(--glass-blur-medium)) saturate(145%); }
-  .settings-navigation a { width: 100%; }
+  .settings-navigation a { width: 100%; border-radius: var(--radius-control); }
   .settings-content-pane { padding: 1.25rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-panel); background: var(--surface-panel); }
   .settings-section { scroll-margin-top: 1rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-switch, .settings-switch > span, .library-refresh-progress { transition: none; }
+  .settings-navigation a, .settings-switch, .settings-switch > span, .library-refresh-progress { transition: none; }
 }
 
 @media (max-height: 680px) {
@@ -1560,6 +1567,10 @@ input[type="search"]::-webkit-search-decoration {
 }
 
 .mobile-airing-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-top: 0.3rem;
 }
 
@@ -1626,18 +1637,67 @@ input[type="search"]::-webkit-search-decoration {
   padding: 0.25rem;
 }
 
-.mobile-airing-picker {
-  display: grid;
-  overflow-x: auto;
-  grid-template-columns: repeat(7, minmax(44px, 1fr));
-  gap: 0.125rem;
-  border: 1px solid var(--border-highlight);
+.calendar-scroll-hint {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.calendar-scroll-hint svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.calendar-scroll-hint:not(:disabled):hover { color: var(--accent-solid); }
+
+.calendar-scroll-hint:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.calendar-scroll-hint:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: -2px;
+}
+
+.calendar-scroll-hint-left,
+.calendar-scroll-hint-right {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--border-neutral);
   border-radius: var(--radius-pill);
   background: var(--surface-glass-strong);
+  box-shadow: var(--shadow-low);
+}
+
+.mobile-airing-picker-shell {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  gap: 0.125rem;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--radius-pill);
   padding: 0.25rem;
-  box-shadow: var(--shadow-medium);
-  -webkit-backdrop-filter: blur(var(--glass-blur-medium)) saturate(145%);
-  backdrop-filter: blur(var(--glass-blur-medium)) saturate(145%);
+}
+
+.mobile-airing-picker-shell > .calendar-scroll-hint {
+  position: static;
+  width: 2.75rem;
+  height: 3rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mobile-airing-picker {
+  display: flex;
+  overflow-x: auto;
+  gap: 0.125rem;
   scrollbar-width: none;
 }
 
@@ -1647,6 +1707,7 @@ input[type="search"]::-webkit-search-decoration {
   display: flex;
   min-width: 44px;
   min-height: 48px;
+  flex: 0 0 max(44px, calc((100% - 0.75rem) / 7));
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1683,6 +1744,7 @@ input[type="search"]::-webkit-search-decoration {
   display: flex;
   min-height: 3rem;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid var(--border-neutral);
@@ -1696,11 +1758,32 @@ input[type="search"]::-webkit-search-decoration {
   gap: 0.5rem;
 }
 
-.mobile-airing-day-header > strong {
+.mobile-airing-day-actions {
+  flex: none;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.mobile-airing-day-actions > strong {
   color: var(--text-secondary);
   font-size: 0.75rem;
   font-weight: 650;
 }
+
+.airing-return-today {
+  min-width: 6.75rem;
+  color: var(--text-primary);
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-normal) var(--ease-standard), box-shadow var(--motion-normal) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard);
+}
+
+.airing-return-today svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  color: var(--accent-solid);
+}
+
+.mobile-airing-day-actions .airing-return-today { min-height: 44px; }
 
 .mobile-airing-relative-day {
   flex: none;
@@ -1836,16 +1919,40 @@ input[type="search"]::-webkit-search-decoration {
   position: sticky;
   top: 1rem;
   min-width: 0;
+  border: 1px solid var(--border-neutral);
+  border-radius: var(--radius-panel);
+  background: var(--surface-card);
+  padding: 2.875rem 0.375rem;
+  box-shadow: var(--shadow-low);
 }
 
 .desktop-airing-date-tabs {
   display: grid;
+  height: 27.75rem;
+  overflow-y: auto;
   gap: 0.25rem;
-  border: 1px solid var(--border-neutral);
-  border-radius: var(--radius-panel);
-  background: var(--surface-card);
-  padding: 0.375rem;
-  box-shadow: var(--shadow-low);
+  scrollbar-width: none;
+}
+
+.desktop-airing-date-tabs::-webkit-scrollbar { display: none; }
+
+.desktop-airing-date-nav > .calendar-scroll-hint-top,
+.desktop-airing-date-nav > .calendar-scroll-hint-bottom {
+  right: 0;
+  left: 0;
+  min-height: 2.5rem;
+}
+
+.desktop-airing-date-nav > .calendar-scroll-hint-top {
+  top: 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  background: linear-gradient(to bottom, var(--surface-card) 35%, transparent);
+}
+
+.desktop-airing-date-nav > .calendar-scroll-hint-bottom {
+  bottom: 0;
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+  background: linear-gradient(to top, var(--surface-card) 35%, transparent);
 }
 
 .desktop-airing-date-tabs button {
@@ -1975,15 +2082,21 @@ input[type="search"]::-webkit-search-decoration {
 }
 
 .desktop-airing-panel-identity div > span,
-.desktop-airing-panel-header > span {
+.desktop-airing-panel-actions > span {
   color: var(--text-secondary);
   font-size: 0.8125rem;
   font-weight: 600;
 }
 
-.desktop-airing-panel-header > span {
+.desktop-airing-panel-actions {
+  display: flex;
   flex: none;
-  padding-bottom: 0.125rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.desktop-airing-panel-actions > span {
+  flex: none;
 }
 
 .desktop-airing-panel-list {
@@ -2142,12 +2255,6 @@ input[type="search"]::-webkit-search-decoration {
     z-index: var(--z-sticky);
     top: 0.25rem;
   }
-  .desktop-airing-date-tabs {
-    overflow-x: auto;
-    grid-template-columns: repeat(7, minmax(8rem, 1fr));
-    scrollbar-width: thin;
-  }
-  .desktop-airing-date-tabs button { min-width: 8rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2159,18 +2266,6 @@ input[type="search"]::-webkit-search-decoration {
   .daily-airing-card,
   .daily-airing-card img { transition: none; }
   .daily-airing-card:has(.daily-airing-card-link:hover) { transform: none; }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .mobile-airing-picker {
-    background: var(--surface-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .mobile-airing-picker { background: var(--surface-solid); }
 }
 
 @media (forced-colors: active) {

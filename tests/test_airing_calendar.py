@@ -98,7 +98,7 @@ def test_airing_calendar_requires_authentication_and_valid_date(client: FlaskCli
     assert client.get('/api/anime/airing-calendar?startDate=9999-12-31').status_code == 400
 
 
-def test_airing_calendar_returns_seven_empty_days(client: FlaskClient) -> None:
+def test_airing_calendar_returns_twenty_one_empty_days(client: FlaskClient) -> None:
     assert register_user(client).status_code == 201
 
     response = client.get('/api/anime/airing-calendar?startDate=2026-08-02')
@@ -107,7 +107,7 @@ def test_airing_calendar_returns_seven_empty_days(client: FlaskClient) -> None:
     assert response.headers['Cache-Control'] == 'private, no-store'
     body = response.get_json()
     assert body['startDate'] == '2026-08-02'
-    assert body['endDate'] == '2026-08-08'
+    assert body['endDate'] == '2026-08-22'
     assert body['totalAnimeCount'] == 0
     assert [day['date'] for day in body['days']] == [
         '2026-08-02',
@@ -117,7 +117,84 @@ def test_airing_calendar_returns_seven_empty_days(client: FlaskClient) -> None:
         '2026-08-06',
         '2026-08-07',
         '2026-08-08',
+        '2026-08-09',
+        '2026-08-10',
+        '2026-08-11',
+        '2026-08-12',
+        '2026-08-13',
+        '2026-08-14',
+        '2026-08-15',
+        '2026-08-16',
+        '2026-08-17',
+        '2026-08-18',
+        '2026-08-19',
+        '2026-08-20',
+        '2026-08-21',
+        '2026-08-22',
     ]
+
+
+def test_airing_calendar_returns_three_natural_weeks_and_counts_only_current_week(
+    db_session: Session,
+) -> None:
+    now = datetime(2026, 8, 5, 12, tzinfo=UTC)
+    user = User(
+        username='natural-week-user',
+        email='natural-week@example.com',
+        password_hash='test',
+        time_zone='UTC',
+        week_start_day=6,
+    )
+    db_session.add(user)
+    db_session.flush()
+    current_week_anime = add_anime(
+        db_session,
+        external_id='current-natural-week',
+        title='Current natural week',
+        user_id=user.id,
+    )
+    add_episode(
+        db_session,
+        current_week_anime,
+        number=1,
+        air_at=datetime(2026, 8, 2, 12, tzinfo=UTC),
+        status=EpisodeStatus.AIRED,
+        has_time=True,
+    )
+    add_episode(
+        db_session,
+        current_week_anime,
+        number=2,
+        air_at=datetime(2026, 8, 9, 12, tzinfo=UTC),
+        status=EpisodeStatus.UPCOMING,
+        has_time=True,
+    )
+    adjacent_week_anime = add_anime(
+        db_session,
+        external_id='adjacent-natural-week',
+        title='Adjacent natural week',
+        user_id=user.id,
+    )
+    add_episode(
+        db_session,
+        adjacent_week_anime,
+        number=1,
+        air_at=datetime(2026, 8, 10, 12, tzinfo=UTC),
+        status=EpisodeStatus.UPCOMING,
+        has_time=True,
+    )
+    db_session.commit()
+
+    result = get_user_airing_calendar(db_session, user, now=now)
+
+    assert result['startDate'] == '2026-07-26'
+    assert result['endDate'] == '2026-08-15'
+    assert result['todayDate'] == '2026-08-05'
+    assert result['weekStartDate'] == '2026-08-02'
+    assert result['weekEndDate'] == '2026-08-08'
+    assert len(result['days']) == 21
+    assert result['totalAnimeCount'] == 1
+    assert sum(len(day['items']) for day in result['days']) == 3
 
 
 def test_airing_calendar_preserves_date_precision_and_groups_datetime_in_user_zone(
@@ -196,7 +273,13 @@ def test_airing_calendar_filters_library_statuses_and_groups_anime_on_every_air_
     db_session: Session,
 ) -> None:
     now = datetime(2026, 8, 2, 8, tzinfo=UTC)
-    user = User(username='scope-user', email='scope@example.com', password_hash='test', time_zone='UTC')
+    user = User(
+        username='scope-user',
+        email='scope@example.com',
+        password_hash='test',
+        time_zone='UTC',
+        week_start_day=6,
+    )
     db_session.add(user)
     db_session.flush()
     anime = add_anime(db_session, external_id='dedupe', title='Dedupe', user_id=user.id)

@@ -35,6 +35,9 @@ export type AiringCalendarDay = {
 export type AiringCalendarResponse = {
   startDate: string;
   endDate: string;
+  todayDate: string;
+  weekStartDate: string;
+  weekEndDate: string;
   timeZone: string;
   generatedAt: string;
   totalAnimeCount: number;
