@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.utils.serializers import (
@@ -15,6 +15,7 @@ from app.api.utils.serializers import (
 )
 from app.models.anime import AnimeMetaInfo, AnimePoster, Episode, EpisodeStatus
 from app.models.progress import (
+    UserAnimeMetadataEpisodeSnapshot,
     UserAnimeMetadataSnapshot,
     UserAnimeMetadataSource,
     UserAnimeProgress,
@@ -42,6 +43,51 @@ def get_user_airing_calendar(
     window_start = start_date or week_start - timedelta(days=7)
     window_end = window_start + timedelta(days=CALENDAR_DAY_COUNT - 1)
 
+    date_window_start = datetime.combine(window_start, time.min, UTC)
+    date_window_end = datetime.combine(window_end + timedelta(days=1), time.min, UTC)
+    timed_window_start = datetime.combine(window_start, time.min, time_zone).astimezone(UTC)
+    timed_window_end = datetime.combine(window_end + timedelta(days=1), time.min, time_zone).astimezone(UTC)
+    upstream_episode_filter = and_(
+        Episode.air_at.is_not(None),
+        Episode.status.not_in([
+            EpisodeStatus.CANCELLED,
+            EpisodeStatus.DELAYED,
+            EpisodeStatus.UNKNOWN,
+        ]),
+        or_(
+            and_(
+                Episode.air_at_has_time.is_(False),
+                Episode.air_at >= date_window_start,
+                Episode.air_at < date_window_end,
+            ),
+            and_(
+                Episode.air_at_has_time.is_(True),
+                Episode.air_at >= timed_window_start,
+                Episode.air_at < timed_window_end,
+            ),
+        ),
+    )
+    snapshot_episode_filter = and_(
+        UserAnimeMetadataEpisodeSnapshot.air_at.is_not(None),
+        UserAnimeMetadataEpisodeSnapshot.status.not_in([
+            EpisodeStatus.CANCELLED.value,
+            EpisodeStatus.DELAYED.value,
+            EpisodeStatus.UNKNOWN.value,
+        ]),
+        or_(
+            and_(
+                UserAnimeMetadataEpisodeSnapshot.air_at_has_time.is_(False),
+                UserAnimeMetadataEpisodeSnapshot.air_at >= date_window_start,
+                UserAnimeMetadataEpisodeSnapshot.air_at < date_window_end,
+            ),
+            and_(
+                UserAnimeMetadataEpisodeSnapshot.air_at_has_time.is_(True),
+                UserAnimeMetadataEpisodeSnapshot.air_at >= timed_window_start,
+                UserAnimeMetadataEpisodeSnapshot.air_at < timed_window_end,
+            ),
+        ),
+    )
+
     progresses = session.scalars(
         select(UserAnimeProgress)
         .options(
@@ -50,10 +96,10 @@ def get_user_airing_calendar(
             .selectinload(AnimeMetaInfo.posters)
             .selectinload(AnimePoster.resource),
             selectinload(UserAnimeProgress.anime)
-            .selectinload(AnimeMetaInfo.episodes)
+            .selectinload(AnimeMetaInfo.episodes.and_(upstream_episode_filter))
             .selectinload(Episode.names),
             selectinload(UserAnimeProgress.metadata_snapshot).selectinload(
-                UserAnimeMetadataSnapshot.episodes,
+                UserAnimeMetadataSnapshot.episodes.and_(snapshot_episode_filter),
             ),
         )
         .where(
@@ -63,7 +109,7 @@ def get_user_airing_calendar(
                 UserAnimeStatus.PLAN_TO_WATCH,
                 UserAnimeStatus.COMPLETED,
             ]),
-        ),
+        ).execution_options(populate_existing=True),
     ).all()
 
     upstream_episode_ids = {

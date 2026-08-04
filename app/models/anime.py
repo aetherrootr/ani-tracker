@@ -292,6 +292,7 @@ class Episode(TimestampedBase):
     __table_args__ = (
         UniqueConstraint("anime_id", "episode_number", name="uq_episode_anime_id_episode_number"),
         Index("ix_episode_anime_id_episode_number", "anime_id", "episode_number"),
+        Index("ix_episode_anime_id_air_at", "anime_id", "air_at"),
         Index("ix_episode_air_at", "air_at"),
         Index("ix_episode_provider_external_id", "provider_external_id"),
         Index("ix_episode_status_status_air_at", "status", "status_air_at"),

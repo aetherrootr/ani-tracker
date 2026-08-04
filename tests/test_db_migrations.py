@@ -25,7 +25,7 @@ def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -
         assert "alembic_version" in inspector.get_table_names()
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "202607250001"
+        assert version == "202608050001"
         assert "anime_poster_resource" in inspector.get_table_names()
         poster_columns = {column["name"] for column in inspector.get_columns("anime_poster")}
         assert {"resource_id", "role", "priority"} <= poster_columns
@@ -49,7 +49,15 @@ def test_create_app_migrates_empty_sqlite_database_to_head(test_instance_path) -
         assert {'provider_external_id', 'status_air_at'} <= episode_columns
         assert "air_at_has_time" in snapshot_episode_columns
         episode_indexes = {index['name'] for index in inspector.get_indexes('episode')}
-        assert {'ix_episode_provider_external_id', 'ix_episode_status_status_air_at'} <= episode_indexes
+        assert {
+            'ix_episode_anime_id_air_at',
+            'ix_episode_provider_external_id',
+            'ix_episode_status_status_air_at',
+        } <= episode_indexes
+        snapshot_episode_indexes = {
+            index['name'] for index in inspector.get_indexes('user_anime_metadata_episode_snapshot')
+        }
+        assert 'ix_user_anime_metadata_episode_snapshot_snapshot_air_at' in snapshot_episode_indexes
     finally:
         engine.dispose()
 
