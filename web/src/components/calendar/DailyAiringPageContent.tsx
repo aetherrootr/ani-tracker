@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, LocateFixed, RefreshCw } from "lucide-react";
+import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, LocateFixed, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import {
@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { useDesktopPlatform } from "@/components/layout/platform-layout";
+import { MobilePullToRefresh } from "@/components/layout/MobilePullToRefresh";
 import { Button } from "@/components/ui/button";
 import { getAiringCalendar } from "@/features/calendar/api";
 import type { AiringCalendarResponse } from "@/features/calendar/types";
@@ -24,6 +25,7 @@ import type { LibraryRefreshJob } from "@/features/library/types";
 import { useLocaleControls } from "@/i18n/provider";
 
 import { AiringAnimeCard, MobileAiringAnimeCard } from "./AiringAnimeCard";
+import navigatorStyles from "./DesktopCalendarNavigator.module.css";
 
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 
@@ -60,8 +62,10 @@ export function DailyAiringPageContent() {
         setSelectedDayIndex(todayIndex);
         setCalendarViewResetKey((current) => current + 1);
       }
+      return true;
     } catch {
       if (!controller.signal.aborted) setCalendarError(true);
+      return false;
     } finally {
       if (!controller.signal.aborted) {
         setCalendarLoading(false);
@@ -173,6 +177,11 @@ export function DailyAiringPageContent() {
     }
   }
 
+  async function handlePullRefresh() {
+    const loaded = await loadCalendar(true, false);
+    if (!loaded) throw new Error("Calendar refresh failed");
+  }
+
   const activeJob = Boolean(job && ACTIVE_JOB_STATUSES.has(job.status));
   const rangeLabel = calendar
     ? `${t("calendar.range")} · ${formatRange(calendar.startDate, calendar.endDate, locale)}`
@@ -180,7 +189,11 @@ export function DailyAiringPageContent() {
   const hasCalendarItems = calendar?.days.some((day) => day.items.length > 0) ?? false;
 
   return (
-    <div className="daily-airing-page">
+    <MobilePullToRefresh
+      onRefresh={handlePullRefresh}
+      disabled={isDesktop || calendarLoading || calendarRefreshing || jobSubmitting || activeJob}
+    >
+      <div className="daily-airing-page">
       {isDesktop ? (
         <DesktopCalendarHeader
           activeJob={activeJob}
@@ -237,7 +250,8 @@ export function DailyAiringPageContent() {
           )
         ) : null}
       </div>
-    </div>
+      </div>
+    </MobilePullToRefresh>
   );
 }
 
@@ -448,13 +462,14 @@ function MobileAiringSchedule({
     setFocusableDayIndex(nextIndex);
     onSelectDay(nextIndex);
     const tab = tabRefs.current[nextIndex];
-    tab?.focus();
-    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    tab?.focus({ preventScroll: true });
+    if (pickerRef.current && tab) revealItem(pickerRef.current, tab, "horizontal");
   }
 
   if (!selectedDay) return null;
   const selectedDateLabel = formatFullDate(selectedDay.date, locale);
-  const canReturnToday = selectedDay.date !== calendar.todayDate || scrollState.awayFromCurrent;
+  const todaySelected = selectedDay.date === calendar.todayDate;
+  const canReturnToday = !todaySelected || scrollState.awayFromCurrent;
   return (
     <div className="mobile-airing-content">
       <div className="mobile-airing-picker-wrap">
@@ -462,40 +477,43 @@ function MobileAiringSchedule({
           <button type="button" className="calendar-scroll-hint calendar-scroll-hint-left" aria-label={t("calendar.scrollEarlier")} disabled={!scrollState.previous} onClick={() => scrollWeek(-1)}>
             <ChevronLeft aria-hidden="true" />
           </button>
-          <div
-            ref={pickerRef}
-            className="mobile-airing-picker"
-            role="tablist"
-            aria-label={t("calendar.selectDate")}
-            onScroll={updateScrollState}
-          >
-            {calendar.days.map((day, index) => {
-              const selected = index === selectedDayIndex;
-              return (
-                <button
-                  key={day.date}
-                  ref={(node) => { tabRefs.current[index] = node; }}
-                  id={`mobile-airing-tab-${day.date}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  aria-controls="mobile-airing-panel"
-                  aria-label={t("calendar.dayTabLabel", {
-                    date: formatFullDate(day.date, locale),
-                    count: day.items.length,
-                  })}
-                  tabIndex={index === focusableDayIndex ? 0 : -1}
-                  onClick={() => {
-                    setFocusableDayIndex(index);
-                    onSelectDay(index);
-                  }}
-                  onKeyDown={(event) => selectFromKeyboard(event, index)}
-                >
-                  <span>{formatShortWeekday(day.date, locale)}</span>
-                  <strong>{formatDayNumber(day.date)}</strong>
-                </button>
-              );
-            })}
+          <div className="mobile-airing-picker-viewport">
+            <div
+              ref={pickerRef}
+              className="mobile-airing-picker"
+              role="tablist"
+              aria-label={t("calendar.selectDate")}
+              onScroll={updateScrollState}
+            >
+              {calendar.days.map((day, index) => {
+                const selected = index === selectedDayIndex;
+                return (
+                  <button
+                    key={day.date}
+                    ref={(node) => { tabRefs.current[index] = node; }}
+                    id={`mobile-airing-tab-${day.date}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls="mobile-airing-panel"
+                    aria-label={t("calendar.dayTabLabel", {
+                      date: formatFullDate(day.date, locale),
+                      count: day.items.length,
+                    })}
+                    tabIndex={index === focusableDayIndex ? 0 : -1}
+                    onClick={(event) => {
+                      setFocusableDayIndex(index);
+                      onSelectDay(index);
+                      if (pickerRef.current) revealItem(pickerRef.current, event.currentTarget, "horizontal");
+                    }}
+                    onKeyDown={(event) => selectFromKeyboard(event, index)}
+                  >
+                    <span>{formatShortWeekday(day.date, locale)}</span>
+                    <strong>{formatDayNumber(day.date)}</strong>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <button type="button" className="calendar-scroll-hint calendar-scroll-hint-right" aria-label={t("calendar.scrollLater")} disabled={!scrollState.next} onClick={() => scrollWeek(1)}>
             <ChevronRight aria-hidden="true" />
@@ -521,10 +539,13 @@ function MobileAiringSchedule({
               variant="outline"
               className="airing-return-today"
               disabled={!canReturnToday}
+              aria-hidden={!canReturnToday || undefined}
+              data-hidden={!canReturnToday || undefined}
+              style={!canReturnToday ? { visibility: "hidden" } : undefined}
               onClick={returnToToday}
             >
               <LocateFixed aria-hidden="true" />
-              {t("calendar.returnToday")}
+              {t(todaySelected && scrollState.awayFromCurrent ? "calendar.returnCurrentWeek" : "calendar.returnToday")}
             </Button>
             <strong>{t("calendar.animeCount", { count: selectedDay.items.length })}</strong>
           </div>
@@ -555,45 +576,22 @@ function DesktopAiringBrowser({ calendar, locale, selectedDayIndex, onSelectDay 
   const t = useTranslations();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const tabsRef = useRef<HTMLDivElement | null>(null);
-  const selectedDayIndexRef = useRef(selectedDayIndex);
-  const [scrollState, setScrollState] = useState({ previous: true, next: true, awayFromCurrent: false });
+  const [awayFromCurrentWeek, setAwayFromCurrentWeek] = useState(false);
   const [focusableDayIndex, setFocusableDayIndex] = useState(selectedDayIndex);
+  const todayIndex = calendar.days.findIndex((day) => day.date === calendar.todayDate);
+  const currentWeekStartIndex = Math.max(0, calendar.days.findIndex((day) => day.date === calendar.weekStartDate));
   const selectedDay = calendar.days[selectedDayIndex]
     ?? calendar.days.find((day) => day.date === calendar.todayDate)
     ?? calendar.days[0];
-  const currentWeekStartIndex = Math.max(0, calendar.days.findIndex((day) => day.date === calendar.weekStartDate));
-
-  useEffect(() => {
-    selectedDayIndexRef.current = selectedDayIndex;
-  }, [selectedDayIndex]);
 
   const updateScrollState = useCallback(() => {
     const tabs = tabsRef.current;
-    if (!tabs) return;
-    const max = tabs.scrollHeight - tabs.clientHeight;
     const firstTab = tabRefs.current[0];
     const currentWeekTab = tabRefs.current[currentWeekStartIndex];
-    const currentWeekOffset = firstTab && currentWeekTab ? currentWeekTab.offsetTop - firstTab.offsetTop : 0;
-    const visibleStart = tabs.scrollTop - 2;
-    const visibleEnd = tabs.scrollTop + tabs.clientHeight + 2;
-    const selectedIndex = selectedDayIndexRef.current;
-    const selectedTab = tabRefs.current[selectedIndex];
-    const selectedIsVisible = Boolean(selectedTab
-      && selectedTab.offsetTop >= visibleStart
-      && selectedTab.offsetTop + selectedTab.offsetHeight <= visibleEnd);
-    const firstVisibleIndex = tabRefs.current.findIndex((tab) => Boolean(tab
-      && tab.offsetTop >= visibleStart
-      && tab.offsetTop + tab.offsetHeight <= visibleEnd));
-    const nextFocusableDayIndex = selectedIsVisible ? selectedIndex : Math.max(0, firstVisibleIndex);
-    const next = {
-      previous: tabs.scrollTop > 2,
-      next: tabs.scrollTop < max - 2,
-      awayFromCurrent: Math.abs(tabs.scrollTop - currentWeekOffset) > 2,
-    };
-    setScrollState((current) => current.previous === next.previous
-      && current.next === next.next
-      && current.awayFromCurrent === next.awayFromCurrent ? current : next);
-    setFocusableDayIndex((current) => current === nextFocusableDayIndex ? current : nextFocusableDayIndex);
+    if (!tabs || !firstTab || !currentWeekTab) return;
+    const currentWeekTop = currentWeekTab.offsetTop - firstTab.offsetTop;
+    const nextAwayFromCurrentWeek = Math.abs(tabs.scrollTop - currentWeekTop) > 2;
+    setAwayFromCurrentWeek((current) => current === nextAwayFromCurrentWeek ? current : nextAwayFromCurrentWeek);
   }, [currentWeekStartIndex]);
 
   useEffect(() => {
@@ -613,24 +611,7 @@ function DesktopAiringBrowser({ calendar, locale, selectedDayIndex, onSelectDay 
     };
   }, [currentWeekStartIndex, updateScrollState]);
 
-  function scrollWeek(direction: 1 | -1) {
-    const tabs = tabsRef.current;
-    const firstTab = tabRefs.current[0];
-    const previousWeekTab = tabRefs.current[Math.max(0, currentWeekStartIndex - 7)];
-    const currentWeekTab = tabRefs.current[currentWeekStartIndex];
-    const nextWeekTab = tabRefs.current[Math.min(calendar.days.length - 1, currentWeekStartIndex + 7)];
-    if (!tabs || !firstTab || !previousWeekTab || !currentWeekTab || !nextWeekTab) return;
-    const previousWeekOffset = previousWeekTab.offsetTop - firstTab.offsetTop;
-    const currentWeekOffset = currentWeekTab.offsetTop - firstTab.offsetTop;
-    const nextWeekOffset = nextWeekTab.offsetTop - firstTab.offsetTop;
-    const target = direction === 1
-      ? tabs.scrollTop < currentWeekOffset - 2 ? currentWeekOffset : nextWeekOffset
-      : tabs.scrollTop > currentWeekOffset + 2 ? currentWeekOffset : previousWeekOffset;
-    tabs.scrollTo({ top: target, behavior: preferredScrollBehavior() });
-  }
-
   function returnToToday() {
-    const todayIndex = calendar.days.findIndex((day) => day.date === calendar.todayDate);
     const tabs = tabsRef.current;
     const firstTab = tabRefs.current[0];
     const currentWeekTab = tabRefs.current[currentWeekStartIndex];
@@ -654,57 +635,71 @@ function DesktopAiringBrowser({ calendar, locale, selectedDayIndex, onSelectDay 
     setFocusableDayIndex(nextIndex);
     onSelectDay(nextIndex);
     const tab = tabRefs.current[nextIndex];
-    tab?.focus();
-    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    tab?.focus({ preventScroll: true });
+    if (tabsRef.current && tab) revealItem(tabsRef.current, tab, "vertical");
   }
 
   if (!selectedDay) return null;
   const selectedDateLabel = formatFullDate(selectedDay.date, locale);
   const selectedRelativeLabel = relativeDayLabel(selectedDay.date, calendar.todayDate, t);
-  const canReturnToday = selectedDay.date !== calendar.todayDate || scrollState.awayFromCurrent;
+  const todaySelected = selectedDay.date === calendar.todayDate;
+  const canReturnToday = !todaySelected || awayFromCurrentWeek;
   return (
     <div className="desktop-airing-browser">
-      <nav className="desktop-airing-date-nav" aria-label={t("calendar.selectDate")}>
-        <button type="button" className="calendar-scroll-hint calendar-scroll-hint-top" aria-label={t("calendar.scrollEarlier")} disabled={!scrollState.previous} onClick={() => scrollWeek(-1)}>
-          <ChevronUp aria-hidden="true" />
-        </button>
-        <button type="button" className="calendar-scroll-hint calendar-scroll-hint-bottom" aria-label={t("calendar.scrollLater")} disabled={!scrollState.next} onClick={() => scrollWeek(1)}>
-          <ChevronDown aria-hidden="true" />
-        </button>
-        <div ref={tabsRef} className="desktop-airing-date-tabs" role="tablist" onScroll={updateScrollState}>
-          {calendar.days.map((day, index) => {
-            const selected = day.date === selectedDay.date;
-            const relativeLabel = relativeDayLabel(day.date, calendar.todayDate, t);
-            return (
-              <button
-                key={day.date}
-                ref={(node) => { tabRefs.current[index] = node; }}
-                id={`desktop-airing-tab-${day.date}`}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                aria-controls="desktop-airing-panel"
-                aria-label={t("calendar.dayTabLabel", {
-                  date: formatFullDate(day.date, locale),
-                  count: day.items.length,
-                })}
-                tabIndex={index === focusableDayIndex ? 0 : -1}
-                onClick={() => {
-                  setFocusableDayIndex(index);
-                  onSelectDay(index);
-                }}
-                onKeyDown={(event) => selectFromKeyboard(event, index)}
-              >
-                <span className="desktop-airing-date-copy">
-                  <strong>{relativeLabel}</strong>
-                  <span>{formatDesktopNavDate(day.date, locale)} · {formatWeekday(day.date, locale)}</span>
-                </span>
-                <span className="desktop-airing-date-count">{day.items.length}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      <aside className={navigatorStyles.navigator}>
+        <nav className={navigatorStyles.surface} aria-label={t("calendar.selectDate")}>
+          <header className={navigatorStyles.toolbar}>
+            <span className={navigatorStyles.toolbarTitle}>{t("calendar.dateNavigation")}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={navigatorStyles.todayButton}
+              disabled={!canReturnToday}
+              aria-hidden={!canReturnToday || undefined}
+              data-hidden={!canReturnToday || undefined}
+              onClick={returnToToday}
+            >
+              <LocateFixed aria-hidden="true" />
+              {t(todaySelected && awayFromCurrentWeek ? "calendar.returnCurrentWeek" : "calendar.returnToday")}
+            </Button>
+          </header>
+          <div ref={tabsRef} className={navigatorStyles.dateList} role="tablist" onScroll={updateScrollState}>
+            {calendar.days.map((day, index) => {
+              const selected = day.date === selectedDay.date;
+              const relativeLabel = relativeDayLabel(day.date, calendar.todayDate, t);
+              return (
+                <button
+                  key={day.date}
+                  ref={(node) => { tabRefs.current[index] = node; }}
+                  id={`desktop-airing-tab-${day.date}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls="desktop-airing-panel"
+                  aria-label={t("calendar.dayTabLabel", {
+                    date: formatFullDate(day.date, locale),
+                    count: day.items.length,
+                  })}
+                  tabIndex={index === focusableDayIndex ? 0 : -1}
+                  onClick={(event) => {
+                    setFocusableDayIndex(index);
+                    onSelectDay(index);
+                    if (tabsRef.current) revealItem(tabsRef.current, event.currentTarget, "vertical");
+                  }}
+                  onKeyDown={(event) => selectFromKeyboard(event, index)}
+                >
+                  <span className={navigatorStyles.dateCopy}>
+                    <strong>{relativeLabel}</strong>
+                    <span>{formatDesktopNavDate(day.date, locale)} · {formatWeekday(day.date, locale)}</span>
+                  </span>
+                  <span className={navigatorStyles.dateCount}>{day.items.length}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      </aside>
       <section
         id="desktop-airing-panel"
         role="tabpanel"
@@ -720,17 +715,6 @@ function DesktopAiringBrowser({ calendar, locale, selectedDayIndex, onSelectDay 
             </div>
           </div>
           <div className="desktop-airing-panel-actions">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="airing-return-today"
-              disabled={!canReturnToday}
-              onClick={returnToToday}
-            >
-              <LocateFixed aria-hidden="true" />
-              {t("calendar.returnToday")}
-            </Button>
             <span>{t("calendar.animeCount", { count: selectedDay.items.length })}</span>
           </div>
         </header>
@@ -881,4 +865,26 @@ function localDateInZone(timeZone: string) {
 
 function preferredScrollBehavior(): ScrollBehavior {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+function revealItem(container: HTMLElement, item: HTMLElement, axis: "horizontal" | "vertical") {
+  const containerRect = container.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  const containerStyle = getComputedStyle(container);
+  const inset = Number.parseFloat(axis === "horizontal" ? containerStyle.paddingLeft : containerStyle.paddingTop) || 0;
+  if (axis === "horizontal") {
+    const left = itemRect.left < containerRect.left + inset
+      ? itemRect.left - containerRect.left - inset
+      : itemRect.right > containerRect.right - inset
+        ? itemRect.right - containerRect.right + inset
+        : 0;
+    if (left) container.scrollBy({ left, behavior: preferredScrollBehavior() });
+    return;
+  }
+  const top = itemRect.top < containerRect.top + inset
+    ? itemRect.top - containerRect.top - inset
+    : itemRect.bottom > containerRect.bottom - inset
+      ? itemRect.bottom - containerRect.bottom + inset
+      : 0;
+  if (top) container.scrollBy({ top, behavior: preferredScrollBehavior() });
 }

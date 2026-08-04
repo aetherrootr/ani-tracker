@@ -547,3 +547,35 @@ def test_airing_calendar_does_not_expose_tvdb_status_boundary_as_exact_time(
     assert item['episodes'][0]['id'] == episode.id
     assert item['episodes'][0]['airAt'] == '2026-08-03T00:00:00Z'
     assert item['episodes'][0]['airAtPrecision'] == 'date'
+
+
+def test_airing_calendar_loads_only_episodes_in_the_calendar_window(db_session: Session) -> None:
+    now = datetime(2026, 8, 2, 12, tzinfo=UTC)
+    user = User(username='window-user', email='window@example.com', password_hash='test', time_zone='UTC')
+    db_session.add(user)
+    db_session.flush()
+    anime = add_anime(db_session, external_id='window', title='Window', user_id=user.id)
+    in_window = add_episode(
+        db_session,
+        anime,
+        number=1,
+        air_at=now + timedelta(days=1),
+        status=EpisodeStatus.UPCOMING,
+        has_time=True,
+    )
+    add_episode(
+        db_session,
+        anime,
+        number=2,
+        air_at=now + timedelta(days=30),
+        status=EpisodeStatus.UPCOMING,
+        has_time=True,
+    )
+    db_session.commit()
+    db_session.expire_all()
+
+    result = get_user_airing_calendar(db_session, user, start_date=now.date(), now=now)
+    progress = db_session.query(UserAnimeProgress).filter_by(user_id=user.id, anime_id=anime.id).one()
+
+    assert result['days'][1]['items'][0]['episodes'][0]['id'] == in_window.id
+    assert [episode.id for episode in progress.anime.episodes] == [in_window.id]

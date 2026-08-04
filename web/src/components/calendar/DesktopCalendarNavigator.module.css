@@ -1,0 +1,157 @@
+.navigator {
+  position: sticky;
+  top: 1rem;
+  min-width: 0;
+}
+
+.surface {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-neutral);
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-low);
+}
+
+.toolbar {
+  display: grid;
+  min-width: 0;
+  min-height: 3rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border-neutral);
+  padding: 0.5rem 0.625rem;
+}
+
+.toolbarTitle {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.todayButton {
+  width: auto;
+  min-width: 0;
+  min-height: 2rem;
+  flex: none;
+  border-color: var(--border-highlight);
+  background: var(--surface-solid);
+  padding-inline: 0.75rem;
+  box-shadow: var(--shadow-low);
+}
+
+.todayButton svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  color: var(--accent-solid);
+}
+
+.todayButton[data-hidden="true"] {
+  visibility: hidden;
+}
+
+.dateList {
+  position: relative;
+  display: grid;
+  height: 28.25rem;
+  overflow-y: auto;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  scrollbar-width: none;
+}
+
+.dateList::-webkit-scrollbar {
+  display: none;
+}
+
+.dateList button {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 3.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  padding: 0.625rem 0.75rem;
+  color: var(--text-secondary);
+  text-align: left;
+  transition: color var(--motion-fast) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+
+.dateList button[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent-solid) 24%, var(--border-neutral));
+  background: var(--accent-soft);
+  color: var(--accent-solid);
+}
+
+.dateList button:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: -2px;
+}
+
+.dateCopy {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.dateCopy strong {
+  overflow: hidden;
+  color: currentColor;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dateCopy > span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dateCount {
+  display: grid;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface-pressed);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.dateList button[aria-selected="true"] .dateCount {
+  background: var(--surface-card);
+  color: var(--accent-solid);
+}
+
+@media (hover: hover) {
+  .dateList button:not([aria-selected="true"]):hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+}
+
+@container daily-airing-page (max-width: 52rem) {
+  .navigator {
+    z-index: var(--z-sticky);
+    top: 0.25rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .dateList button[aria-selected="true"] {
+    border-color: Highlight;
+  }
+}
