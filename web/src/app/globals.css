@@ -1863,6 +1863,31 @@ input[type="search"]::-webkit-search-decoration {
 .mobile-airing-card-poster > div { min-height: 100%; }
 .mobile-airing-card-body { min-width: 0; }
 
+.airing-card-status {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.airing-card-status[data-tone="aired"] {
+  background: color-mix(in srgb, var(--watched) 14%, transparent);
+  color: var(--watched);
+}
+
+.airing-card-status[data-tone="upcoming"] {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+
+.airing-card-status[data-tone="muted"] {
+  background: var(--surface-pressed);
+  color: var(--text-secondary);
+}
+
 .mobile-airing-card-body h3 {
   overflow-wrap: anywhere;
   font-size: 0.9375rem;
@@ -1883,6 +1908,19 @@ input[type="search"]::-webkit-search-decoration {
   font-size: 0.8125rem;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.airing-card-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.45rem;
+}
+
+.airing-card-meta .airing-card-status {
+  font-size: 0.75rem;
 }
 
 .mobile-airing-card-watched {
@@ -2047,8 +2085,7 @@ input[type="search"]::-webkit-search-decoration {
 }
 .daily-airing-card-episode span:first-child { flex: none; font-weight: 600; }
 .daily-airing-card-episode span:last-child { overflow-wrap: anywhere; }
-.daily-airing-card-body > .airing-card-update-time,
-.mobile-airing-card-body > .airing-card-update-time {
+.airing-card-meta > .airing-card-update-time {
   display: inline-flex;
   width: fit-content;
   align-items: center;
@@ -2063,8 +2100,9 @@ input[type="search"]::-webkit-search-decoration {
   font-weight: 550;
   line-height: 1.2;
 }
-.daily-airing-card-body > .airing-card-update-time svg,
-.mobile-airing-card-body > .airing-card-update-time svg {
+
+.airing-card-meta > .airing-card-update-time { margin-top: 0; }
+.airing-card-meta > .airing-card-update-time svg {
   width: 0.8rem;
   height: 0.8rem;
   flex: none;

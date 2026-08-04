@@ -86,7 +86,7 @@ export const zhCN = {
     searchAnime: "搜索动画",
     timeZone: "日期范围与具体时间按 {timeZone} 显示；仅日期条目沿用来源日期",
     refresh: "刷新放送信息",
-    refreshMobile: "刷新",
+    refreshMobile: "刷新放送信息",
     refreshDescription: "从上游更新放送日期和时间；使用本地元数据快照的动画不会改变。",
     submitting: "正在提交…",
     refreshing: "正在刷新…",

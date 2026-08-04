@@ -89,7 +89,7 @@ export const en = {
     searchAnime: "Search anime",
     timeZone: "Date range and exact times use {timeZone}; date-only releases keep the source date",
     refresh: "Refresh airing info",
-    refreshMobile: "Refresh",
+    refreshMobile: "Refresh airing info",
     refreshDescription: "Updates airing dates and times from providers; anime using local snapshots remain unchanged.",
     submitting: "Submitting…",
     refreshing: "Refreshing…",

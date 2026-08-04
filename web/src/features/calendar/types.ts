@@ -4,7 +4,7 @@ export type AiringCalendarEpisode = {
   displayName: string | null;
   airAt: string;
   airAtPrecision: "date" | "datetime";
-  status: string;
+  status: "aired" | "upcoming";
   watched: boolean;
 };
 

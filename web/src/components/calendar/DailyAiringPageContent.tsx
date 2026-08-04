@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { useDesktopPlatform } from "@/components/layout/platform-layout";
+import { MobilePullToRefresh } from "@/components/layout/MobilePullToRefresh";
 import { Button } from "@/components/ui/button";
 import { getAiringCalendar } from "@/features/calendar/api";
 import type { AiringCalendarResponse } from "@/features/calendar/types";
@@ -61,8 +62,10 @@ export function DailyAiringPageContent() {
         setSelectedDayIndex(todayIndex);
         setCalendarViewResetKey((current) => current + 1);
       }
+      return true;
     } catch {
       if (!controller.signal.aborted) setCalendarError(true);
+      return false;
     } finally {
       if (!controller.signal.aborted) {
         setCalendarLoading(false);
@@ -174,6 +177,11 @@ export function DailyAiringPageContent() {
     }
   }
 
+  async function handlePullRefresh() {
+    const loaded = await loadCalendar(true, false);
+    if (!loaded) throw new Error("Calendar refresh failed");
+  }
+
   const activeJob = Boolean(job && ACTIVE_JOB_STATUSES.has(job.status));
   const rangeLabel = calendar
     ? `${t("calendar.range")} · ${formatRange(calendar.startDate, calendar.endDate, locale)}`
@@ -181,7 +189,11 @@ export function DailyAiringPageContent() {
   const hasCalendarItems = calendar?.days.some((day) => day.items.length > 0) ?? false;
 
   return (
-    <div className="daily-airing-page">
+    <MobilePullToRefresh
+      onRefresh={handlePullRefresh}
+      disabled={isDesktop || calendarLoading || calendarRefreshing || jobSubmitting || activeJob}
+    >
+      <div className="daily-airing-page">
       {isDesktop ? (
         <DesktopCalendarHeader
           activeJob={activeJob}
@@ -238,7 +250,8 @@ export function DailyAiringPageContent() {
           )
         ) : null}
       </div>
-    </div>
+      </div>
+    </MobilePullToRefresh>
   );
 }
 

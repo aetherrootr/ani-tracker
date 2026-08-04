@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { NoPoster } from "@/components/library/NoPoster";
+import { Badge } from "@/components/ui/badge";
 import { assetUrl } from "@/features/library/api";
 import { formatEpisodeSummary } from "@/features/calendar/format-episode-ranges";
 import type { AiringCalendarItem } from "@/features/calendar/types";
@@ -36,13 +37,17 @@ export function AiringAnimeCard({
   );
   const episodeTime = formatEpisodeTime(item, locale, timeZone);
   const watchedEpisodeCount = getWatchedEpisodeCount(item);
-  const watchedSummary = watchedEpisodeCount === item.episodeCount
+  const isWatched = watchedEpisodeCount === item.episodeCount;
+  const watchedSummary = isWatched
     ? t("calendar.watched")
     : watchedEpisodeCount > 0
       ? t("calendar.watchedPartial", { watched: watchedEpisodeCount, total: item.episodeCount })
       : null;
+  const airingStatus = getAiringStatus(item);
+  const airingStatusLabel = t(`library.${airingStatus}Status`);
   const accessibleName = [
     item.anime.displayName,
+    airingStatusLabel,
     summary,
     item.minimumEpisodeTitle,
     dateLabel,
@@ -78,12 +83,15 @@ export function AiringAnimeCard({
           <span>{summary}</span>
           {item.minimumEpisodeTitle ? <span>{item.minimumEpisodeTitle}</span> : null}
         </p>
-        {episodeTime ? (
-          <span className="airing-card-update-time">
-            <Clock3 aria-hidden="true" />
-            <time dateTime={episodeTime.airAt}>{episodeTime.label}</time>
-          </span>
-        ) : null}
+        <div className="airing-card-meta">
+          <AiringStatusBadge status={airingStatus} label={airingStatusLabel} muted={isWatched} />
+          {episodeTime ? (
+            <span className="airing-card-update-time">
+              <Clock3 aria-hidden="true" />
+              <time dateTime={episodeTime.airAt}>{episodeTime.label}</time>
+            </span>
+          ) : null}
+        </div>
       </div>
       {watchedSummary ? (
         <div className="daily-airing-card-trailing">
@@ -113,13 +121,17 @@ export function MobileAiringAnimeCard({
   );
   const episodeTime = formatEpisodeTime(item, locale, timeZone);
   const watchedEpisodeCount = getWatchedEpisodeCount(item);
-  const watchedSummary = watchedEpisodeCount === item.episodeCount
+  const isWatched = watchedEpisodeCount === item.episodeCount;
+  const watchedSummary = isWatched
     ? t("calendar.watched")
     : watchedEpisodeCount > 0
       ? t("calendar.watchedPartial", { watched: watchedEpisodeCount, total: item.episodeCount })
       : null;
+  const airingStatus = getAiringStatus(item);
+  const airingStatusLabel = t(`library.${airingStatus}Status`);
   const accessibleName = [
     item.anime.displayName,
+    airingStatusLabel,
     summary,
     item.minimumEpisodeTitle,
     dateLabel,
@@ -142,12 +154,15 @@ export function MobileAiringAnimeCard({
         <h3>{item.anime.displayName}</h3>
         <p className="mobile-airing-card-episode">{summary}</p>
         {item.minimumEpisodeTitle ? <p className="mobile-airing-card-episode-title">{item.minimumEpisodeTitle}</p> : null}
-        {episodeTime ? (
-          <span className="airing-card-update-time">
-            <Clock3 aria-hidden="true" />
-            <time dateTime={episodeTime.airAt}>{episodeTime.label}</time>
-          </span>
-        ) : null}
+        <div className="airing-card-meta">
+          <AiringStatusBadge status={airingStatus} label={airingStatusLabel} muted={isWatched} />
+          {episodeTime ? (
+            <span className="airing-card-update-time">
+              <Clock3 aria-hidden="true" />
+              <time dateTime={episodeTime.airAt}>{episodeTime.label}</time>
+            </span>
+          ) : null}
+        </div>
       </div>
       {watchedSummary ? (
         <span className="mobile-airing-card-watched"><Check aria-hidden="true" />{watchedSummary}</span>
@@ -174,6 +189,30 @@ function formatEpisodeTime(
 function getWatchedEpisodeCount(item: AiringCalendarItem) {
   const visibleWatchedCount = item.episodes.filter((episode) => episode.watched).length;
   return Math.max(item.watchedEpisodeCount, visibleWatchedCount);
+}
+
+function getAiringStatus(item: AiringCalendarItem): "aired" | "upcoming" {
+  return item.episodes.every((episode) => episode.status === "aired") ? "aired" : "upcoming";
+}
+
+function AiringStatusBadge({
+  status,
+  label,
+  muted,
+}: {
+  status: "aired" | "upcoming";
+  label: string;
+  muted: boolean;
+}) {
+  return (
+    <Badge
+      className="airing-card-status"
+      data-tone={muted ? "muted" : status}
+      variant={muted ? "secondary" : status === "aired" ? "success" : "warning"}
+    >
+      {label}
+    </Badge>
+  );
 }
 
 function formatExactTime(value: string, locale: string, timeZone: string) {
