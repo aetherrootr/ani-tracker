@@ -509,8 +509,15 @@ class TVDBImportProvider(ImportProvider):
         for season in self._importable_seasons(series, include_specials=season_number == 0):
             if coerce_int(season.get('number')) == season_number:
                 return season
+        seasons = series.get('seasons')
+        if not isinstance(seasons, list) or any(
+            not isinstance(season, dict) or (is_aired_order_season(season) and coerce_int(season.get('number')) is None)
+            for season in seasons
+        ):
+            message = 'TVDB series season list is invalid'
+            raise ImportProviderResponseError(message)
         message = 'TVDB season does not exist'
-        raise ImportProviderResponseError(message)
+        raise ImportProviderNotFoundError(message)
 
     def _search_season(self, series: dict[str, Any]) -> dict[str, Any] | None:
         for season in self._importable_seasons(series, include_specials=False):

@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
+from sqlalchemy import select
 
-from app.import_provider.exceptions import ImportProviderResponseError, ImportProviderTimeoutError
+from app import create_app
+from app.import_provider.exceptions import (
+    ImportProviderNotFoundError,
+    ImportProviderResponseError,
+    ImportProviderTimeoutError,
+)
 from app.import_provider.factory import ImportProviderFactory
 from app.import_provider.tvdb import TVDBImportProvider
 from app.import_provider.tvdb.utils import parse_air_at_with_time
 from app.import_provider.types import ProviderType, ProviderUpdateMethod
+from app.models.anime import AnimeMetaInfo
+from app.models.provider_sync import ProviderSyncCursor
 from app.tasks.anime_sync import _provider_config
+from app.tasks.provider_updates import _poll_stream
 
 
 class FakeResponse:
@@ -399,6 +409,56 @@ def test_search_accepts_prefixed_series_id_and_skips_unexpandable_series() -> No
     page = provider(session).search_anime('example', limit=10, offset=0)
 
     assert [item.external_id for item in page.results] == ['321:1']
+
+
+def test_series_poll_skips_removed_season_and_syncs_remaining_season(test_instance_path: Path) -> None:
+    database_url = f"sqlite:///{test_instance_path / 'test.db'}"
+    app = create_app({'DATABASE_URL': database_url, 'TESTING': True})
+    session_factory = app.extensions['db_session_factory']
+    with session_factory.begin() as db:
+        db.add_all([
+            AnimeMetaInfo(provider_type='tvdb', external_id='321:2', original_name='Removed season'),
+            AnimeMetaInfo(provider_type='tvdb', external_id='321:1', original_name='Existing season'),
+            ProviderSyncCursor(provider='tvdb', stream='series', cursor_timestamp=123),
+        ])
+
+    base = 'https://api4.thetvdb.com/v4'
+    season = {'id': 11, 'number': 1}
+    event = {'entityType': 'series', 'recordId': 321, 'timeStamp': 123, 'methodInt': 2}
+    http = FakeSession({
+        f'{base}/login': login_response(),
+        f'{base}/updates': FakeResponse(200, {'data': [event]}),
+        f'{base}/series/321/extended': FakeResponse(200, {'data': {'id': 321, 'name': 'Updated series', 'seasons': [season]}}),
+        f'{base}/seasons/11/extended': FakeResponse(200, {'data': season}),
+        **{
+            f'{base}/{record}/translations/{language}': missing_translation()
+            for record in ('series/321', 'seasons/11')
+            for language in ('eng', 'jpn')
+        },
+    })
+
+    _poll_stream(session_factory, provider(http), database_url=database_url, stream='series')
+
+    with session_factory() as db:
+        missing, existing = db.scalars(select(AnimeMetaInfo).order_by(AnimeMetaInfo.id)).all()
+        assert missing.last_synced_at is None
+        assert existing.last_synced_at is not None
+        cursor = db.scalars(select(ProviderSyncCursor)).one()
+        assert cursor.last_succeeded_at is not None
+        assert cursor.cursor_timestamp > 123
+        assert cursor.last_error is None
+
+
+@pytest.mark.parametrize('seasons', [None, {}, [{'number': 'unknown'}]])
+def test_detail_reports_invalid_season_list_as_response_error(seasons: object) -> None:
+    session = FakeSession({
+        'https://api4.thetvdb.com/v4/login': login_response(),
+        'https://api4.thetvdb.com/v4/series/321/extended': FakeResponse(200, {'data': {'seasons': seasons}}),
+    })
+
+    with pytest.raises(ImportProviderResponseError) as exc:
+        provider(session).get_anime_detail('321:1')
+    assert not isinstance(exc.value, ImportProviderNotFoundError)
 
 
 def test_detail_imports_only_requested_season_and_related_seasons_use_own_poster() -> None:

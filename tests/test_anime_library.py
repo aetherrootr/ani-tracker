@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -2365,7 +2366,8 @@ def test_statistics_season_zero_preference_only_affects_unwatched_aired(
     assert included_body['unwatchedAiredEpisodeCount'] == 3
 
 
-def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session) -> None:
+def test_statistics_summary_uses_week_start_day(client: FlaskClient, db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('app.api.statistics.get_statistics_summary', partial(get_statistics_summary, today=date(2026, 7, 6)))
     assert register_user(client).status_code == 201
     assert client.patch('/api/user/me/preferences', json={'weekStartDay': 6}).status_code == 200
     anime = add_library_anime(
